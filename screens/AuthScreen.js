@@ -7,7 +7,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Alert
+  Alert,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import {
   signInWithEmailAndPassword,
@@ -28,16 +30,20 @@ export default function AuthScreen({ navigation }) {
       setError('');
       setLoading(true);
 
+      if (!email || !password) {
+        setError('Email and password are required.');
+        return;
+      }
+
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
         await createUserWithEmailAndPassword(auth, email, password);
       }
 
-      // ✅ Navigate using PascalCase route name to match App.js
-      navigation.replace('Main');
+      navigation.replace('Main'); // make sure 'Main' matches Stack.Screen name in App.js
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Authentication failed.');
     } finally {
       setLoading(false);
     }
@@ -49,21 +55,22 @@ export default function AuthScreen({ navigation }) {
       return;
     }
 
-    setLoading(true);
-    setError('');
-
     try {
+      setLoading(true);
       await sendPasswordResetEmail(auth, email);
       Alert.alert('Check your email', 'A password reset link has been sent.');
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Error sending reset email.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <Text style={styles.title}>{isLogin ? 'Login' : 'Create Account'}</Text>
 
       <TextInput
@@ -91,7 +98,7 @@ export default function AuthScreen({ navigation }) {
         disabled={loading}
       />
 
-      {loading ? <ActivityIndicator style={{ marginTop: 10 }} /> : null}
+      {loading && <ActivityIndicator style={{ marginTop: 10 }} />}
 
       {isLogin && (
         <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotBtn}>
@@ -104,7 +111,7 @@ export default function AuthScreen({ navigation }) {
           ? "Don't have an account? Create one"
           : 'Already have an account? Login'}
       </Text>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

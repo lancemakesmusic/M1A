@@ -1,17 +1,33 @@
 import React, { useEffect, useState } from 'react';
+
+
+
 import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+
+
+
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { UserProvider } from './screens/contexts/UserContext';
 import { ThemeProvider } from './screens/contexts/ThemeContext';
 
+
+
+
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 
+
 // Screens
+
+
+
+
+
+
 import AuthScreen from './screens/AuthScreen';
 import HomeScreen from './screens/HomeScreen';
 import ExploreScreen from './screens/ExploreScreen';
@@ -21,6 +37,13 @@ import ProfileScreen from './screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+
+
+
+
+
+
+
 
 function MainTabs() {
   return (
@@ -46,6 +69,10 @@ function MainTabs() {
       <Tab.Screen name="Messages" component={MessagesScreen} />
       <Tab.Screen name="Wallet" component={WalletScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
+
+
+
+
     </Tab.Navigator>
   );
 }
@@ -83,6 +110,10 @@ export default function App() {
             </Stack.Navigator>
           )}
         </NavigationContainer>
+
+
+
+
       </UserProvider>
     </ThemeProvider>
   );
