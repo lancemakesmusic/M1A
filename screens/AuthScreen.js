@@ -1,9 +1,22 @@
 import React, { useState } from 'react';
-import { View, TextInput, Button, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import {
+  View,
+  TextInput,
+  Button,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert
+} from 'react-native';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail
+} from 'firebase/auth';
 import { auth } from '../firebase';
 
-export default function AuthScreen() {
+export default function AuthScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLogin, setIsLogin] = useState(true);
@@ -14,11 +27,15 @@ export default function AuthScreen() {
     try {
       setError('');
       setLoading(true);
+
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
         await createUserWithEmailAndPassword(auth, email, password);
       }
+
+      // ✅ Navigate using PascalCase route name to match App.js
+      navigation.replace('Main');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -31,20 +48,24 @@ export default function AuthScreen() {
       setError('Enter your email first.');
       return;
     }
+
     setLoading(true);
     setError('');
+
     try {
       await sendPasswordResetEmail(auth, email);
       Alert.alert('Check your email', 'A password reset link has been sent.');
     } catch (err) {
       setError(err.message);
     }
+
     setLoading(false);
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{isLogin ? 'Login' : 'Create Account'}</Text>
+
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -53,6 +74,7 @@ export default function AuthScreen() {
         autoCapitalize="none"
         keyboardType="email-address"
       />
+
       <TextInput
         style={styles.input}
         placeholder="Password"
@@ -60,22 +82,23 @@ export default function AuthScreen() {
         onChangeText={setPassword}
         secureTextEntry
       />
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
       <Button
         title={isLogin ? 'Login' : 'Create Account'}
         onPress={handleAuth}
         disabled={loading}
       />
+
       {loading ? <ActivityIndicator style={{ marginTop: 10 }} /> : null}
 
-      {/* Forgot password link */}
       {isLogin && (
         <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotBtn}>
           <Text style={styles.forgotText}>Forgot Password?</Text>
         </TouchableOpacity>
       )}
 
-      {/* Switch between login and signup */}
       <Text style={styles.toggle} onPress={() => setIsLogin(!isLogin)}>
         {isLogin
           ? "Don't have an account? Create one"
@@ -92,5 +115,5 @@ const styles = StyleSheet.create({
   error: { color: 'red', marginBottom: 10, textAlign: 'center' },
   toggle: { marginTop: 15, color: '#007AFF', textAlign: 'center' },
   forgotBtn: { marginTop: 10, alignItems: 'center' },
-  forgotText: { color: '#007AFF', textAlign: 'center', textDecorationLine: 'underline' },
+  forgotText: { color: '#007AFF', textAlign: 'center', textDecorationLine: 'underline' }
 });

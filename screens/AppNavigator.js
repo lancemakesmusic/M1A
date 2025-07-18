@@ -1,53 +1,55 @@
-// M1A/screens/AppNavigator.js
-import React, { useEffect, useState } from 'react';
-import { ThemeProvider } from './screens/contexts/ThemeContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import AppNavigator from './screens/AppNavigator';
-
-export default function App() {
-  const [initialTheme, setInitialTheme] = useState('gold');
-  useEffect(() => {
-    AsyncStorage.getItem('m1a_theme').then(val => {
-      if (val) setInitialTheme(val);
-    });
-  }, []);
-  return (
-    <ThemeProvider initialTheme={initialTheme}>
-      <AppNavigator />
-    </ThemeProvider>
-  );
-}
-
+// screens/AppNavigator.js
 import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
 
-// Adjust the import paths if needed—assuming all screens are in /screens/
+// Screens
+import HomeScreen from './HomeScreen';
+import ExploreScreen from './ExploreScreen';
+import MenuScreen from './MenuScreen';
 import ProfileScreen from './ProfileScreen';
 import ProfileEditScreen from './ProfileEditScreen';
 import WalletScreen from './WalletScreen';
-// import other screens as you build them
 
 const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
 
+// Main Tabs (Home, Explore, Profile, Menu)
+function MainTabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarStyle: { backgroundColor: '#121212', borderTopColor: '#222' },
+        tabBarActiveTintColor: '#FFD700',
+        tabBarInactiveTintColor: '#888',
+        tabBarIcon: ({ color, size }) => {
+          const icons = {
+            Home: 'home',
+            Explore: 'search',
+            Profile: 'person',
+            Menu: 'menu',
+          };
+          return <Ionicons name={icons[route.name]} color={color} size={size} />;
+        },
+      })}
+    >
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Explore" component={ExploreScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Menu" component={MenuScreen} />
+    </Tab.Navigator>
+  );
+}
+
+// App Navigator (Stacks)
 export default function AppNavigator() {
   return (
-    <Stack.Navigator initialRouteName="ProfileScreen">
-      <Stack.Screen
-        name="ProfileScreen"
-        component={ProfileScreen}
-        options={{ title: 'Profile' }}
-      />
-      <Stack.Screen
-        name="ProfileEditScreen"
-        component={ProfileEditScreen}
-        options={{ title: 'Edit Profile' }}
-      />
-      <Stack.Screen
-        name="WalletScreen"
-        component={WalletScreen}
-        options={{ title: 'Wallet' }}
-      />
-      {/* Add more screens here */}
+    <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: '#181818' }, headerTintColor: '#FFD700' }}>
+      <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
+      <Stack.Screen name="ProfileEditScreen" component={ProfileEditScreen} options={{ title: 'Edit Profile' }} />
+      <Stack.Screen name="WalletScreen" component={WalletScreen} options={{ title: 'Wallet' }} />
     </Stack.Navigator>
   );
 }

@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { UserProvider } from './screens/contexts/UserContext';
-import { db, auth } from './firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-
-import AuthScreen from './screens/AuthScreen';
 import { ThemeProvider } from './screens/contexts/ThemeContext';
 
-// ---- Screens ----
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebase';
+
+// Screens
+import AuthScreen from './screens/AuthScreen';
 import HomeScreen from './screens/HomeScreen';
 import ExploreScreen from './screens/ExploreScreen';
 import MessagesScreen from './screens/MessagesScreen';
@@ -19,36 +20,33 @@ import WalletScreen from './screens/WalletScreen';
 import ProfileScreen from './screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 
-function MainApp() {
+function MainTabs() {
   return (
-    <UserProvider>
-      <NavigationContainer>
-        <Tab.Navigator
-          initialRouteName="Home"
-          screenOptions={({ route }) => ({
-            headerShown: false,
-            tabBarIcon: ({ focused, color, size }) => {
-              let iconName;
-              if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
-              else if (route.name === 'Explore') iconName = focused ? 'search' : 'search-outline';
-              else if (route.name === 'Messages') iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-              else if (route.name === 'Wallet') iconName = focused ? 'wallet' : 'wallet-outline';
-              else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
-              return <Ionicons name={iconName} size={size} color={color} />;
-            },
-            tabBarActiveTintColor: '#007AFF',
-            tabBarInactiveTintColor: 'gray',
-          })}
-        >
-          <Tab.Screen name="Home" component={HomeScreen} />
-          <Tab.Screen name="Explore" component={ExploreScreen} />
-          <Tab.Screen name="Messages" component={MessagesScreen} />
-          <Tab.Screen name="Wallet" component={WalletScreen} />
-          <Tab.Screen name="Profile" component={ProfileScreen} />
-        </Tab.Navigator>
-      </NavigationContainer>
-    </UserProvider>
+    <Tab.Navigator
+      initialRouteName="Home"
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarIcon: ({ focused, color, size }) => {
+          let iconName;
+          if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
+          else if (route.name === 'Explore') iconName = focused ? 'search' : 'search-outline';
+          else if (route.name === 'Messages') iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+          else if (route.name === 'Wallet') iconName = focused ? 'wallet' : 'wallet-outline';
+          else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
+          return <Ionicons name={iconName} size={size} color={color} />;
+        },
+        tabBarActiveTintColor: '#007AFF',
+        tabBarInactiveTintColor: 'gray',
+      })}
+    >
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Explore" component={ExploreScreen} />
+      <Tab.Screen name="Messages" component={MessagesScreen} />
+      <Tab.Screen name="Wallet" component={WalletScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
+    </Tab.Navigator>
   );
 }
 
@@ -66,13 +64,26 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      {loading ? (
-        <ActivityIndicator style={{ flex: 1 }} size="large" color="#007AFF" />
-      ) : !user ? (
-        <AuthScreen />
-      ) : (
-        <MainApp />
-      )}
+      <UserProvider>
+        <NavigationContainer>
+          {loading ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator size="large" color="#007AFF" />
+            </View>
+          ) : (
+            <Stack.Navigator
+              screenOptions={{ headerShown: false }}
+              key={user ? 'Main' : 'AuthScreen'} // ensures correct navigator reload
+            >
+              {!user ? (
+                <Stack.Screen name="AuthScreen" component={AuthScreen} />
+              ) : (
+                <Stack.Screen name="Main" component={MainTabs} />
+              )}
+            </Stack.Navigator>
+          )}
+        </NavigationContainer>
+      </UserProvider>
     </ThemeProvider>
   );
 }
