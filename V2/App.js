@@ -1,3 +1,4 @@
+// App.js
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
