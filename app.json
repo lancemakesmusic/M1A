@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "M1A",
+    "slug": "m1a",
+    "version": "1.0.0",
+    "entryPoint": "./App.js",  // ✅ This line tells Expo which file to load
+    "extra": {
+      "eas": {
+        "projectId": "5768f0a5-467f-4215-b351-84636ca67414"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "M1A",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}
