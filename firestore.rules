@@ -1,0 +1,57 @@
+rules_version = "2";
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users: owner-only writes; reads allowed to any signed-in user
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // TEMP: legacy flat messages collection (keep until code migrates to conversations)
+    match /messages/{messageId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Conversations collection with members array
+    match /conversations/{cid} {
+      function isMember() {
+        return request.auth != null
+          && request.auth.uid in resource.data.members;
+      }
+      allow read, write: if isMember();
+    }
+
+    // Messages nested under conversations
+    match /conversations/{cid}/messages/{mid} {
+      function isMember() {
+        return request.auth != null
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(cid)).data.members;
+      }
+      allow create: if isMember() && request.resource.data.senderId == request.auth.uid;
+      allow read: if isMember();
+      allow update, delete: if isMember() && resource.data.senderId == request.auth.uid;
+    }
+
+    // Wallets: never allow client balance writes
+    match /wallets/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // Wallet transactions: owner can create/read; no updates/deletes
+    match /wallets/{userId}/transactions/{tid} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update, delete: if false;
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
