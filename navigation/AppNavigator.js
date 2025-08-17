@@ -1,13 +1,36 @@
+// navigation/AppNavigator.js
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+// Screens
 import ExploreScreen from '../screens/ExploreScreen';
 import HomeScreen from '../screens/HomeScreen';
 import MessagesScreen from '../screens/MessagesScreen';
+import ProfileEditScreen from '../screens/ProfileEditScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import WalletScreen from '../screens/WalletScreen';
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
+
+// Profile stack to avoid nested screen duplication
+function ProfileStackNavigator() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen
+        name="ProfileMain"
+        component={ProfileScreen}
+        options={{ title: 'Profile' }}
+      />
+      <Stack.Screen
+        name="ProfileEdit"
+        component={ProfileEditScreen}
+        options={{ title: 'Edit Profile' }}
+      />
+    </Stack.Navigator>
+  );
+}
 
 export default function AppNavigator() {
   return (
@@ -16,7 +39,6 @@ export default function AppNavigator() {
         headerShown: false,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
-
           switch (route.name) {
             case 'Home':
               iconName = focused ? 'home' : 'home-outline';
@@ -30,13 +52,12 @@ export default function AppNavigator() {
             case 'Wallet':
               iconName = focused ? 'wallet' : 'wallet-outline';
               break;
-            case 'Profile':
+            case 'ProfileTab':
               iconName = focused ? 'person' : 'person-outline';
               break;
             default:
               iconName = 'ellipse';
           }
-
           return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarActiveTintColor: '#000',
@@ -47,7 +68,11 @@ export default function AppNavigator() {
       <Tab.Screen name="Explore" component={ExploreScreen} />
       <Tab.Screen name="Messages" component={MessagesScreen} />
       <Tab.Screen name="Wallet" component={WalletScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen
+        name="ProfileTab"
+        component={ProfileStackNavigator}
+        options={{ title: 'Profile' }}
+      />
     </Tab.Navigator>
   );
 }

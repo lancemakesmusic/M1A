@@ -2,56 +2,57 @@ rules_version = "2";
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users: owner-only writes; reads allowed to any signed-in user
+    // Helper: check membership on an EXISTING conversation doc
+    function isConvMember(cid) {
+      return request.auth != null
+        && request.auth.uid in
+           get(/databases/$(database)/documents/conversations/$(cid)).data.members;
+    }
+
+    // USERS: owner-only writes; reads allowed to any signed-in user
     match /users/{userId} {
-      allow read: if request.auth != null;
+      allow read:  if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // TEMP: legacy flat messages collection (keep until code migrates to conversations)
-    match /messages/{messageId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
-        && request.resource.data.senderId == request.auth.uid;
-      allow update, delete: if false;
-    }
-
-    // Conversations collection with members array
+    // CONVERSATIONS
     match /conversations/{cid} {
-      function isMember() {
-        return request.auth != null
-          && request.auth.uid in resource.data.members;
-      }
-      allow read, write: if isMember();
+      // Read/update only if you're a member (after the doc exists)
+      allow read:   if isConvMember(cid);
+      allow update: if isConvMember(cid);
+
+      // Create: cannot use isConvMember (doc doesn't exist yet).
+      // Require that the creator is included in the new doc's `members` array.
+      allow create: if request.auth != null
+                    && request.resource.data.members is list
+                    && request.auth.uid in request.resource.data.members;
+
+      // Usually disable deletes in production
+      allow delete: if false;
     }
 
-    // Messages nested under conversations
+    // MESSAGES (subcollection under a conversation)
     match /conversations/{cid}/messages/{mid} {
-      function isMember() {
-        return request.auth != null
-          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(cid)).data.members;
-      }
-      allow create: if isMember() && request.resource.data.senderId == request.auth.uid;
-      allow read: if isMember();
-      allow update, delete: if isMember() && resource.data.senderId == request.auth.uid;
-    }
+      // Only members can read messages
+      allow read: if isConvMember(cid);
 
-    // Wallets: never allow client balance writes
-    match /wallets/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if false;
-    }
+      // Create: enforce membership + strict field validation
+      allow create: if isConvMember(cid)
+        // sender must be the authenticated user
+        && request.resource.data.senderId == request.auth.uid
+        // require either non-empty text OR non-empty mediaUrl
+        && (
+             (request.resource.data.text is string
+              && request.resource.data.text.size() > 0)
+             ||
+             (request.resource.data.mediaUrl is string
+              && request.resource.data.mediaUrl.size() > 0)
+           )
+        // createdAt must be a timestamp (serverTimestamp qualifies)
+        && request.resource.data.createdAt is timestamp;
 
-    // Wallet transactions: owner can create/read; no updates/deletes
-    match /wallets/{userId}/transactions/{tid} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow create: if request.auth != null && request.auth.uid == userId;
+      // Lock down edits/deletes
       allow update, delete: if false;
-    }
-
-    // Deny everything else
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }
