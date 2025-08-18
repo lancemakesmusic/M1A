@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "M1A",
+    "slug": "m1a",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "m1a",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "firebase": {
+        "apiKey": "AIzaSyDOEDqVKGBxpCFpQliBiIdNX5ebhWdmhHQ",
+        "authDomain": "m1alive.firebaseapp.com",
+        "projectId": "m1alive",
+        "storageBucket": "m1alive.appspot.com",
+        "messagingSenderId": "83002254287",
+        "appId": "1:83002254287:web:xxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "eas": {
+        "projectId": "replace-with-your-EAS-project-id-if-using-EAS"
+      }
+    }
+  }
+}
