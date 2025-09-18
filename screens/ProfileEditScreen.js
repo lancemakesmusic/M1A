@@ -1,7 +1,7 @@
 // screens/ProfileEditScreen.js
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { useContext, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import {
   Alert,
   Image,
@@ -14,7 +14,17 @@ import {
   View,
 } from 'react-native';
 import { UserContext } from '../contexts/UserContext';
-import { auth, uploadImageAsync } from '../firebase';
+import { auth } from '../firebase';
+
+// Firebase (v10)
+import { updateProfile } from 'firebase/auth';
+import { doc, getFirestore, updateDoc } from 'firebase/firestore';
+import {
+  getDownloadURL,
+  getStorage,
+  ref,
+  uploadBytesResumable,
+} from 'firebase/storage';
 
 export default function ProfileEditScreen({ navigation }) {
   const { user, updateUserProfile } = useContext(UserContext);
@@ -23,9 +33,18 @@ export default function ProfileEditScreen({ navigation }) {
   const [username, setUsername]         = useState(user?.username ?? '');
   const [bio, setBio]                   = useState(user?.bio ?? '');
   const [socials, setSocials]           = useState(user?.socials ?? {});
-  const [avatarUrl, setAvatarUrl]       = useState(user?.avatarUrl ?? '');
+  const [avatarUrl, setAvatarUrl]       = useState(user?.avatarUrl ?? user?.photoURL ?? '');
   const [privateProfile, setPrivateProfile] = useState(!!user?.private);
   const [saving, setSaving] = useState(false);
+
+  // cache-busting to force <Image> refresh after upload
+  const [cacheBust, setCacheBust] = useState(Date.now());
+  const cacheBusted = avatarUrl ? `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}t=${cacheBust}` : '';
+
+  useEffect(() => {
+    // keep local state in sync if context updates
+    setAvatarUrl(user?.avatarUrl ?? user?.photoURL ?? '');
+  }, [user?.avatarUrl, user?.photoURL]);
 
   const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -41,32 +60,62 @@ export default function ProfileEditScreen({ navigation }) {
       const ok = await ensureLibraryPermission();
       if (!ok) return;
 
-      // ✅ SDK 53: string array for mediaTypes
       const result = await ImagePicker.launchImageLibraryAsync({
+        // SDK 53: array form is valid
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 1, // we'll control output below
+        quality: 1,
       });
       if (result.canceled) return;
 
       const localUri = result.assets?.[0]?.uri;
+      const mime = result.assets?.[0]?.mimeType || 'image/jpeg';
       if (!localUri) return;
 
-      // Resize & compress to stay under Storage limits
+      // Resize & compress to stay small and consistent
       const manipulated = await ImageManipulator.manipulateAsync(
         localUri,
         [{ resize: { width: 1024 } }],
         { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
       );
 
+      if (!auth.currentUser?.uid) throw new Error('Not signed in');
       setSaving(true);
 
-      if (!auth.currentUser?.uid) throw new Error('Not signed in');
+      const uid = auth.currentUser.uid;
+      const storage = getStorage();
+      const ts = Date.now();
+      const ext = mime.includes('png') ? 'png' : 'jpg';
+      const storageRef = ref(storage, `avatars/${uid}/avatar_${ts}.${ext}`);
 
-      // uploader reads auth.currentUser internally; expects only (uri)
-      const url = await uploadImageAsync(manipulated.uri);
-      setAvatarUrl(url);
+      // Convert to blob via fetch (works reliably in Expo)
+      const blob = await (await fetch(manipulated.uri)).blob();
+
+      // Upload with contentType; resumable for reliability
+      const task = uploadBytesResumable(storageRef, blob, { contentType: mime });
+
+      await new Promise((resolve, reject) => {
+        task.on('state_changed', undefined, reject, resolve);
+      });
+
+      const downloadURL = await getDownloadURL(task.snapshot.ref);
+
+      // Update Auth profile immediately (keeps other parts of app in sync)
+      await updateProfile(auth.currentUser, { photoURL: downloadURL });
+
+      // Update Firestore user doc immediately (if you store it there)
+      const db = getFirestore();
+      await updateDoc(doc(db, 'users', uid), {
+        photoURL: downloadURL,
+        avatarUrl: downloadURL,      // keep both fields in case you read either
+        photoUpdatedAt: ts,
+      });
+
+      // Local state + cache-bust so <Image> refreshes
+      setAvatarUrl(downloadURL);
+      setCacheBust(Date.now());
+
       Alert.alert('Success', 'Avatar updated!');
     } catch (e) {
       const code = e?.code;
@@ -88,6 +137,7 @@ export default function ProfileEditScreen({ navigation }) {
     }
     setSaving(true);
     try {
+      // Persist your profile fields via context helper
       await updateUserProfile({
         displayName: name,
         username: uname,
@@ -125,7 +175,7 @@ export default function ProfileEditScreen({ navigation }) {
     <ScrollView contentContainerStyle={styles.container}>
       <TouchableOpacity onPress={onPickImage} activeOpacity={0.8} disabled={saving}>
         {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          <Image source={{ uri: cacheBusted }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarPlaceholder}>
             <Text style={styles.avatarText}>👤</Text>
