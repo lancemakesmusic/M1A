@@ -2,57 +2,127 @@ rules_version = "2";
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: check membership on an EXISTING conversation doc
+    /*** Helpers ***/
+    function isSignedIn() {
+      return request.auth != null;
+    }
     function isConvMember(cid) {
-      return request.auth != null
-        && request.auth.uid in
-           get(/databases/$(database)/documents/conversations/$(cid)).data.members;
+      return isSignedIn() &&
+        request.auth.uid in get(/databases/$(database)/documents/conversations/$(cid)).data.members;
+    }
+    // Basic timestamp sanity: not in the future
+    function validTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+    // Allow-list fields helper
+    function hasOnlyAllowed(data, allowed) {
+      return data.keys().hasOnly(allowed);
     }
 
-    // USERS: owner-only writes; reads allowed to any signed-in user
+    /*** USERS ***/
     match /users/{userId} {
-      allow read:  if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
+      // Choose one of these read policies:
+      // allow read: if true;             // public profiles
+      allow read:  if isSignedIn();       // signed-in only (current behavior)
 
-    // CONVERSATIONS
-    match /conversations/{cid} {
-      // Read/update only if you're a member (after the doc exists)
-      allow read:   if isConvMember(cid);
-      allow update: if isConvMember(cid);
+      // Owner-only writes; allow-list typical profile fields
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && hasOnlyAllowed(request.resource.data, [
+          'displayName', 'username', 'bio', 'avatarUrl', 'theme', 'links', 'createdAt', 'updatedAt'
+        ])
+        && validTimestamp(request.resource.data.createdAt);
 
-      // Create: cannot use isConvMember (doc doesn't exist yet).
-      // Require that the creator is included in the new doc's `members` array.
-      allow create: if request.auth != null
-                    && request.resource.data.members is list
-                    && request.auth.uid in request.resource.data.members;
+      allow update: if isSignedIn()
+        && request.auth.uid == userId
+        && hasOnlyAllowed(request.resource.data, [
+          // same set; require updatedAt on update
+          'displayName', 'username', 'bio', 'avatarUrl', 'theme', 'links', 'createdAt', 'updatedAt'
+        ])
+        && validTimestamp(request.resource.data.updatedAt);
 
-      // Usually disable deletes in production
+      // Typically block deletes (or allow owner if you support account deletion)
       allow delete: if false;
     }
 
-    // MESSAGES (subcollection under a conversation)
-    match /conversations/{cid}/messages/{mid} {
-      // Only members can read messages
+    /*** CONVERSATIONS ***/
+    match /conversations/{cid} {
+      // Read only if member
       allow read: if isConvMember(cid);
 
-      // Create: enforce membership + strict field validation
+      // Create: creator must be in members; allow-list fields
+      allow create: if isSignedIn()
+        && request.resource.data.members is list
+        && request.auth.uid in request.resource.data.members
+        && hasOnlyAllowed(request.resource.data, [
+          'members', 'title', 'createdAt', 'updatedAt', 'lastMessageAt'
+        ])
+        && validTimestamp(request.resource.data.createdAt)
+        && validTimestamp(request.resource.data.updatedAt);
+
+      // Update: only members; restrict what can change & require updatedAt
+      allow update: if isConvMember(cid)
+        && hasOnlyAllowed(request.resource.data, [
+          'members', 'title', 'createdAt', 'updatedAt', 'lastMessageAt'
+        ])
+        // keep createdAt immutable
+        && request.resource.data.createdAt == resource.data.createdAt
+        // updatedAt must exist and be sane
+        && validTimestamp(request.resource.data.updatedAt)
+        // If members array changes, ensure it's still a list and not empty
+        && (request.resource.data.members is list)
+        // (Optional) Prevent removing everyone:
+        && (request.resource.data.members.size() > 0);
+
+      // Usually block deletes in prod
+      allow delete: if false;
+    }
+
+    /*** MESSAGES (subcollection) ***/
+    match /conversations/{cid}/messages/{mid} {
+      // Only members read
+      allow read: if isConvMember(cid);
+
+      // Create: stricter field validation
       allow create: if isConvMember(cid)
-        // sender must be the authenticated user
+        && hasOnlyAllowed(request.resource.data, [
+          'senderId', 'text', 'mediaUrl', 'createdAt', 'reactions'
+        ])
+        // sender == caller
         && request.resource.data.senderId == request.auth.uid
-        // require either non-empty text OR non-empty mediaUrl
+        // require content: non-empty text OR mediaUrl string
         && (
              (request.resource.data.text is string
-              && request.resource.data.text.size() > 0)
+              && request.resource.data.text.size() > 0
+              && request.resource.data.text.size() <= 5000) // text cap
              ||
              (request.resource.data.mediaUrl is string
               && request.resource.data.mediaUrl.size() > 0)
            )
-        // createdAt must be a timestamp (serverTimestamp qualifies)
-        && request.resource.data.createdAt is timestamp;
+        // createdAt must be a sane timestamp (serverTimestamp resolves to timestamp)
+        && validTimestamp(request.resource.data.createdAt)
+        // reactions must be a map if present (e.g., { "👍": ["uid1","uid2"] })
+        && (
+             !(request.resource.data.keys().hasAny(['reactions']))
+             ||
+             (request.resource.data.reactions is map)
+           );
 
-      // Lock down edits/deletes
+      // Messages immutable (no edits/deletes)
       allow update, delete: if false;
+    }
+
+    /*** OPTIONAL: typing indicators ***/
+    // If you store typing state (e.g., /conversations/{cid}/typing/{uid}),
+    // gate it by membership and allow minimal writes.
+    match /conversations/{cid}/typing/{uid} {
+      allow read: if isConvMember(cid);
+      allow create, update: if isConvMember(cid)
+        && request.auth.uid == uid
+        && hasOnlyAllowed(request.resource.data, ['isTyping', 'updatedAt'])
+        && (request.resource.data.isTyping is bool)
+        && validTimestamp(request.resource.data.updatedAt);
+      allow delete: if isConvMember(cid) && request.auth.uid == uid;
     }
   }
 }
