@@ -11,8 +11,14 @@ service cloud.firestore {
         request.auth.uid in get(/databases/$(database)/documents/conversations/$(cid)).data.members;
     }
     // Basic timestamp sanity: not in the future
+    // Note: serverTimestamp() creates a placeholder that gets resolved on server
     function validTimestamp(ts) {
       return ts is timestamp && ts <= request.time;
+    }
+    
+    // Check if field is a serverTimestamp placeholder
+    function isServerTimestamp(ts) {
+      return ts == request.time;
     }
     // Allow-list fields helper
     function hasOnlyAllowed(data, allowed) {
@@ -29,17 +35,21 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.auth.uid == userId
         && hasOnlyAllowed(request.resource.data, [
-          'displayName', 'username', 'bio', 'avatarUrl', 'theme', 'links', 'createdAt', 'updatedAt'
+          'displayName', 'username', 'bio', 'avatarUrl', 'coverUrl', 'location', 'website', 
+          'socials', 'private', 'showOnlineStatus', 'allowMessages', 'photoURL', 'photoUpdatedAt',
+          'theme', 'links', 'createdAt', 'updatedAt', 'plans', 'wallet', 'convertedFiles'
         ])
-        && validTimestamp(request.resource.data.createdAt);
+        && (isServerTimestamp(request.resource.data.createdAt) || validTimestamp(request.resource.data.createdAt));
 
       allow update: if isSignedIn()
         && request.auth.uid == userId
         && hasOnlyAllowed(request.resource.data, [
           // same set; require updatedAt on update
-          'displayName', 'username', 'bio', 'avatarUrl', 'theme', 'links', 'createdAt', 'updatedAt'
+          'displayName', 'username', 'bio', 'avatarUrl', 'coverUrl', 'location', 'website', 
+          'socials', 'private', 'showOnlineStatus', 'allowMessages', 'photoURL', 'photoUpdatedAt',
+          'theme', 'links', 'createdAt', 'updatedAt', 'plans', 'wallet', 'convertedFiles'
         ])
-        && validTimestamp(request.resource.data.updatedAt);
+        && (isServerTimestamp(request.resource.data.updatedAt) || validTimestamp(request.resource.data.updatedAt));
 
       // Typically block deletes (or allow owner if you support account deletion)
       allow delete: if false;
@@ -57,8 +67,8 @@ service cloud.firestore {
         && hasOnlyAllowed(request.resource.data, [
           'members', 'title', 'createdAt', 'updatedAt', 'lastMessageAt'
         ])
-        && validTimestamp(request.resource.data.createdAt)
-        && validTimestamp(request.resource.data.updatedAt);
+        && (isServerTimestamp(request.resource.data.createdAt) || validTimestamp(request.resource.data.createdAt))
+        && (isServerTimestamp(request.resource.data.updatedAt) || validTimestamp(request.resource.data.updatedAt));
 
       // Update: only members; restrict what can change & require updatedAt
       allow update: if isConvMember(cid)
@@ -68,7 +78,7 @@ service cloud.firestore {
         // keep createdAt immutable
         && request.resource.data.createdAt == resource.data.createdAt
         // updatedAt must exist and be sane
-        && validTimestamp(request.resource.data.updatedAt)
+        && (isServerTimestamp(request.resource.data.updatedAt) || validTimestamp(request.resource.data.updatedAt))
         // If members array changes, ensure it's still a list and not empty
         && (request.resource.data.members is list)
         // (Optional) Prevent removing everyone:
@@ -100,7 +110,7 @@ service cloud.firestore {
               && request.resource.data.mediaUrl.size() > 0)
            )
         // createdAt must be a sane timestamp (serverTimestamp resolves to timestamp)
-        && validTimestamp(request.resource.data.createdAt)
+        && (isServerTimestamp(request.resource.data.createdAt) || validTimestamp(request.resource.data.createdAt))
         // reactions must be a map if present (e.g., { "👍": ["uid1","uid2"] })
         && (
              !(request.resource.data.keys().hasAny(['reactions']))
@@ -121,8 +131,98 @@ service cloud.firestore {
         && request.auth.uid == uid
         && hasOnlyAllowed(request.resource.data, ['isTyping', 'updatedAt'])
         && (request.resource.data.isTyping is bool)
-        && validTimestamp(request.resource.data.updatedAt);
+        && (isServerTimestamp(request.resource.data.updatedAt) || validTimestamp(request.resource.data.updatedAt));
       allow delete: if isConvMember(cid) && request.auth.uid == uid;
+    }
+
+    /*** AUTO POSTER COLLECTIONS ***/
+    
+    // Scheduled Posts Collection
+    match /scheduledPosts/{postId} {
+      // Users can only read their own scheduled posts
+      allow read: if isSignedIn() && request.auth.uid == resource.data.uid;
+      
+      // Users can create their own scheduled posts
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.uid
+        && hasOnlyAllowed(request.resource.data, [
+          'uid', 'content', 'imageUrl', 'platforms', 'scheduledTime', 
+          'status', 'autoGenerated', 'createdAt', 'updatedAt'
+        ])
+        && (isServerTimestamp(request.resource.data.createdAt) || validTimestamp(request.resource.data.createdAt));
+      
+      // Users can update their own scheduled posts
+      allow update: if isSignedIn()
+        && request.auth.uid == resource.data.uid
+        && hasOnlyAllowed(request.resource.data, [
+          'uid', 'content', 'imageUrl', 'platforms', 'scheduledTime', 
+          'status', 'autoGenerated', 'createdAt', 'updatedAt'
+        ])
+        && (isServerTimestamp(request.resource.data.updatedAt) || validTimestamp(request.resource.data.updatedAt));
+      
+      // Users can delete their own scheduled posts
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.uid;
+    }
+
+    // Media Library Collection
+    match /mediaLibrary/{mediaId} {
+      // Users can only read their own media
+      allow read: if isSignedIn() && request.auth.uid == resource.data.uid;
+      
+      // Users can create their own media
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.uid
+        && hasOnlyAllowed(request.resource.data, [
+          'uid', 'title', 'uri', 'type', 'size', 'createdAt', 'updatedAt'
+        ])
+        && (isServerTimestamp(request.resource.data.createdAt) || validTimestamp(request.resource.data.createdAt));
+      
+      // Users can update their own media
+      allow update: if isSignedIn()
+        && request.auth.uid == resource.data.uid
+        && hasOnlyAllowed(request.resource.data, [
+          'uid', 'title', 'uri', 'type', 'size', 'createdAt', 'updatedAt'
+        ])
+        && (isServerTimestamp(request.resource.data.updatedAt) || validTimestamp(request.resource.data.updatedAt));
+      
+      // Users can delete their own media
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.uid;
+    }
+
+    // User Brand Kit Subcollection
+    match /users/{userId}/brandKit/{kitId} {
+      // Users can read their own brand kit
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      
+      // Users can create/update their own brand kit
+      allow create, update: if isSignedIn()
+        && request.auth.uid == userId
+        && hasOnlyAllowed(request.resource.data, [
+          'brandVoice', 'brandColors', 'brandValues', 'targetAudience', 
+          'contentGuidelines', 'createdAt', 'updatedAt'
+        ])
+        && (isServerTimestamp(request.resource.data.createdAt) || validTimestamp(request.resource.data.createdAt))
+        && (isServerTimestamp(request.resource.data.updatedAt) || validTimestamp(request.resource.data.updatedAt));
+      
+      // Users can delete their own brand kit
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User Generation History Subcollection
+    match /users/{userId}/generationHistory/{historyId} {
+      // Users can read their own generation history
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      
+      // Users can create their own generation history
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && hasOnlyAllowed(request.resource.data, [
+          'prompt', 'contentType', 'platform', 'response', 'timestamp'
+        ])
+        && (isServerTimestamp(request.resource.data.timestamp) || validTimestamp(request.resource.data.timestamp));
+      
+      // Generation history is immutable (no updates/deletes)
+      allow update, delete: if false;
     }
   }
 }

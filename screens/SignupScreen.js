@@ -1,5 +1,4 @@
 // screens/SignupScreen.js
-import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { useState } from 'react';
 import {
     Alert,
@@ -11,7 +10,6 @@ import {
     View,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
-import { auth } from '../firebase';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
@@ -25,7 +23,9 @@ export default function SignupScreen({ navigation }) {
     }
 
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      // Mock signup - always succeeds for development
+      console.log('Mock signup:', email, password);
+      Alert.alert('Signup Successful', 'Mock signup completed');
     } catch (error) {
       Alert.alert('Signup Failed', error.message);
     }

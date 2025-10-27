@@ -6,20 +6,40 @@ const ThemeContext = createContext();
 
 const lightTheme = {
   mode: 'light',
+  isDark: false,
   background: '#ffffff',
+  cardBackground: '#f8f9fa',
   text: '#000000',
-  primary: '#3D5AFE',
-  accent: '#03DAC6',
-  placeholder: '#888',
+  subtext: '#6c757d',
+  primary: '#007AFF', // Standard blue
+  secondary: '#8E8E93', // Standard gray
+  accent: '#FF3B30', // Standard red accent
+  border: '#e9ecef',
+  success: '#28a745',
+  warning: '#ffc107',
+  error: '#dc3545',
+  info: '#17a2b8',
+  placeholder: '#6c757d',
+  shadow: 'rgba(0,0,0,0.1)',
 };
 
 const darkTheme = {
   mode: 'dark',
-  background: '#121212',
-  text: '#ffffff',
-  primary: '#BB86FC',
-  accent: '#03DAC6',
-  placeholder: '#888',
+  isDark: true,
+  background: '#000000', // Pure black
+  cardBackground: '#1a1a1a', // Dark charcoal
+  text: '#FFD700', // Gold text
+  subtext: '#C0C0C0', // Silver subtext
+  primary: '#FFD700', // Gold primary
+  secondary: '#C0C0C0', // Silver secondary
+  accent: '#FF6B35', // Orange accent
+  border: '#333333', // Dark border
+  success: '#28a745',
+  warning: '#ffc107',
+  error: '#dc3545',
+  info: '#17a2b8',
+  placeholder: '#888888',
+  shadow: 'rgba(255,215,0,0.1)', // Gold shadow
 };
 
 export function ThemeProvider({ children }) {

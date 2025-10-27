@@ -1,0 +1,1 @@
+venv\Lib\site-packages\instagrapi\mixins\insights.py:76:        ), f'Unsupported post_type="{post_type}" {POST_TYPES}'

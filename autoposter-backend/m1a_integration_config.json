@@ -1,0 +1,29 @@
+{
+  "m1a": {
+    "api_key": "",
+    "base_url": "https://api.m1a.com",
+    "webhook_secret": ""
+  },
+  "stripe": {
+    "secret_key": "",
+    "publishable_key": "",
+    "webhook_secret": ""
+  },
+  "database": {
+    "url": "",
+    "host": "",
+    "port": "",
+    "name": "",
+    "user": "",
+    "password": ""
+  },
+  "security": {
+    "master_key": "",
+    "jwt_secret": ""
+  },
+  "deployment": {
+    "domain": "",
+    "ssl_cert_path": "",
+    "ssl_key_path": ""
+  }
+}

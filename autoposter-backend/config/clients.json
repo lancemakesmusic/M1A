@@ -1,0 +1,13 @@
+{
+  "MerkabaEntertainment": {
+    "path": "config/clients/MerkabaEntertainment/client.json"
+  },
+  "VectorManagement": {
+    "path": "config/clients/VectorManagement/client.json"
+  },
+  "Luchiano": {
+    "path": "config/clients/Luchiano/client.json"
+  }
+}
+
+

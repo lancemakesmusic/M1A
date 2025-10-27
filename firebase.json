@@ -5,5 +5,9 @@
   },
   "storage": {
     "rules": "storage.rules"
+  },
+  "functions": {
+    "source": "M1A/functions",
+    "runtime": "nodejs18"
   }
 }

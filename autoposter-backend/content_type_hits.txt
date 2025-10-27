@@ -1,0 +1,19 @@
+main.py:68:        job_id = db.add_job(client, full, content_type=ctype, caption=caption, extras={"source":"watcher"})
+scripts\backfill_queue.py:42:        jid = db.add_job(client, full, content_type=ctype, caption="(backfill)", extras={"source":"backfill"})
+scripts\smoke_db.py:13:jid = db.add_job("Luchiano", str(p), content_type="feed", caption="(smoke)", extras={"source":"smoke"})
+venv\Lib\site-packages\instagrapi\mixins\direct.py:485:        return self.direct_send_file(path, user_ids, thread_ids, content_type="photo")
+venv\Lib\site-packages\instagrapi\mixins\direct.py:507:        return self.direct_send_file(path, user_ids, thread_ids, content_type="video")
+venv\Lib\site-packages\pip\_internal\operations\prepare.py:625:            local_file = File(file_path, content_type=None)
+venv\Lib\site-packages\pip\_vendor\requests\models.py:198:            rf.make_multipart(content_type=ft)
+venv\Lib\site-packages\pip\_vendor\urllib3\fields.py:191:        request_param.make_multipart(content_type=content_type)
+venv\Lib\site-packages\pip\_vendor\urllib3\fields.py:250:        self, content_disposition=None, content_type=None, content_location=None
+venv\Lib\site-packages\pydantic\deprecated\parse.py:79:        b, proto=proto, content_type=content_type, encoding=encoding, allow_pickle=allow_pickle, json_loads=json_loads
+venv\Lib\site-packages\pydantic\main.py:1251:                content_type=content_type,
+venv\Lib\site-packages\pydantic\main.py:1304:            content_type=content_type,
+venv\Lib\site-packages\pydantic\v1\main.py:542:                content_type=content_type,
+venv\Lib\site-packages\pydantic\v1\main.py:564:            content_type=content_type,
+venv\Lib\site-packages\pydantic\v1\parse.py:65:        b, proto=proto, content_type=content_type, encoding=encoding, allow_pickle=allow_pickle, json_loads=json_loads
+venv\Lib\site-packages\pydantic\v1\tools.py:55:        content_type=content_type,
+venv\Lib\site-packages\pydantic\v1\tools.py:77:        content_type=content_type,
+venv\Lib\site-packages\requests\models.py:198:            rf.make_multipart(content_type=ft)
+venv\Lib\site-packages\urllib3\fields.py:240:        request_param.make_multipart(content_type=content_type)

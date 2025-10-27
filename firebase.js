@@ -1,145 +1,130 @@
 // firebase.js
-// Expo (iOS/Android/Web) + Firebase v11+
+// Mock Firebase implementation for development
 
 import 'react-native-get-random-values';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Platform } from 'react-native';
-
-import { getApp, getApps, initializeApp } from 'firebase/app';
-import {
-  browserLocalPersistence,
-  getAuth,
-  getReactNativePersistence,
-  initializeAuth,
-  setPersistence,
-} from 'firebase/auth';
-import {
-  CACHE_SIZE_UNLIMITED,
-  doc,
-  getDoc,
-  getFirestore,
-  initializeFirestore,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from 'firebase/firestore';
-import {
-  getDownloadURL,
-  getStorage,
-  ref,
-  uploadBytes, // non-resumable avoids RN Blob edge cases
-} from 'firebase/storage';
-
-// 🔐 App Check
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
-
 import { v4 as uuidv4 } from 'uuid';
 
-/* ------------------------------------------------------------------ */
-/* Firebase config (project: m1alive)                                  */
-/* ------------------------------------------------------------------ */
-const firebaseConfig = {
-  apiKey: 'AIzaSyDOEDqVKGBxpCFpQliBiIdNX5ebhWdmhHQ',
-  authDomain: 'm1alive.firebaseapp.com',
-  projectId: 'm1alive',
-  // Bucket ID ONLY (no gs:// prefix)
-  storageBucket: 'm1alive.firebasestorage.app',
-  messagingSenderId: '83002254287',
-  appId: '1:83002254287:web:b802e1e040cb51494668ba',
+// Mock Firebase implementation
+const mockAuth = {
+  currentUser: {
+    uid: 'wGdVeOThCQOF65f3emHhisgrUsx2',
+    email: 'brogdon.lance@gmail.com',
+    displayName: 'Lance'
+  },
+  onAuthStateChanged: (callback) => {
+    // Simulate immediate authentication
+    setTimeout(() => {
+      callback(mockAuth.currentUser);
+    }, 100);
+    // Return unsubscribe function
+    return () => console.log('Mock auth unsubscribe');
+  }
+};
+
+const mockFirestore = {
+  collection: (name) => ({
+    doc: (id) => ({
+      get: async () => ({
+        exists: true,
+        data: () => ({
+          displayName: 'Lance',
+          username: 'Lance makes music',
+          bio: 'Founder',
+          avatarUrl: '',
+          socials: { instagram: 'instagram.com/merkaba_ent' },
+          private: false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        })
+      }),
+      set: async (data) => console.log('Mock Firestore set:', data),
+      update: async (data) => console.log('Mock Firestore update:', data)
+    })
+  })
+};
+
+const mockFunctions = {
+  httpsCallable: (name) => async (data) => {
+    console.log('Mock Functions call:', name, data);
+    return { data: { success: true, message: 'Mock function called' } };
+  }
+};
+
+const mockStorage = {
+  ref: (path) => ({
+    put: async (blob, metadata) => {
+      console.log('Mock Storage upload:', path, metadata);
+      return { ref: { getDownloadURL: async () => 'https://mock-url.com/image.jpg' } };
+    },
+    getDownloadURL: async () => 'https://mock-url.com/image.jpg'
+  })
 };
 
 /* ------------------------------------------------------------------ */
-/* App (guard against Fast Refresh)                                    */
+/* Mock Firebase Exports                                               */
 /* ------------------------------------------------------------------ */
-export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 /* ------------------------------------------------------------------ */
-/* App Check                                                           */
-/* - Web: reCAPTCHA v3 (needs EXPO_PUBLIC_RECAPTCHA_SITE_KEY)          */
-/* - Dev (Expo Go / RN / Web): Debug token so uploads pass while testing */
-/*   For production native builds, use DeviceCheck (iOS) + Play Integrity (Android). */
+/* Auth (Mock)                                                         */
 /* ------------------------------------------------------------------ */
-const RECAPTCHA_SITE_KEY = process.env.EXPO_PUBLIC_RECAPTCHA_SITE_KEY;
-
-try {
-  if (__DEV__) {
-    // Allow dev builds (including Expo Go) to pass App Check
-    // eslint-disable-next-line no-underscore-dangle
-    globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-  }
-
-  if (Platform.OS === 'web' && RECAPTCHA_SITE_KEY) {
-    initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),
-      isTokenAutoRefreshEnabled: true,
-    });
-  }
-} catch (e) {
-  console.warn('[AppCheck init warning]', e?.message || String(e));
-}
+export const auth = mockAuth;
 
 /* ------------------------------------------------------------------ */
-/* Auth (centralized init — import { auth } from this file only)       */
+/* Firestore (Mock)                                                    */
 /* ------------------------------------------------------------------ */
-function ensureAuth() {
-  if (Platform.OS === 'web') {
-    const a = getAuth(app);
-    setPersistence(a, browserLocalPersistence).catch(() => {});
-    return a;
-  }
-  try {
-    return initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage),
-    });
-  } catch {
-    return getAuth(app);
-  }
-}
-export const auth = ensureAuth();
+export const db = mockFirestore;
 
 /* ------------------------------------------------------------------ */
-/* Firestore                                                           */
+/* Storage (Mock)                                                      */
 /* ------------------------------------------------------------------ */
-let _db;
-try {
-  _db = initializeFirestore(app, {
-    experimentalForceLongPolling: true,
-    cacheSizeBytes: CACHE_SIZE_UNLIMITED,
-  });
-} catch {
-  _db = getFirestore(app);
-}
-export const db = _db;
+export const storage = mockStorage;
 
 /* ------------------------------------------------------------------ */
-/* Storage (uses firebaseConfig.storageBucket)                         */
+/* Functions (Mock)                                                    */
 /* ------------------------------------------------------------------ */
-export const storage = getStorage(app);
+export const functions = mockFunctions;
+
+// Helper function for httpsCallable (Mock)
+export const httpsCallable = (functionName) => {
+  return mockFunctions.httpsCallable(functionName);
+};
 
 /* ------------------------------------------------------------------ */
 /* User profile helpers                                                */
 /* ------------------------------------------------------------------ */
 export const getUserProfile = async (uid) => {
   if (!uid) return null;
-  const userRef = doc(db, 'users', uid);
-  const snap = await getDoc(userRef);
-  return snap.exists() ? snap.data() : null;
+  if (!auth.currentUser) {
+    console.warn('No authenticated user for getUserProfile');
+    return null;
+  }
+  const userRef = db.collection('users').doc(uid);
+  const snap = await userRef.get();
+  return snap.exists ? snap.data() : null;
 };
 
 export const updateUserProfileInDB = async (uid, updates) => {
   if (!uid) return;
-  const userRef = doc(db, 'users', uid);
-  await updateDoc(userRef, { ...updates, updatedAt: serverTimestamp() });
+  if (!auth.currentUser) {
+    console.warn('No authenticated user for updateUserProfileInDB');
+    return;
+  }
+  const userRef = db.collection('users').doc(uid);
+  await userRef.update({ ...updates, updatedAt: new Date() });
 };
 
 export const createUserProfileIfMissing = async (uid, seed = {}) => {
   if (!uid) return null;
-  const userRef = doc(db, 'users', uid);
-  const snap = await getDoc(userRef);
+  if (!auth.currentUser) {
+    console.warn('No authenticated user for createUserProfileIfMissing');
+    return null;
+  }
+  const userRef = db.collection('users').doc(uid);
+  const snap = await userRef.get();
 
-  if (!snap.exists()) {
+  if (!snap.exists) {
     const defaults = {
       displayName: '',
       username: '',
@@ -147,11 +132,11 @@ export const createUserProfileIfMissing = async (uid, seed = {}) => {
       avatarUrl: '',
       socials: {},
       private: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
       ...seed,
     };
-    await setDoc(userRef, defaults, { merge: true });
+    await userRef.set(defaults, { merge: true });
     return defaults;
   }
   return snap.data();
@@ -200,38 +185,30 @@ export const uploadImageAsync = async (uri) => {
   const metadata = { contentType: processed.contentType };
 
   console.log('[Storage debug]', {
-    bucket: getApp().options.storageBucket, // "m1alive.firebasestorage.app"
     path,
     type: metadata.contentType,
     size: blob.size,
   });
 
-  // 4) upload (non-resumable is simplest/most reliable on RN)
-  const storageRef = ref(storage, path);
+  // 4) upload using mock storage
+  const storageRef = storage.ref(path);
   try {
-    await uploadBytes(storageRef, blob, metadata);
+    await storageRef.put(blob, metadata);
   } catch (err) {
-    const resp =
-      err?.customData?.serverResponse ||
-      err?.serverResponse ||
-      err?.message ||
-      '';
     console.error('[Storage upload error]', {
       code: err?.code,
-      name: err?.name,
-      msg: err?.message,
-      resp,
+      message: err?.message,
     });
     throw err;
   }
 
   // 5) return public URL
-  return await getDownloadURL(storageRef);
+  return await storageRef.getDownloadURL();
 };
 
 /* ------------------------------------------------------------------ */
 /* Optional sanity log                                                 */
 /* ------------------------------------------------------------------ */
 try {
-  console.log('🐻 Firebase initialized for project:', getApp().options.projectId);
+  console.log('🐻 Firebase initialized for project: m1alive');
 } catch {}

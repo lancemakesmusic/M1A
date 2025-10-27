@@ -39,6 +39,7 @@ functions/.runtimeconfig.json
 .env.production
 .env.development
 .env.test
+firebase.config.js
 *.pem
 *.p8
 *.p12

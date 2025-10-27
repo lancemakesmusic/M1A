@@ -1,17 +1,15 @@
 // screens/LoginScreen.js
-import { signInWithEmailAndPassword } from 'firebase/auth';
 import { useState } from 'react';
 import {
-  Alert,
-  Button,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Button,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
-import { auth } from '../firebase';
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
@@ -25,7 +23,9 @@ export default function LoginScreen({ navigation }) {
     }
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      // Mock login - always succeeds for development
+      console.log('Mock login:', email, password);
+      Alert.alert('Login Successful', 'Mock login completed');
     } catch (error) {
       Alert.alert('Login Failed', error.message);
     }
@@ -60,7 +60,7 @@ export default function LoginScreen({ navigation }) {
 
       <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
         <Text style={[styles.link, { color: theme.accent }]}>
-          Don't have an account? Sign Up
+          Don&apos;t have an account? Sign Up
         </Text>
       </TouchableOpacity>
     </View>

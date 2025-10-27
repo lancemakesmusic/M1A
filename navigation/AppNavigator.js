@@ -2,10 +2,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useTheme } from '../contexts/ThemeContext';
 
 // Screens
+import AutoPosterScreen from '../screens/AutoPosterScreen';
+import EventBookingScreen from '../screens/EventBookingScreen';
 import ExploreScreen from '../screens/ExploreScreen';
 import HomeScreen from '../screens/HomeScreen';
+import M1APersonalizationScreen from '../screens/M1APersonalizationScreen';
 import MessagesScreen from '../screens/MessagesScreen';
 import ProfileEditScreen from '../screens/ProfileEditScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -14,10 +18,50 @@ import WalletScreen from '../screens/WalletScreen';
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-// Profile stack to avoid nested screen duplication
-function ProfileStackNavigator() {
+// Home stack to include event booking
+function HomeStackNavigator() {
   return (
     <Stack.Navigator>
+      <Stack.Screen
+        name="HomeMain"
+        component={HomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="EventBooking"
+        component={EventBookingScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AutoPoster"
+        component={AutoPosterScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="M1APersonalization"
+        component={M1APersonalizationScreen}
+        options={{ headerShown: false }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+// Profile stack to avoid nested screen duplication
+function ProfileStackNavigator() {
+  const { theme } = useTheme();
+  
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: theme.background,
+        },
+        headerTintColor: theme.text,
+        headerTitleStyle: {
+          color: theme.text,
+        },
+      }}
+    >
       <Stack.Screen
         name="ProfileMain"
         component={ProfileScreen}
@@ -33,6 +77,8 @@ function ProfileStackNavigator() {
 }
 
 export default function AppNavigator() {
+  const { theme } = useTheme();
+  
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -60,11 +106,22 @@ export default function AppNavigator() {
           }
           return <Ionicons name={iconName} size={size} color={color} />;
         },
-        tabBarActiveTintColor: '#000',
-        tabBarInactiveTintColor: 'gray',
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.subtext,
+        tabBarStyle: {
+          backgroundColor: theme.background,
+          borderTopColor: theme.border,
+          height: 80,
+          paddingBottom: 20,
+          paddingTop: 10,
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '500',
+        },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Home" component={HomeStackNavigator} />
       <Tab.Screen name="Explore" component={ExploreScreen} />
       <Tab.Screen name="Messages" component={MessagesScreen} />
       <Tab.Screen name="Wallet" component={WalletScreen} />

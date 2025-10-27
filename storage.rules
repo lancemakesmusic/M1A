@@ -43,6 +43,17 @@ service firebase.storage {
         && withinAvatarLimits();
     }
 
+    /*** Cover Photos ***/
+    match /covers/{uid}/{file=**} {
+      // READ policy — signed-in users can read
+      allow read: if isSignedIn();
+
+      // Only the owner can upload/replace/delete; enforce size & MIME
+      allow write: if isSignedIn()
+        && request.auth.uid == uid
+        && withinAvatarLimits();
+    }
+
     /*** Conversation attachments ***/
     // Suggested canonical path: /conversations/{cid}/attachments/{fileId}
     match /conversations/{cid}/attachments/{fileId} {

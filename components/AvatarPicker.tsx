@@ -1,11 +1,8 @@
 // AvatarPicker.tsx
 import * as ImagePicker from 'expo-image-picker';
-import { getApp } from 'firebase/app';
-import { getAuth, updateProfile } from 'firebase/auth';
-import { doc, getFirestore, updateDoc } from 'firebase/firestore';
-import { getDownloadURL, getStorage, ref, uploadBytesResumable } from 'firebase/storage';
 import React, { useState } from 'react';
 import { Alert, Image, Pressable, Text, View } from 'react-native';
+import { uploadImageAsync } from '../firebase';
 
 export default function AvatarPicker({ currentUrl }: { currentUrl?: string }) {
   const [uploading, setUploading] = useState(false);
@@ -29,49 +26,15 @@ export default function AvatarPicker({ currentUrl }: { currentUrl?: string }) {
 
       const asset = res.assets[0];
       const uri = asset.uri;
-      const mime = asset.mimeType || 'image/jpeg'; // Expo provides this for most images
 
       setUploading(true);
 
-      // 2) Convert to blob
-      const blob = await (await fetch(uri)).blob();
+      // 2) Upload using mock Firebase
+      const downloadURL = await uploadImageAsync(uri);
 
-      // 3) Build a safe path & filename
-      const app = getApp();
-      const auth = getAuth(app);
-      const uid = auth.currentUser?.uid;
-      if (!uid) throw new Error('Not signed in');
-
-      const storage = getStorage(app);
-      const ts = Date.now();
-      const ext = mime.includes('png') ? 'png' : 'jpg';
-      const storageRef = ref(storage, `avatars/${uid}/avatar_${ts}.${ext}`);
-
-      // 4) Upload with resumable + contentType
-      const task = uploadBytesResumable(storageRef, blob, { contentType: mime });
-
-      await new Promise<void>((resolve, reject) => {
-        task.on(
-          'state_changed',
-          // optional: progress => console.log(progress.bytesTransferred / progress.totalBytes),
-          undefined,
-          (err) => reject(err),
-          () => resolve()
-        );
-      });
-
-      // 5) Get URL and save to profile (Auth + Firestore)
-      const downloadURL = await getDownloadURL(task.snapshot.ref);
-
-      // Tight coupling: keep both Auth.displayName/photoURL and Firestore in sync
-      await updateProfile(auth.currentUser!, { photoURL: downloadURL });
-
-      const db = getFirestore(app);
-      await updateDoc(doc(db, 'users', uid), { photoURL: downloadURL, photoUpdatedAt: ts });
-
-      // 6) Bust any stale caches in <Image> by changing its key/uri param
+      // 3) Bust any stale caches in <Image> by changing its key/uri param
       setCacheBust(Date.now());
-      Alert.alert('Success', 'Avatar updated.');
+      Alert.alert('Success', 'Avatar updated. (Mock)');
     } catch (e: any) {
       console.error('Avatar upload failed:', e?.message || e);
       Alert.alert('Upload failed', e?.message || 'Unknown error');

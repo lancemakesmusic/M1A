@@ -31,20 +31,13 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "firebase": {
-        "apiKey": "AIzaSyDOEDqVKGBxpCFpQliBiIdNX5ebhWdmhHQ",
-        "authDomain": "m1alive.firebaseapp.com",
-        "projectId": "m1alive",
-        "storageBucket": "m1alive.appspot.com",
-        "messagingSenderId": "83002254287",
-        "appId": "1:83002254287:web:xxxxxxxxxxxxxxxxxxxxxx"
-      },
       "eas": {
         "projectId": "replace-with-your-EAS-project-id-if-using-EAS"
       }
