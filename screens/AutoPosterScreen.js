@@ -20,7 +20,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { db as firestore, functions, httpsCallable } from '../firebase';
 
 // EternalMemoriesPro Backend Configuration
-const BACKEND_BASE_URL = 'http://localhost:5000'; // Update this to your backend URL
+const BACKEND_BASE_URL = 'http://127.0.0.1:5000'; // Update this to your backend URL
 
 export default function AutoPosterScreen({ navigation }) {
   const { user } = useAuth();

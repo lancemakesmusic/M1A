@@ -35,14 +35,14 @@ export default function HomeScreen({ navigation }) {
       color: '#007AFF',
       onPress: () => navigation.navigate('EventBooking'),
     },
-    {
-      id: '2',
-      title: 'M1A',
-      description: 'AI-powered booking agent that can help you with everything Merkaba',
-      icon: 'rocket',
-      color: '#9C27B0',
-      onPress: () => navigation.navigate('M1APersonalization'),
-    },
+         {
+           id: '2',
+           title: 'M1A',
+           description: 'AI-powered booking agent that can help you with everything Merkaba',
+           icon: 'rocket',
+           color: '#9C27B0',
+           onPress: () => navigation.navigate('M1ADashboard'),
+         },
     {
       id: '3',
       title: 'Services',

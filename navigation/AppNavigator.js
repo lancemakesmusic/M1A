@@ -9,7 +9,9 @@ import AutoPosterScreen from '../screens/AutoPosterScreen';
 import EventBookingScreen from '../screens/EventBookingScreen';
 import ExploreScreen from '../screens/ExploreScreen';
 import HomeScreen from '../screens/HomeScreen';
+import M1ADashboardScreen from '../screens/M1ADashboardScreen';
 import M1APersonalizationScreen from '../screens/M1APersonalizationScreen';
+import M1ASettingsScreen from '../screens/M1ASettingsScreen';
 import MessagesScreen from '../screens/MessagesScreen';
 import ProfileEditScreen from '../screens/ProfileEditScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -37,11 +39,21 @@ function HomeStackNavigator() {
         component={AutoPosterScreen}
         options={{ headerShown: false }}
       />
-      <Stack.Screen
-        name="M1APersonalization"
-        component={M1APersonalizationScreen}
-        options={{ headerShown: false }}
-      />
+             <Stack.Screen
+               name="M1APersonalization"
+               component={M1APersonalizationScreen}
+               options={{ headerShown: false }}
+             />
+             <Stack.Screen
+               name="M1ADashboard"
+               component={M1ADashboardScreen}
+               options={{ headerShown: false }}
+             />
+             <Stack.Screen
+               name="M1ASettings"
+               component={M1ASettingsScreen}
+               options={{ headerShown: false }}
+             />
     </Stack.Navigator>
   );
 }

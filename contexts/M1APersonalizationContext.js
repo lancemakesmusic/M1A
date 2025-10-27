@@ -120,6 +120,171 @@ export function M1APersonalizationProvider({ children }) {
     await savePreferences({ tutorialCompleted: true });
   };
 
+  const getTutorialSteps = () => {
+    if (!userPersona) return [];
+    
+    const personaSteps = {
+      promoter: [
+        {
+          title: 'Welcome to M1A!',
+          description: 'Your AI-powered event promotion assistant',
+          icon: 'rocket',
+          content: 'M1A helps you promote events, manage social media, and track analytics all in one place.',
+        },
+        {
+          title: 'Create Your First Event',
+          description: 'Set up events quickly and efficiently',
+          icon: 'add-circle',
+          content: 'Use the "Schedule an Event" button to create your first event. Add details, set dates, and configure pricing.',
+        },
+        {
+          title: 'Social Media Integration',
+          description: 'Connect your social platforms',
+          icon: 'share-social',
+          content: 'Link your Instagram, Facebook, and Twitter accounts to automatically promote your events.',
+        },
+        {
+          title: 'Analytics Dashboard',
+          description: 'Track your event performance',
+          icon: 'analytics',
+          content: 'Monitor ticket sales, social engagement, and revenue in real-time.',
+        },
+      ],
+      coordinator: [
+        {
+          title: 'Event Coordination Made Easy',
+          description: 'Plan and execute flawless events',
+          icon: 'calendar',
+          content: 'M1A helps you coordinate every aspect of your events from planning to execution.',
+        },
+        {
+          title: 'Vendor Management',
+          description: 'Keep track of all your vendors',
+          icon: 'business',
+          content: 'Manage contracts, payments, and communications with all your event vendors.',
+        },
+        {
+          title: 'Timeline Builder',
+          description: 'Create detailed event timelines',
+          icon: 'time',
+          content: 'Build comprehensive timelines and keep everyone on schedule.',
+        },
+        {
+          title: 'Budget Tracking',
+          description: 'Monitor your event budget',
+          icon: 'card',
+          content: 'Track expenses, manage payments, and stay within budget.',
+        },
+      ],
+      wedding_planner: [
+        {
+          title: 'Wedding Planning Studio',
+          description: 'Create magical moments for couples',
+          icon: 'heart',
+          content: 'M1A helps you plan beautiful weddings with ease and attention to detail.',
+        },
+        {
+          title: 'Vendor Portfolio',
+          description: 'Showcase your preferred vendors',
+          icon: 'images',
+          content: 'Build a portfolio of trusted vendors to recommend to your couples.',
+        },
+        {
+          title: 'Design Boards',
+          description: 'Visualize wedding concepts',
+          icon: 'color-palette',
+          content: 'Create beautiful design boards to help couples visualize their special day.',
+        },
+        {
+          title: 'Timeline Management',
+          description: 'Keep the big day on track',
+          icon: 'list',
+          content: 'Create detailed timelines for the wedding day and all related events.',
+        },
+      ],
+      venue_owner: [
+        {
+          title: 'Venue Management Hub',
+          description: 'Maximize your space potential',
+          icon: 'business',
+          content: 'M1A helps you manage bookings, track revenue, and grow your venue business.',
+        },
+        {
+          title: 'Booking Calendar',
+          description: 'Manage your venue schedule',
+          icon: 'calendar',
+          content: 'View and manage all your venue bookings in one comprehensive calendar.',
+        },
+        {
+          title: 'Revenue Analytics',
+          description: 'Track your venue performance',
+          icon: 'trending-up',
+          content: 'Monitor revenue, occupancy rates, and identify growth opportunities.',
+        },
+        {
+          title: 'Client Portal',
+          description: 'Streamline client communications',
+          icon: 'people',
+          content: 'Provide clients with easy access to booking details and venue information.',
+        },
+      ],
+      performer: [
+        {
+          title: 'Performance Dashboard',
+          description: 'Manage your entertainment business',
+          icon: 'musical-notes',
+          content: 'M1A helps you manage bookings, showcase your work, and grow your performance business.',
+        },
+        {
+          title: 'Booking Management',
+          description: 'Track your performance schedule',
+          icon: 'calendar',
+          content: 'Manage all your performance bookings and availability in one place.',
+        },
+        {
+          title: 'Portfolio Showcase',
+          description: 'Display your best work',
+          icon: 'camera',
+          content: 'Create a stunning portfolio to attract new clients and opportunities.',
+        },
+        {
+          title: 'Earnings Tracker',
+          description: 'Monitor your performance income',
+          icon: 'cash',
+          content: 'Track your earnings, manage payments, and plan for future growth.',
+        },
+      ],
+      vendor: [
+        {
+          title: 'Service Management',
+          description: 'Connect with clients and grow your business',
+          icon: 'construct',
+          content: 'M1A helps you manage your service business and connect with event professionals.',
+        },
+        {
+          title: 'Service Catalog',
+          description: 'Showcase your offerings',
+          icon: 'list',
+          content: 'Create detailed service listings with pricing and availability.',
+        },
+        {
+          title: 'Quote Generator',
+          description: 'Create professional quotes quickly',
+          icon: 'document-text',
+          content: 'Generate detailed quotes and proposals for potential clients.',
+        },
+        {
+          title: 'Client Management',
+          description: 'Build lasting client relationships',
+          icon: 'people',
+          content: 'Track client interactions, manage contracts, and build your reputation.',
+        },
+      ],
+    };
+
+    return personaSteps[userPersona.id] || personaSteps.promoter;
+  };
+
   const value = {
     // State
     userPersona,
@@ -140,6 +305,7 @@ export function M1APersonalizationProvider({ children }) {
     getPersonaIcon,
     shouldShowTutorial,
     markTutorialComplete,
+    getTutorialSteps,
   };
 
   return (
