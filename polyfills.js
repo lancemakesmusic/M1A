@@ -1,10 +1,19 @@
-// Polyfills for React Native
+// Polyfills for React Native compatibility
 import 'react-native-get-random-values';
 
-// Polyfill for idb (IndexedDB) - not available in React Native
-if (typeof global !== 'undefined' && !global.indexedDB) {
-  global.indexedDB = {
-    open: () => Promise.resolve({}),
-    deleteDatabase: () => Promise.resolve(),
+// Mock idb for React Native
+if (typeof global !== 'undefined') {
+  global.idb = {
+    openDB: () => Promise.resolve({
+      close: () => {},
+      transaction: () => ({
+        objectStore: () => ({
+          get: () => Promise.resolve(undefined),
+          put: () => Promise.resolve(),
+          delete: () => Promise.resolve(),
+          clear: () => Promise.resolve(),
+        }),
+      }),
+    }),
   };
 }
