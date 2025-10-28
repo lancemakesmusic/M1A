@@ -1,32 +1,45 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AnimatedCard from '../components/AnimatedCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function HomeScreen({ navigation }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { theme } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [error, setError] = useState(null);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // Simulate refresh
-    setTimeout(() => setRefreshing(false), 1000);
-  };
+    setError(null);
+    try {
+      // Simulate refresh with potential error
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Simulate occasional error for testing
+      if (Math.random() < 0.1) {
+        throw new Error('Failed to refresh data');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
-  const primaryServices = [
+  const primaryServices = useMemo(() => [
     {
       id: '1',
       title: 'Schedule an Event',
@@ -35,14 +48,14 @@ export default function HomeScreen({ navigation }) {
       color: '#007AFF',
       onPress: () => navigation.navigate('EventBooking'),
     },
-         {
-           id: '2',
-           title: 'M1A',
-           description: 'AI-powered booking agent that can help you with everything Merkaba',
-           icon: 'rocket',
-           color: '#9C27B0',
-           onPress: () => navigation.navigate('M1ADashboard'),
-         },
+    {
+      id: '2',
+      title: 'M1A',
+      description: 'AI-powered booking agent that can help you with everything Merkaba',
+      icon: 'rocket',
+      color: '#9C27B0',
+      onPress: () => navigation.navigate('M1ADashboard'),
+    },
     {
       id: '3',
       title: 'Services',
@@ -59,7 +72,7 @@ export default function HomeScreen({ navigation }) {
       color: '#FF9500',
       onPress: () => Alert.alert('Bar Menu', 'Bar services feature coming soon!'),
     },
-  ];
+  ], [navigation]);
 
   const menuItems = [
     { title: 'Profile', icon: 'person', onPress: () => navigation.navigate('ProfileTab') },
@@ -82,6 +95,17 @@ export default function HomeScreen({ navigation }) {
           <Text style={[styles.headerTitle, { color: theme.text }]}>Home</Text>
         </View>
 
+        {/* Error Display */}
+        {error && (
+          <View style={[styles.errorContainer, { backgroundColor: theme.error + '20', borderColor: theme.error }]}>
+            <Ionicons name="alert-circle" size={20} color={theme.error} />
+            <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
+            <TouchableOpacity onPress={() => setError(null)}>
+              <Ionicons name="close" size={20} color={theme.error} />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
           <Text style={[styles.welcomeText, { color: theme.subtext }]}>Welcome back,</Text>
@@ -97,7 +121,7 @@ export default function HomeScreen({ navigation }) {
           
           <View style={styles.servicesContainer}>
             {primaryServices.map((service) => (
-              <TouchableOpacity
+              <AnimatedCard
                 key={service.id}
                 style={[
                   styles.serviceCard, 
@@ -107,7 +131,9 @@ export default function HomeScreen({ navigation }) {
                   }
                 ]}
                 onPress={service.onPress}
-                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${service.title}. ${service.description}`}
+                accessibilityHint="Tap to open this service"
               >
                 {/* Color accent on the left */}
                 <View style={[styles.colorAccent, { backgroundColor: service.color }]} />
@@ -120,7 +146,7 @@ export default function HomeScreen({ navigation }) {
                   <Text style={[styles.serviceDescription, { color: theme.subtext }]}>{service.description}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
-              </TouchableOpacity>
+              </AnimatedCard>
             ))}
           </View>
         </View>
@@ -350,5 +376,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 16,
     flex: 1,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    margin: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  errorText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 14,
   },
 });

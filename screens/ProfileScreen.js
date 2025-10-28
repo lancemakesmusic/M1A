@@ -166,8 +166,8 @@ export default function ProfileScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} />
         }
+        contentContainerStyle={styles.scrollContent}
       >
-
         {/* Profile Header */}
         <View style={[styles.profileHeader, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
           {/* Cover Photo */}
@@ -582,5 +582,8 @@ const styles = StyleSheet.create({
   editText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  scrollContent: {
+    paddingTop: 0, // Remove top padding to eliminate whitespace
   },
 });

@@ -61,35 +61,35 @@ const eventTypes = [
 ];
 
 // Pricing structure - moved outside component
-const pricing = {
+  const pricing = {
     barPackages: {
-        'No Bar – (Free)': { basePrice: 0, hourlyRate: 0 },
-        'Well Open Bar – $25/person (4 hrs, +$5/hr after)': { basePrice: 25, hourlyRate: 5, includedHours: 4 },
-        'Standard Open Bar – $35/person (4 hrs, +$7/hr after)': { basePrice: 35, hourlyRate: 7, includedHours: 4 },
-        'Deluxe Open Bar – $50/person (4 hrs, +$10/hr after)': { basePrice: 50, hourlyRate: 10, includedHours: 4 },
+      'No Bar – (Free)': { basePrice: 0, hourlyRate: 0 },
+      'Well Open Bar – $25/person (4 hrs, +$5/hr after)': { basePrice: 25, hourlyRate: 5, includedHours: 4 },
+      'Standard Open Bar – $35/person (4 hrs, +$7/hr after)': { basePrice: 35, hourlyRate: 7, includedHours: 4 },
+      'Deluxe Open Bar – $50/person (4 hrs, +$10/hr after)': { basePrice: 50, hourlyRate: 10, includedHours: 4 },
     },
     addOnServices: {
-        'Extra Speakers': 150,
-        'Extra Lighting': 200,
-        'Fog Machine': 100,
-        'Photography': 150,
-        'Videography': 200,
-        'Highlight Reel and video edit': 500,
-        'MC Services': 100,
-        'Live DJ': 600,
-        'Audio Recording of Speeches': 75,
-        'Flier/Graphic Design': 150,
-        'Event Promotion': 300,
-        'Pyrotechnics': 1000,
-        'Basic Fireworks Display': 5000,
-        'Premium Fireworks Display': 10000,
+      'Extra Speakers': 150,
+      'Extra Lighting': 200,
+      'Fog Machine': 100,
+      'Photography': 150,
+      'Videography': 200,
+      'Highlight Reel and video edit': 500,
+      'MC Services': 100,
+      'Live DJ': 600,
+      'Audio Recording of Speeches': 75,
+      'Flier/Graphic Design': 150,
+      'Event Promotion': 300,
+      'Pyrotechnics': 1000,
+      'Basic Fireworks Display': 5000,
+      'Premium Fireworks Display': 10000,
     },
     bundlePackages: {
-        'Performance Package – $1,000 (Speakers, Lighting, DJ, MC)': 1000,
-        'Media Coverage Package – $1,000 (Videography, Audio, Reel, Promotion)': 1000,
-        'Premium Celebration Package – $16,000 (Pyro + Fireworks)': 16000,
+      'Performance Package – $1,000 (Speakers, Lighting, DJ, MC)': 1000,
+      'Media Coverage Package – $1,000 (Videography, Audio, Reel, Promotion)': 1000,
+      'Premium Celebration Package – $16,000 (Pyro + Fireworks)': 16000,
     },
-};
+  };
 
 export default function EventBookingScreen({ navigation }) {
     const { theme } = useTheme();
@@ -141,126 +141,126 @@ export default function EventBookingScreen({ navigation }) {
     const [totalCost, setTotalCost] = useState(0);
     const [breakdown, setBreakdown] = useState({});
 
-    // Auto-fill form with user data
-    useEffect(() => {
-        if (user) {
-            const email = user.email || '';
-            const nameParts = email.split('@')[0].split('.');
-            const firstName = nameParts[0] || '';
-            const lastName = nameParts[1] || '';
-            
-            setFormData(prev => ({
-                ...prev,
-                firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1),
-                lastName: lastName.charAt(0).toUpperCase() + lastName.slice(1),
-                email: email,
-            }));
-        }
-    }, [user]);
+  // Auto-fill form with user data
+  useEffect(() => {
+    if (user) {
+      const email = user.email || '';
+      const nameParts = email.split('@')[0].split('.');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts[1] || '';
+      
+      setFormData(prev => ({
+        ...prev,
+        firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1),
+        lastName: lastName.charAt(0).toUpperCase() + lastName.slice(1),
+        email: email,
+      }));
+    }
+  }, [user]);
 
-    // Calculate total cost
-    useEffect(() => {
-        calculateTotal();
+  // Calculate total cost
+  useEffect(() => {
+    calculateTotal();
     }, [formData.barPackage, formData.guestCount, formData.duration, formData.addOnServices, formData.bundlePackage, formData.isWeekday]);
 
 
-    // Date picker handlers
-    const onDateChange = (event, selectedDate) => {
-        setShowDatePicker(false);
-        if (selectedDate) {
-            setSelectedDate(selectedDate);
-            const formattedDate = selectedDate.toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            });
+  // Date picker handlers
+  const onDateChange = (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setSelectedDate(selectedDate);
+      const formattedDate = selectedDate.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
             console.log('Date selected:', formattedDate);
             updateFormData('eventDate', formattedDate);
-            
-            // Auto-detect weekday for discount
-            const dayOfWeek = selectedDate.getDay();
+      
+      // Auto-detect weekday for discount
+      const dayOfWeek = selectedDate.getDay();
             const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4;
             updateFormData('isWeekday', isWeekday);
-        }
-    };
+    }
+  };
 
-    const onTimeChange = (event, selectedTime) => {
-        setShowTimePicker(false);
-        if (selectedTime) {
-            setSelectedTime(selectedTime);
-            const formattedTime = selectedTime.toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            });
+  const onTimeChange = (event, selectedTime) => {
+    setShowTimePicker(false);
+    if (selectedTime) {
+      setSelectedTime(selectedTime);
+      const formattedTime = selectedTime.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
             console.log('Time selected:', formattedTime);
             updateFormData('eventStartTime', formattedTime);
-        }
-    };
+    }
+  };
 
     const calculateTotal = useCallback(() => {
-        let total = 0;
-        let breakdown = {};
+    let total = 0;
+    let breakdown = {};
 
-        // Bar package calculation
-        const barPackage = pricing.barPackages[formData.barPackage];
-        if (barPackage.basePrice > 0) {
-            const baseCost = barPackage.basePrice * formData.guestCount;
+    // Bar package calculation
+    const barPackage = pricing.barPackages[formData.barPackage];
+    if (barPackage.basePrice > 0) {
+      const baseCost = barPackage.basePrice * formData.guestCount;
             let extraHours = Math.max(0, formData.duration - barPackage.includedHours);
-            let extraCost = extraHours * barPackage.hourlyRate * formData.guestCount;
-            let barTotal = baseCost + extraCost;
-            
-            breakdown.barPackage = {
-                name: formData.barPackage,
-                baseCost,
-                extraCost,
-                total: barTotal,
-            };
-            total += barTotal;
-        }
+      let extraCost = extraHours * barPackage.hourlyRate * formData.guestCount;
+      let barTotal = baseCost + extraCost;
+      
+      breakdown.barPackage = {
+        name: formData.barPackage,
+        baseCost,
+        extraCost,
+        total: barTotal,
+      };
+      total += barTotal;
+    }
 
-        // Add-on services calculation
-        let addOnTotal = 0;
-        formData.addOnServices.forEach(service => {
-            const serviceCost = pricing.addOnServices[service];
-            if (serviceCost) {
-                addOnTotal += serviceCost;
-            }
-        });
-        if (addOnTotal > 0) {
-            breakdown.addOnServices = {
-                services: formData.addOnServices,
-                total: addOnTotal,
-            };
-            total += addOnTotal;
-        }
+    // Add-on services calculation
+    let addOnTotal = 0;
+    formData.addOnServices.forEach(service => {
+      const serviceCost = pricing.addOnServices[service];
+      if (serviceCost) {
+        addOnTotal += serviceCost;
+      }
+    });
+    if (addOnTotal > 0) {
+      breakdown.addOnServices = {
+        services: formData.addOnServices,
+        total: addOnTotal,
+      };
+      total += addOnTotal;
+    }
 
-        // Bundle package calculation
-        if (formData.bundlePackage) {
-            const bundleCost = pricing.bundlePackages[formData.bundlePackage];
-            if (bundleCost) {
-                breakdown.bundlePackage = {
-                    name: formData.bundlePackage,
-                    total: bundleCost,
-                };
-                total += bundleCost;
-            }
-        }
+    // Bundle package calculation
+    if (formData.bundlePackage) {
+      const bundleCost = pricing.bundlePackages[formData.bundlePackage];
+      if (bundleCost) {
+        breakdown.bundlePackage = {
+          name: formData.bundlePackage,
+          total: bundleCost,
+        };
+        total += bundleCost;
+      }
+    }
 
-        // Weekday discount (10% off for Monday-Thursday)
-        if (formData.isWeekday) {
-            breakdown.weekdayDiscount = {
-                originalTotal: total,
-                discount: total * 0.1,
-                finalTotal: total * 0.9,
-            };
-            total = total * 0.9;
-        }
+    // Weekday discount (10% off for Monday-Thursday)
+    if (formData.isWeekday) {
+      breakdown.weekdayDiscount = {
+        originalTotal: total,
+        discount: total * 0.1,
+        finalTotal: total * 0.9,
+      };
+      total = total * 0.9;
+    }
 
-        breakdown.finalTotal = total;
-        setTotalCost(total);
-        setBreakdown(breakdown);
+    breakdown.finalTotal = total;
+    setTotalCost(total);
+    setBreakdown(breakdown);
     }, [formData.barPackage, formData.guestCount, formData.duration, formData.addOnServices, formData.bundlePackage, formData.isWeekday]);
 
     // Validation functions
@@ -314,7 +314,7 @@ export default function EventBookingScreen({ navigation }) {
     };
 
     // Navigation functions
-    const nextStep = () => {
+  const nextStep = () => {
         console.log('Next button pressed, current step:', currentStep);
         console.log('Form data:', formData);
         
@@ -322,18 +322,18 @@ export default function EventBookingScreen({ navigation }) {
         if (isValid) {
             console.log('Validation passed, moving to next step');
             if (currentStep < totalSteps) {
-                setCurrentStep(currentStep + 1);
+      setCurrentStep(currentStep + 1);
             }
         } else {
             console.log('Validation failed, errors:', errors);
-        }
-    };
+    }
+  };
 
-    const prevStep = () => {
-        if (currentStep > 1) {
-            setCurrentStep(currentStep - 1);
-        }
-    };
+  const prevStep = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
 
     const updateFormData = (field, value) => {
         console.log('Updating form data:', field, '=', value);
@@ -365,13 +365,13 @@ export default function EventBookingScreen({ navigation }) {
         // Simulate API call
         setTimeout(() => {
             setIsSubmitting(false);
-            Alert.alert(
+    Alert.alert(
                 'Booking Request Submitted! 🎉',
                 `Your event booking request has been submitted successfully!\n\nTotal Cost: $${totalCost.toFixed(2)}\n\nWe'll send you a detailed agreement for review within 24 hours.`,
-                [
-                    { text: 'OK', onPress: () => navigation.goBack() }
-                ]
-            );
+      [
+        { text: 'OK', onPress: () => navigation.goBack() }
+      ]
+    );
         }, 2000);
     };
 
@@ -530,83 +530,83 @@ export default function EventBookingScreen({ navigation }) {
             </View>
 
             <View style={styles.contactForm}>
-                <View style={styles.inputRow}>
-                    <View style={styles.halfInput}>
-                        <Text style={[styles.label, { color: theme.text }]}>First Name *</Text>
-                        <TextInput
+        <View style={styles.inputRow}>
+          <View style={styles.halfInput}>
+            <Text style={[styles.label, { color: theme.text }]}>First Name *</Text>
+            <TextInput
                             style={[
                                 styles.input,
                                 { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border },
                                 errors.firstName && { borderColor: '#FF3B30' }
                             ]}
-                            value={formData.firstName}
-                            onChangeText={(text) => updateFormData('firstName', text)}
-                            placeholder="First name"
-                            placeholderTextColor={theme.subtext}
-                        />
+              value={formData.firstName}
+              onChangeText={(text) => updateFormData('firstName', text)}
+              placeholder="First name"
+              placeholderTextColor={theme.subtext}
+            />
                         {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
-                    </View>
-                    <View style={styles.halfInput}>
-                        <Text style={[styles.label, { color: theme.text }]}>Last Name *</Text>
-                        <TextInput
+          </View>
+          <View style={styles.halfInput}>
+            <Text style={[styles.label, { color: theme.text }]}>Last Name *</Text>
+            <TextInput
                             style={[
                                 styles.input,
                                 { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border },
                                 errors.lastName && { borderColor: '#FF3B30' }
                             ]}
-                            value={formData.lastName}
-                            onChangeText={(text) => updateFormData('lastName', text)}
-                            placeholder="Last name"
-                            placeholderTextColor={theme.subtext}
-                        />
+              value={formData.lastName}
+              onChangeText={(text) => updateFormData('lastName', text)}
+              placeholder="Last name"
+              placeholderTextColor={theme.subtext}
+            />
                         {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
-                    </View>
-                </View>
+          </View>
+        </View>
 
-                <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: theme.text }]}>Email Address *</Text>
-                    <TextInput
+        <View style={styles.inputGroup}>
+          <Text style={[styles.label, { color: theme.text }]}>Email Address *</Text>
+          <TextInput
                         style={[
                             styles.input,
                             { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border },
                             errors.email && { borderColor: '#FF3B30' }
                         ]}
-                        value={formData.email}
-                        onChangeText={(text) => updateFormData('email', text)}
-                        placeholder="your@email.com"
-                        placeholderTextColor={theme.subtext}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                    />
+            value={formData.email}
+            onChangeText={(text) => updateFormData('email', text)}
+            placeholder="your@email.com"
+            placeholderTextColor={theme.subtext}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
                     {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-                </View>
+        </View>
 
-                <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: theme.text }]}>Phone Number</Text>
-                    <TextInput
-                        style={[styles.input, { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border }]}
-                        value={formData.phone}
-                        onChangeText={(text) => updateFormData('phone', text)}
-                        placeholder="(555) 123-4567"
-                        placeholderTextColor={theme.subtext}
-                        keyboardType="phone-pad"
-                    />
-                </View>
-            </View>
+        <View style={styles.inputGroup}>
+          <Text style={[styles.label, { color: theme.text }]}>Phone Number</Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border }]}
+            value={formData.phone}
+            onChangeText={(text) => updateFormData('phone', text)}
+            placeholder="(555) 123-4567"
+            placeholderTextColor={theme.subtext}
+            keyboardType="phone-pad"
+          />
+        </View>
+      </View>
 
             <View style={[styles.trustSignals, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
                 <View style={styles.trustItem}>
                     <Ionicons name="shield-checkmark" size={20} color="#34C759" />
                     <Text style={[styles.trustText, { color: theme.text }]}>Secure & Private</Text>
-                </View>
+          </View>
                 <View style={styles.trustItem}>
                     <Ionicons name="people" size={20} color="#007AFF" />
                     <Text style={[styles.trustText, { color: theme.text }]}>1000+ Events Hosted</Text>
-                </View>
+          </View>
                 <View style={styles.trustItem}>
                     <Ionicons name="star" size={20} color="#FF9500" />
                     <Text style={[styles.trustText, { color: theme.text }]}>4.9/5 Rating</Text>
-                </View>
+        </View>
             </View>
         </View>
     );
@@ -625,26 +625,26 @@ export default function EventBookingScreen({ navigation }) {
                 <View style={styles.inputGroup}>
                     <Text style={[styles.label, { color: theme.text }]}>Duration</Text>
                     <View style={styles.durationSelector}>
-                        {[2, 3, 4, 5, 6, 7, 8].map((hours) => (
-                            <TouchableOpacity
-                                key={hours}
-                                style={[
+              {[2, 3, 4, 5, 6, 7, 8].map((hours) => (
+                <TouchableOpacity
+                  key={hours}
+                  style={[
                                     styles.durationButton,
-                                    { backgroundColor: theme.cardBackground, borderColor: theme.border },
+                    { backgroundColor: theme.cardBackground, borderColor: theme.border },
                                     formData.duration === hours && { backgroundColor: theme.primary }
-                                ]}
+                  ]}
                                 onPress={() => updateFormData('duration', hours)}
-                            >
-                                <Text style={[
+                >
+                  <Text style={[
                                     styles.durationButtonText,
                                     { color: formData.duration === hours ? '#fff' : theme.text }
-                                ]}>
-                                    {hours}h
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
+                  ]}>
+                    {hours}h
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
 
                 <View style={styles.inputGroup}>
                     <Text style={[styles.label, { color: theme.text }]}>Special Requirements</Text>
@@ -659,7 +659,7 @@ export default function EventBookingScreen({ navigation }) {
                     />
                 </View>
 
-                <TouchableOpacity
+                  <TouchableOpacity
                     style={[styles.checkboxRow, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
                     onPress={() => updateFormData('isWeekday', !formData.isWeekday)}
                 >
@@ -671,14 +671,14 @@ export default function EventBookingScreen({ navigation }) {
                     <View style={styles.checkboxContent}>
                         <Text style={[styles.checkboxLabel, { color: theme.text }]}>
                             Monday–Thursday Event
-                        </Text>
+                    </Text>
                         <Text style={[styles.checkboxSubtext, { color: theme.subtext }]}>
                             Get 10% off your total booking
                         </Text>
                     </View>
-                </TouchableOpacity>
+                  </TouchableOpacity>
             </View>
-        </View>
+          </View>
     );
 
     // Step 4: Services & Packages
@@ -689,96 +689,96 @@ export default function EventBookingScreen({ navigation }) {
                 <Text style={[styles.stepSubtitle, { color: theme.subtext }]}>
                     Choose what you need for your event
                 </Text>
-            </View>
+      </View>
 
             <ScrollView style={styles.servicesScroll} showsVerticalScrollIndicator={false}>
-                {/* Bar Package */}
+      {/* Bar Package */}
                 <View style={[styles.serviceSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
                     <Text style={[styles.serviceSectionTitle, { color: theme.primary }]}>Bar Package</Text>
-                    {Object.keys(pricing.barPackages).map((packageName) => (
-                        <TouchableOpacity
-                            key={packageName}
-                            style={[
-                                styles.optionCard,
+        {Object.keys(pricing.barPackages).map((packageName) => (
+          <TouchableOpacity
+            key={packageName}
+            style={[
+              styles.optionCard,
                                 { backgroundColor: theme.background, borderColor: theme.border },
-                                formData.barPackage === packageName && { borderColor: theme.primary, borderWidth: 2 }
-                            ]}
-                            onPress={() => updateFormData('barPackage', packageName)}
-                        >
+              formData.barPackage === packageName && { borderColor: theme.primary, borderWidth: 2 }
+            ]}
+            onPress={() => updateFormData('barPackage', packageName)}
+          >
                             <View style={[styles.radioCircle, { borderColor: theme.border }]}>
-                                {formData.barPackage === packageName && (
-                                    <View style={[styles.radioInner, { backgroundColor: theme.primary }]} />
-                                )}
-                            </View>
-                            <View style={styles.optionContent}>
-                                <Text style={[styles.optionTitle, { color: theme.text }]}>{packageName}</Text>
-                                {packageName !== 'No Bar – (Free)' && (
-                                    <Text style={[styles.optionSubtitle, { color: theme.subtext }]}>
-                                        {pricing.barPackages[packageName].basePrice}/person for {pricing.barPackages[packageName].includedHours} hours
-                                    </Text>
-                                )}
-                            </View>
-                        </TouchableOpacity>
-                    ))}
-                </View>
+              {formData.barPackage === packageName && (
+                <View style={[styles.radioInner, { backgroundColor: theme.primary }]} />
+              )}
+            </View>
+            <View style={styles.optionContent}>
+              <Text style={[styles.optionTitle, { color: theme.text }]}>{packageName}</Text>
+              {packageName !== 'No Bar – (Free)' && (
+                <Text style={[styles.optionSubtitle, { color: theme.subtext }]}>
+                  {pricing.barPackages[packageName].basePrice}/person for {pricing.barPackages[packageName].includedHours} hours
+                </Text>
+              )}
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-                {/* Add-On Services */}
+      {/* Add-On Services */}
                 <View style={[styles.serviceSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
                     <Text style={[styles.serviceSectionTitle, { color: theme.primary }]}>Add-On Services</Text>
-                    <View style={styles.servicesGrid}>
-                        {Object.keys(pricing.addOnServices).map((service) => (
-                            <TouchableOpacity
-                                key={service}
-                                style={[
-                                    styles.serviceCard,
+        <View style={styles.servicesGrid}>
+          {Object.keys(pricing.addOnServices).map((service) => (
+            <TouchableOpacity
+              key={service}
+              style={[
+                styles.serviceCard,
                                     { backgroundColor: theme.background, borderColor: theme.border },
-                                    formData.addOnServices.includes(service) && { borderColor: theme.primary, borderWidth: 2 }
-                                ]}
-                                onPress={() => toggleAddOnService(service)}
-                            >
+                formData.addOnServices.includes(service) && { borderColor: theme.primary, borderWidth: 2 }
+              ]}
+              onPress={() => toggleAddOnService(service)}
+            >
                                 <View style={[styles.checkbox, { borderColor: theme.border }]}>
-                                    {formData.addOnServices.includes(service) && (
-                                        <Ionicons name="checkmark" size={16} color={theme.primary} />
-                                    )}
-                                </View>
-                                <View style={styles.serviceContent}>
-                                    <Text style={[styles.serviceName, { color: theme.text }]}>{service}</Text>
-                                    <Text style={[styles.servicePrice, { color: theme.primary }]}>
-                                        ${pricing.addOnServices[service]}
-                                    </Text>
-                                </View>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
+                {formData.addOnServices.includes(service) && (
+                  <Ionicons name="checkmark" size={16} color={theme.primary} />
+                )}
+              </View>
+              <View style={styles.serviceContent}>
+                <Text style={[styles.serviceName, { color: theme.text }]}>{service}</Text>
+                <Text style={[styles.servicePrice, { color: theme.primary }]}>
+                  ${pricing.addOnServices[service]}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
 
-                {/* Bundle Packages */}
+      {/* Bundle Packages */}
                 <View style={[styles.serviceSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
                     <Text style={[styles.serviceSectionTitle, { color: theme.primary }]}>Bundle Packages</Text>
-                    {Object.keys(pricing.bundlePackages).map((bundle) => (
-                        <TouchableOpacity
-                            key={bundle}
-                            style={[
-                                styles.optionCard,
+        {Object.keys(pricing.bundlePackages).map((bundle) => (
+          <TouchableOpacity
+            key={bundle}
+            style={[
+              styles.optionCard,
                                 { backgroundColor: theme.background, borderColor: theme.border },
-                                formData.bundlePackage === bundle && { borderColor: theme.primary, borderWidth: 2 }
-                            ]}
-                            onPress={() => updateFormData('bundlePackage', bundle)}
-                        >
+              formData.bundlePackage === bundle && { borderColor: theme.primary, borderWidth: 2 }
+            ]}
+            onPress={() => updateFormData('bundlePackage', bundle)}
+          >
                             <View style={[styles.radioCircle, { borderColor: theme.border }]}>
-                                {formData.bundlePackage === bundle && (
-                                    <View style={[styles.radioInner, { backgroundColor: theme.primary }]} />
-                                )}
-                            </View>
-                            <View style={styles.optionContent}>
-                                <Text style={[styles.optionTitle, { color: theme.text }]}>{bundle}</Text>
-                                <Text style={[styles.optionSubtitle, { color: theme.primary }]}>
-                                    ${pricing.bundlePackages[bundle]}
-                                </Text>
-                            </View>
-                        </TouchableOpacity>
-                    ))}
-                </View>
+              {formData.bundlePackage === bundle && (
+                <View style={[styles.radioInner, { backgroundColor: theme.primary }]} />
+              )}
+            </View>
+            <View style={styles.optionContent}>
+              <Text style={[styles.optionTitle, { color: theme.text }]}>{bundle}</Text>
+              <Text style={[styles.optionSubtitle, { color: theme.primary }]}>
+                ${pricing.bundlePackages[bundle]}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
             </ScrollView>
 
             {/* Live Quote */}
@@ -855,8 +855,8 @@ export default function EventBookingScreen({ navigation }) {
                             <Text style={[styles.reviewLabel, { color: theme.subtext }]}>Phone:</Text>
                             <Text style={[styles.reviewValue, { color: theme.text }]}>{formData.phone}</Text>
                         </View>
-                    )}
-                </View>
+            )}
+          </View>
 
                 {/* Services */}
                 <View style={[styles.reviewSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
@@ -870,7 +870,7 @@ export default function EventBookingScreen({ navigation }) {
                             <Text style={[styles.reviewLabel, { color: theme.subtext }]}>Add-Ons:</Text>
                             <Text style={[styles.reviewValue, { color: theme.text }]}>
                                 {formData.addOnServices.join(', ')}
-                            </Text>
+          </Text>
                         </View>
                     )}
                     {formData.bundlePackage && (
@@ -922,48 +922,48 @@ export default function EventBookingScreen({ navigation }) {
                             ${totalCost.toFixed(2)}
                         </Text>
                     </View>
-                </View>
+        </View>
 
                 {/* Terms and Conditions */}
                 <View style={[styles.reviewSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-                    <TouchableOpacity
+        <TouchableOpacity
                         style={[styles.checkboxRow, { backgroundColor: theme.background, borderColor: theme.border }]}
-                        onPress={() => updateFormData('agreeToTerms', !formData.agreeToTerms)}
-                    >
+          onPress={() => updateFormData('agreeToTerms', !formData.agreeToTerms)}
+        >
                         <View style={[styles.checkbox, { borderColor: theme.border }]}>
-                            {formData.agreeToTerms && (
-                                <Ionicons name="checkmark" size={16} color={theme.primary} />
-                            )}
-                        </View>
+            {formData.agreeToTerms && (
+              <Ionicons name="checkmark" size={16} color={theme.primary} />
+            )}
+          </View>
                         <View style={styles.checkboxContent}>
-                            <Text style={[styles.checkboxLabel, { color: theme.text }]}>
+          <Text style={[styles.checkboxLabel, { color: theme.text }]}>
                                 I agree to the terms of service and privacy policy *
-                            </Text>
+          </Text>
                             <Text style={[styles.checkboxSubtext, { color: theme.subtext }]}>
                                 By checking this box, you confirm that you have read and agree to our terms of service and privacy policy.
                             </Text>
                         </View>
-                    </TouchableOpacity>
+        </TouchableOpacity>
                     {errors.agreeToTerms && <Text style={styles.errorText}>{errors.agreeToTerms}</Text>}
-                </View>
-            </ScrollView>
+      </View>
+    </ScrollView>
         </View>
-    );
+  );
 
-    return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <KeyboardAvoidingView
-                style={styles.keyboardView}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            >
-                {/* Header */}
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => navigation.goBack()}>
-                        <Ionicons name="arrow-back" size={24} color={theme.text} />
-                    </TouchableOpacity>
-                    <Text style={[styles.headerTitle, { color: theme.text }]}>Schedule an Event</Text>
-                    <View style={{ width: 24 }} />
-                </View>
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Schedule an Event</Text>
+          <View style={{ width: 24 }} />
+        </View>
 
                 {/* Progress Indicator */}
                 {renderProgressIndicator()}
@@ -992,8 +992,8 @@ export default function EventBookingScreen({ navigation }) {
                             <Text style={[styles.navButtonText, { color: theme.text }]}>Back</Text>
                         </TouchableOpacity>
                     )}
-                    
-                    <TouchableOpacity
+
+          <TouchableOpacity
                         style={[
                             styles.navButton,
                             styles.nextButton,
@@ -1009,15 +1009,15 @@ export default function EventBookingScreen({ navigation }) {
                             <>
                                 <Text style={[styles.navButtonText, { color: '#fff' }]}>
                                     {currentStep === totalSteps ? 'Submit Booking' : 'Next'}
-                                </Text>
+            </Text>
                                 <Ionicons name="arrow-forward" size={20} color="#fff" />
                             </>
                         )}
-                    </TouchableOpacity>
-                </View>
+          </TouchableOpacity>
+        </View>
 
                 {/* Modern Date Picker Modal */}
-                {showDatePicker && (
+        {showDatePicker && (
                     <View style={styles.modalOverlay}>
                         <View style={styles.modernPickerModal}>
                             <View style={styles.modalHeader}>
@@ -1027,21 +1027,21 @@ export default function EventBookingScreen({ navigation }) {
                                 </TouchableOpacity>
                             </View>
                             <View style={styles.pickerWrapper}>
-                                <DateTimePicker
-                                    value={selectedDate}
-                                    mode="date"
+          <DateTimePicker
+            value={selectedDate}
+            mode="date"
                                     display="spinner"
-                                    onChange={onDateChange}
-                                    minimumDate={new Date()}
+            onChange={onDateChange}
+            minimumDate={new Date()}
                                     style={styles.modernDateTimePicker}
-                                />
+          />
                             </View>
                         </View>
                     </View>
-                )}
-                
+        )}
+        
                 {/* Modern Time Picker Modal */}
-                {showTimePicker && (
+        {showTimePicker && (
                     <View style={styles.modalOverlay}>
                         <View style={styles.modernPickerModal}>
                             <View style={styles.modalHeader}>
@@ -1051,11 +1051,11 @@ export default function EventBookingScreen({ navigation }) {
                                 </TouchableOpacity>
                             </View>
                             <View style={styles.pickerWrapper}>
-                                <DateTimePicker
-                                    value={selectedTime}
-                                    mode="time"
+          <DateTimePicker
+            value={selectedTime}
+            mode="time"
                                     display="spinner"
-                                    onChange={onTimeChange}
+            onChange={onTimeChange}
                                     style={styles.modernDateTimePicker}
                                 />
                             </View>
@@ -1114,29 +1114,29 @@ export default function EventBookingScreen({ navigation }) {
                     </View>
                 )}
 
-            </KeyboardAvoidingView>
-        </SafeAreaView>
-    );
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    keyboardView: {
-        flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 20,
-        paddingTop: 10,
-    },
-    headerTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-    },
+  container: {
+    flex: 1,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingTop: 10,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
     progressContainer: {
         paddingHorizontal: 20,
         paddingBottom: 20,
@@ -1156,7 +1156,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     stepContent: {
-        flex: 1,
+    flex: 1,
         paddingBottom: 20,
     },
     scrollContent: {
@@ -1164,7 +1164,7 @@ const styles = StyleSheet.create({
         paddingBottom: 20,
     },
     stepContainer: {
-        paddingHorizontal: 20,
+    paddingHorizontal: 20,
         paddingBottom: 30,
         paddingTop: 10,
     },
@@ -1190,7 +1190,7 @@ const styles = StyleSheet.create({
         width: '48%',
         padding: 20,
         borderRadius: 16,
-        borderWidth: 1,
+    borderWidth: 1,
         marginBottom: 16,
         alignItems: 'center',
         position: 'relative',
@@ -1213,7 +1213,7 @@ const styles = StyleSheet.create({
     popularText: {
         color: '#fff',
         fontSize: 12,
-        fontWeight: 'bold',
+    fontWeight: 'bold',
     },
     eventIcon: {
         width: 48,
@@ -1240,9 +1240,9 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
     },
     quickDetailRow: {
-        flexDirection: 'row',
+    flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+    justifyContent: 'space-between',
         marginBottom: 8,
     },
     quickDetailLabel: {
@@ -1309,49 +1309,49 @@ const styles = StyleSheet.create({
     inputRow: {
         flexDirection: 'row',
         gap: 16,
-    },
-    halfInput: {
-        flex: 1,
-    },
-    inputGroup: {
+  },
+  halfInput: {
+    flex: 1,
+  },
+  inputGroup: {
         marginBottom: 20,
-    },
-    label: {
-        fontSize: 16,
-        fontWeight: '600',
-        marginBottom: 8,
-    },
-    input: {
-        borderWidth: 1,
-        borderRadius: 8,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 8,
         paddingHorizontal: 16,
-        paddingVertical: 12,
-        fontSize: 16,
-    },
-    textArea: {
-        borderWidth: 1,
-        borderRadius: 8,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
+  textArea: {
+    borderWidth: 1,
+    borderRadius: 8,
         paddingHorizontal: 16,
-        paddingVertical: 12,
-        fontSize: 16,
-        minHeight: 80,
-        textAlignVertical: 'top',
-    },
+    paddingVertical: 12,
+    fontSize: 16,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
     trustSignals: {
-        flexDirection: 'row',
+    flexDirection: 'row',
         justifyContent: 'space-around',
         padding: 20,
         borderRadius: 12,
-        borderWidth: 1,
+    borderWidth: 1,
     },
     trustItem: {
         alignItems: 'center',
         gap: 8,
     },
     trustText: {
-        fontSize: 12,
-        fontWeight: '500',
-    },
+    fontSize: 12,
+    fontWeight: '500',
+  },
     eventDetailsForm: {
         marginBottom: 30,
     },
@@ -1413,75 +1413,75 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         marginBottom: 16,
     },
-    optionCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
         padding: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        marginBottom: 8,
-    },
-    optionContent: {
-        flex: 1,
-        marginLeft: 12,
-    },
-    optionTitle: {
-        fontSize: 14,
-        fontWeight: '600',
-        marginBottom: 2,
-    },
-    optionSubtitle: {
-        fontSize: 12,
-    },
-    servicesGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-    },
-    serviceCard: {
-        width: '48%',
-        flexDirection: 'row',
-        alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  optionContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  optionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  optionSubtitle: {
+    fontSize: 12,
+  },
+  servicesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  serviceCard: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
         padding: 12,
-        borderRadius: 8,
-        borderWidth: 1,
-        marginBottom: 8,
-    },
-    serviceContent: {
-        flex: 1,
-        marginLeft: 8,
-    },
-    serviceName: {
-        fontSize: 12,
-        fontWeight: '600',
-        marginBottom: 2,
-    },
-    servicePrice: {
-        fontSize: 11,
-        fontWeight: 'bold',
-    },
-    radioCircle: {
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  serviceContent: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  serviceName: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  servicePrice: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  radioCircle: {
         width: 20,
         height: 20,
         borderRadius: 10,
-        borderWidth: 2,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    radioInner: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-    },
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
     liveQuote: {
         padding: 20,
         borderRadius: 12,
         borderWidth: 1,
-        alignItems: 'center',
-    },
+    alignItems: 'center',
+  },
     quoteHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
         marginBottom: 12,
     },
     quoteTitle: {
@@ -1495,52 +1495,52 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     quoteDiscount: {
-        fontSize: 14,
+    fontSize: 14,
         fontWeight: '500',
     },
     reviewScroll: {
-        flex: 1,
+    flex: 1,
         marginBottom: 20,
-    },
+  },
     reviewSection: {
-        padding: 20,
+    padding: 20,
         borderRadius: 12,
         borderWidth: 1,
         marginBottom: 16,
     },
     reviewSectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: 'bold',
         marginBottom: 16,
-    },
+  },
     reviewRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
         marginBottom: 8,
-    },
+  },
     reviewLabel: {
-        fontSize: 14,
+    fontSize: 14,
         flex: 1,
-    },
+  },
     reviewValue: {
-        fontSize: 14,
+    fontSize: 14,
         fontWeight: '500',
         flex: 1,
         textAlign: 'right',
-    },
+  },
     totalRow: {
-        borderTopWidth: 1,
+    borderTopWidth: 1,
         paddingTop: 12,
         marginTop: 8,
-    },
+  },
     totalLabel: {
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
     totalValue: {
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
     navigationButtons: {
         flexDirection: 'row',
         paddingHorizontal: 20,
@@ -1563,7 +1563,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: 16,
-        borderRadius: 8,
+    borderRadius: 8,
         gap: 8,
     },
     backButton: {
@@ -1598,7 +1598,7 @@ const styles = StyleSheet.create({
     pickerHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+    alignItems: 'center',
         marginBottom: 16,
     },
     pickerTitle: {
@@ -1637,7 +1637,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     pickerMainText: {
-        fontSize: 16,
+    fontSize: 16,
         fontWeight: '600',
         marginBottom: 2,
     },
@@ -1735,5 +1735,5 @@ const styles = StyleSheet.create({
         color: '#FF3B30',
         fontSize: 14,
         marginTop: 4,
-    },
+  },
 });
