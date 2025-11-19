@@ -1,73 +1,28 @@
-rules_version = "2";
+rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-
-    /*** Helpers ***/
-    function isSignedIn() {
-      return request.auth != null;
+    // Allow authenticated users to upload their own avatars
+    match /avatars/{userId}/{fileName} {
+      allow read: if true; // Public read
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
-    function isImage() {
-      return request.resource.contentType.matches('image/.*');
+    
+    // Allow authenticated users to upload their own cover photos
+    match /covers/{userId}/{fileName} {
+      allow read: if true; // Public read
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
-    function isVideo() {
-      return request.resource.contentType.matches('video/.*');
+    
+    // Allow authenticated users to upload posts (photos, videos, audio)
+    match /posts/{userId}/{fileName} {
+      allow read: if true; // Public read
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
-    // 10 MB images, 25 MB videos (tune as needed)
-    function withinAvatarLimits() {
-      return request.resource.size < 10 * 1024 * 1024 && isImage();
-    }
-    function withinChatLimits() {
-      return request.resource.size < 25 * 1024 * 1024 && (isImage() || isVideo());
-    }
-    // Membership check against Firestore
-    function isMember(cid) {
-      return isSignedIn() &&
-        request.auth.uid in
-          firestore.get(/databases/(default)/documents/conversations/$(cid)).data.members;
-    }
-
-    /*** Avatars ***/
-    // Choose ONE of these read policies:
-    // (A) Public avatars:
-    // allow read: if true;
-    // (B) Private to signed-in users (your current behavior):
-    // allow read: if isSignedIn();
-
-    match /avatars/{uid}/{file=**} {
-      // READ policy — pick A or B
-      allow read: if isSignedIn();   // <-- keep as-is; change to `true` if you want public avatars
-
-      // Only the owner can upload/replace/delete; enforce size & MIME
-      allow write: if isSignedIn()
-        && request.auth.uid == uid
-        && withinAvatarLimits();
-    }
-
-    /*** Cover Photos ***/
-    match /covers/{uid}/{file=**} {
-      // READ policy — signed-in users can read
-      allow read: if isSignedIn();
-
-      // Only the owner can upload/replace/delete; enforce size & MIME
-      allow write: if isSignedIn()
-        && request.auth.uid == uid
-        && withinAvatarLimits();
-    }
-
-    /*** Conversation attachments ***/
-    // Suggested canonical path: /conversations/{cid}/attachments/{fileId}
-    match /conversations/{cid}/attachments/{fileId} {
-      // Members can read attachments
-      allow read: if isMember(cid);
-
-      // Members can upload/update/delete their conversation files, with size/type limits
-      allow write: if isMember(cid)
-        && withinChatLimits();
-    }
-
-    /*** Deny everything else ***/
-    match /{path=**} {
-      allow read, write: if false;
+    
+    // Allow authenticated users to upload media library items
+    match /mediaLibrary/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }

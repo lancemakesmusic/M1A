@@ -1,8 +1,91 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2025, 12, 13);
+    // Users collection
+    match /users/{userId} {
+      allow read: if true; // Public read
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Posts collection
+    match /posts/{postId} {
+      allow read: if true; // Public read
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+    
+    // Wallet transactions
+    match /walletTransactions/{transactionId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
+    // Services, events, etc.
+    match /services/{serviceId} {
+      allow read: if true;
+      allow write: if request.auth != null; // Admin only in production
+    }
+    
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if request.auth != null; // Admin only in production
+    }
+    
+    // Conversations
+    match /conversations/{conversationId} {
+      allow read: if request.auth != null && request.auth.uid in resource.data.participants;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && request.auth.uid in resource.data.participants;
+    }
+    
+    // Messages (subcollection)
+    match /conversations/{conversationId}/messages/{messageId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.senderId == request.auth.uid;
+    }
+    
+    // Service orders
+    match /serviceOrders/{orderId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
+    // Bar orders
+    match /barOrders/{orderId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
+    // RSVPs
+    match /rsvps/{rsvpId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
+    // Wallets
+    match /wallets/{walletId} {
+      allow read, write: if request.auth != null && request.auth.uid == walletId;
+    }
+    
+    // Payment methods
+    match /paymentMethods/{paymentMethodId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
+    // Followers collection (for follower counts)
+    // Allow aggregation queries (getCountFromServer) for follower counts
+    match /followers/{followerId} {
+      allow read: if true; // Public read for follower counts and aggregation queries
+      allow write: if request.auth != null;
+    }
+    
+    // Allow collection group queries for followers (needed for aggregation)
+    match /{path=**}/followers/{followerId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Test/debug collection (for testing)
+    match /test/{document=**} {
+      allow read, write: if request.auth != null;
     }
   }
 }

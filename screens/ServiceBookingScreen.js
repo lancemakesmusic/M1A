@@ -4,32 +4,33 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import React, { useState, useEffect, useMemo } from 'react';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Image,
+  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  Image,
-  Modal,
-  ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
-import StripeService from '../services/StripeService';
-import { trackEventBookingStarted, trackEventBookingCompleted, trackButtonClick, trackFunnelStep, trackError } from '../services/AnalyticsService';
-import { sendPaymentConfirmation, sendOrderStatusUpdate } from '../services/NotificationService';
+import useScreenTracking from '../hooks/useScreenTracking';
+import { trackButtonClick, trackError, trackEventBookingCompleted, trackEventBookingStarted, trackFunnelStep } from '../services/AnalyticsService';
+import GoogleCalendarService from '../services/GoogleCalendarService';
+import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import SharingService from '../services/SharingService';
-import useScreenTracking from '../hooks/useScreenTracking';
+import StripeService from '../services/StripeService';
 
 const TAX_RATE = 0.08; // 8% tax
 const SERVICE_FEE = 0.03; // 3% service fee
@@ -39,7 +40,17 @@ export default function ServiceBookingScreen({ route, navigation }) {
   const { user } = useAuth();
   useScreenTracking('ServiceBookingScreen');
   
-  const { item } = route.params || {};
+  const routeItem = route.params?.item;
+  const [selectedItem, setSelectedItem] = useState(routeItem || null);
+  
+  // Update selectedItem when route params change
+  useEffect(() => {
+    if (routeItem) {
+      setSelectedItem(routeItem);
+    }
+  }, [routeItem]);
+  
+  const item = selectedItem;
   
   const [formData, setFormData] = useState({
     serviceDate: '',
@@ -71,19 +82,168 @@ export default function ServiceBookingScreen({ route, navigation }) {
     }
   }, [user]);
 
+  // Available services for selection (when no item is provided)
+  const availableServices = [
+    {
+      id: '6',
+      name: 'Vocal Recording',
+      description: 'Elevate your sound with our industry-quality vocal recording service, complete with final mix and mastering options.',
+      price: 50,
+      category: 'Services',
+      subcategory: 'Audio Production',
+      rating: 4.9,
+      popularity: 95,
+      image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&h=800&fit=crop&q=80',
+      artist: 'Merkaba Entertainment',
+      duration: '1 hr+',
+    },
+    {
+      id: '20',
+      name: 'Recording Time',
+      description: 'Professional studio recording time. Special deal: 10 hours for $200 (save $300!).',
+      price: 200,
+      category: 'Services',
+      subcategory: 'Audio Production',
+      rating: 5.0,
+      popularity: 98,
+      image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&h=800&fit=crop&q=80',
+      artist: 'Merkaba Entertainment',
+      duration: '10 hours',
+      isDeal: true,
+      dealHours: 10,
+      dealPrice: 200,
+      regularPrice: 500,
+    },
+    {
+      id: '7',
+      name: 'Photography',
+      description: 'Capture your most precious moments with our high-quality photography services tailored to meet your individual needs.',
+      price: 150,
+      category: 'Services',
+      subcategory: 'Photography',
+      rating: 4.8,
+      popularity: 92,
+      image: 'https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?w=800&h=800&fit=crop&q=80',
+      artist: 'Merkaba Entertainment',
+      duration: '1 hr+',
+    },
+    {
+      id: '8',
+      name: 'Videography',
+      description: 'Experience top-tier videography services tailored to your unique event needs.',
+      price: 500,
+      category: 'Services',
+      subcategory: 'Video Production',
+      rating: 4.9,
+      popularity: 94,
+      image: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=800&h=800&fit=crop&q=80',
+      artist: 'Merkaba Entertainment',
+      duration: '3 hrs+',
+    },
+    {
+      id: '9',
+      name: 'Graphic Design',
+      description: 'Elevate your brand with our high-quality custom graphic design service.',
+      price: 50,
+      category: 'Services',
+      subcategory: 'Design',
+      rating: 4.8,
+      popularity: 88,
+      image: 'https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800&h=800&fit=crop&q=80',
+      artist: 'Merkaba Entertainment',
+      duration: '30 mins',
+    },
+    {
+      id: '10',
+      name: 'Website Development',
+      description: 'Experience a tailored website development service designed to enhance user experience and drive traffic.',
+      price: 250,
+      category: 'Services',
+      subcategory: 'Web Development',
+      rating: 4.9,
+      popularity: 90,
+      image: 'https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&h=800&fit=crop&q=80',
+      artist: 'Merkaba Entertainment',
+      duration: '30 mins',
+    },
+  ];
+
+  // If no item provided, show service selection screen
   if (!item) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle" size={48} color={theme.error || '#FF3B30'} />
-          <Text style={[styles.errorText, { color: theme.text }]}>Service not found</Text>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+        {/* Header with Back Button */}
+        <View style={[styles.header, { borderBottomColor: theme.border }]}>
           <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: theme.primary }]}
             onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={styles.backButtonText}>Go Back</Text>
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
           </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Book a Service</Text>
+          <View style={styles.headerRight} />
         </View>
+
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.serviceSelectionContainer}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Select a Service</Text>
+            <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+              Choose from our available services to get started
+            </Text>
+
+            {availableServices.map((service) => (
+              <TouchableOpacity
+                key={service.id}
+                style={[styles.serviceCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => {
+                  // Update the selected item state
+                  setSelectedItem(service);
+                }}
+                activeOpacity={0.7}
+              >
+                {service.image && (
+                  <Image
+                    source={{ uri: service.image }}
+                    style={styles.serviceImage}
+                    resizeMode="cover"
+                  />
+                )}
+                <View style={styles.serviceCardContent}>
+                  <View style={styles.serviceCardHeader}>
+                    <Text style={[styles.serviceName, { color: theme.text }]}>{service.name}</Text>
+                    {service.isDeal && (
+                      <View style={[styles.dealBadge, { backgroundColor: '#34C759' }]}>
+                        <Ionicons name="pricetag" size={14} color="#fff" />
+                        <Text style={styles.dealBadgeText}>DEAL</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.serviceDescription, { color: theme.subtext }]} numberOfLines={2}>
+                    {service.description}
+                  </Text>
+                  <View style={styles.serviceCardFooter}>
+                    <View style={styles.serviceRating}>
+                      <Ionicons name="star" size={16} color="#FFD700" />
+                      <Text style={[styles.serviceRatingText, { color: theme.text }]}>
+                        {service.rating?.toFixed(1) || '4.5'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.servicePrice, { color: theme.primary }]}>
+                      ${service.isDeal ? service.dealPrice : service.price}
+                      {service.isDeal && service.regularPrice && (
+                        <Text style={[styles.regularPrice, { color: theme.subtext }]}>
+                          {' '}${service.regularPrice}
+                        </Text>
+                      )}
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -173,25 +333,11 @@ export default function ServiceBookingScreen({ route, navigation }) {
           });
           return orderRef.id;
         } catch (firestoreError) {
-          console.warn('Firestore save failed, using mock order ID:', firestoreError);
-          return `MOCK-${Date.now()}`;
-        }
-      } else if (db && typeof db.collection === 'function') {
-        // Mock Firestore
-        try {
-          const mockCollection = db.collection('serviceOrders');
-          const mockOrderRef = await mockCollection.add({
-            ...orderData,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-          return mockOrderRef.id || `MOCK-${Date.now()}`;
-        } catch (mockError) {
-          console.warn('Mock Firestore save failed, using local order ID:', mockError);
-          return `LOCAL-${Date.now()}`;
+          console.error('Firestore save failed:', firestoreError);
+          throw firestoreError;
         }
       } else {
-        return `LOCAL-${Date.now()}`;
+        throw new Error('Firestore not ready');
       }
     } catch (error) {
       console.error('Error saving order to Firestore:', error);
@@ -393,6 +539,85 @@ export default function ServiceBookingScreen({ route, navigation }) {
         backendBookingId: backendResult.bookingId || null,
       });
         
+      // Schedule service on Google Calendar
+      let calendarResult = { success: false };
+      try {
+        const isConnected = await GoogleCalendarService.isConnected();
+        if (isConnected && formData.serviceDate && formData.serviceTime) {
+          // Parse service date and time to create start/end dates
+          const serviceDateStr = formData.serviceDate;
+          const serviceTimeStr = formData.serviceTime;
+          
+          // Parse date (format: "Monday, January 1, 2024")
+          const dateMatch = serviceDateStr.match(/(\w+), (\w+) (\d+), (\d+)/);
+          if (dateMatch) {
+            const [, , monthName, day, year] = dateMatch;
+            const monthMap = {
+              'January': 0, 'February': 1, 'March': 2, 'April': 3, 'May': 4, 'June': 5,
+              'July': 6, 'August': 7, 'September': 8, 'October': 9, 'November': 10, 'December': 11
+            };
+            const month = monthMap[monthName] || 0;
+            
+            // Parse time (format: "6:00 PM" or "18:00")
+            let startHour, startMinute;
+            if (serviceTimeStr.includes('AM') || serviceTimeStr.includes('PM')) {
+              const timeParts = serviceTimeStr.replace(/[AP]M/i, '').trim().split(':');
+              startHour = parseInt(timeParts[0]);
+              startMinute = parseInt(timeParts[1] || 0);
+              if (serviceTimeStr.toUpperCase().includes('PM') && startHour !== 12) {
+                startHour += 12;
+              } else if (serviceTimeStr.toUpperCase().includes('AM') && startHour === 12) {
+                startHour = 0;
+              }
+            } else {
+              const timeParts = serviceTimeStr.split(':');
+              startHour = parseInt(timeParts[0]);
+              startMinute = parseInt(timeParts[1] || 0);
+            }
+            
+            const startDate = new Date(parseInt(year), month, parseInt(day), startHour, startMinute);
+            
+            // Calculate end date based on service duration
+            // For deals, use dealHours; otherwise estimate 1 hour per service
+            const durationHours = item.isDeal && item.dealHours ? item.dealHours * formData.quantity : formData.quantity;
+            const endDate = new Date(startDate);
+            endDate.setHours(startDate.getHours() + durationHours);
+            
+            // Check availability
+            const availability = await GoogleCalendarService.checkAvailability(startDate, endDate);
+            if (availability && !availability.available && !availability.warning) {
+              console.warn('Service time slot is not available:', availability.reason);
+            }
+            
+            // Create calendar event
+            const eventTitle = `${item.name} - ${formData.contactName}`;
+            const eventDescription = `Service: ${item.name}\n` +
+              `Quantity: ${formData.quantity}\n` +
+              (item.isDeal && item.dealHours ? `Hours: ${item.dealHours * formData.quantity}\n` : '') +
+              `Total Cost: $${total.toFixed(2)}\n` +
+              `Contact: ${formData.contactEmail} | ${formData.contactPhone || 'N/A'}\n` +
+              (formData.specialRequests ? `Special Requests: ${formData.specialRequests}\n` : '') +
+              `Order ID: ${orderId}`;
+            
+            calendarResult = await GoogleCalendarService.createEvent({
+              title: eventTitle,
+              description: eventDescription,
+              startTime: startDate.toISOString(),
+              endTime: endDate.toISOString(),
+              location: 'Merkaba Venue',
+              attendees: [{ email: formData.contactEmail }],
+            });
+            
+            if (!calendarResult.success) {
+              console.warn('Failed to create calendar event:', calendarResult.message);
+            }
+          }
+        }
+      } catch (calendarError) {
+        console.error('Error scheduling service on calendar:', calendarError);
+        // Don't block booking if calendar sync fails
+      }
+      
       // Track analytics
       await trackEventBookingCompleted({
         id: orderId,
@@ -877,15 +1102,101 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
-    paddingBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
   },
   backButton: {
-    padding: 4,
+    padding: 8,
+    marginLeft: -8,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40, // Same width as back button to center title
+  },
+  serviceSelectionContainer: {
+    padding: 20,
+  },
+  sectionTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  sectionSubtitle: {
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  serviceCard: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+    overflow: 'hidden',
+    alignItems: 'center',
+  },
+  serviceImage: {
+    width: 80,
+    height: 80,
+  },
+  serviceCardContent: {
+    flex: 1,
+    padding: 12,
+  },
+  serviceCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  serviceName: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+  },
+  dealBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  dealBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  serviceDescription: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  serviceCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  serviceRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  serviceRatingText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  servicePrice: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  regularPrice: {
+    fontSize: 14,
+    textDecorationLine: 'line-through',
+    marginLeft: 4,
   },
   serviceCard: {
     margin: 20,

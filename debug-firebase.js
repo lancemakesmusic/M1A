@@ -11,13 +11,14 @@ export const debugFirebaseAuth = async () => {
   console.log('3. User Email:', auth.currentUser?.email || 'No Email');
   console.log('4. Auth Token:', auth.currentUser ? 'Token Available' : 'No Token');
   
-  // Test Firestore read (mock)
+  // Test Firestore read (real Firestore)
   if (auth.currentUser) {
     try {
       console.log('5. Testing Firestore Read...');
-      const userRef = db.collection('users').doc(auth.currentUser.uid);
-      const userSnap = await userRef.get();
-      console.log('   - Document exists:', userSnap.exists);
+      const { doc, getDoc } = await import('firebase/firestore');
+      const userRef = doc(db, 'users', auth.currentUser.uid);
+      const userSnap = await getDoc(userRef);
+      console.log('   - Document exists:', userSnap.exists());
       console.log('   - Document data:', userSnap.data());
     } catch (error) {
       console.log('   - Firestore Error:', error.message);
@@ -25,14 +26,15 @@ export const debugFirebaseAuth = async () => {
     }
   }
   
-  // Test Firestore write (mock)
+  // Test Firestore write (real Firestore)
   if (auth.currentUser) {
     try {
       console.log('6. Testing Firestore Write...');
-      const testRef = db.collection('test').doc('debug');
-      await testRef.set({ 
+      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+      const testRef = doc(db, 'test', 'debug');
+      await setDoc(testRef, { 
         test: true, 
-        timestamp: new Date(),
+        timestamp: serverTimestamp(),
         uid: auth.currentUser.uid 
       });
       console.log('   - Write successful');

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Firebase Setup - Click to Create Indexes</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        h1 { color: #FF6B00; }
+        .index { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .index h3 { margin-top: 0; }
+        a { display: inline-block; margin-top: 10px; padding: 10px 20px; background: #FF6B00; color: white; text-decoration: none; border-radius: 5px; }
+        a:hover { background: #E55A00; }
+        .status { margin-top: 20px; padding: 10px; background: #f0f0f0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🔥 Firebase Index Setup</h1>
+    <p>Click each button below to create the required Firestore indexes:</p>
+    
+    
+    <div class="index">
+        <h3>1. Posts Index (userId + createdAt)</h3>
+        <p><strong>Collection:</strong> posts</p>
+        <p><strong>Fields:</strong> userId (Ascending), createdAt (Descending)</p>
+        <a href="https://console.firebase.google.com/v1/r/project/m1alive/firestore/indexes?create_composite=CkVwcm9qZWN0cy9tMWFsaXZlL2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9wb3N0cy9pbmRleGVzL18QARoKCgZ1c2VySWQQARoNCgljcmVhdGVkQXQQAhoMCghfX25hbWVfXxAC" target="_blank">Create Index 1</a>
+    </div>
+    
+    <div class="index">
+        <h3>2. Services Index (available + popularity)</h3>
+        <p><strong>Collection:</strong> services</p>
+        <p><strong>Fields:</strong> available (Ascending), popularity (Descending)</p>
+        <a href="https://console.firebase.google.com/v1/r/project/m1alive/firestore/indexes?create_composite=Ckhwcm9qZWN0cy9tMWFsaXZlL2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9zZXJ2aWNlcy9pbmRleGVzL18QARoNCglhdmFpbGFibGUQARoOCgpwb3B1bGFyaXR5EAIaDAoIX19uYW1lX18QAg" target="_blank">Create Index 2</a>
+    </div>
+    
+    <div class="index">
+        <h3>3. Users Index (private + displayName)</h3>
+        <p><strong>Collection:</strong> users</p>
+        <p><strong>Fields:</strong> private (Ascending), displayName (Ascending)</p>
+        <a href="https://console.firebase.google.com/v1/r/project/m1alive/firestore/indexes?create_composite=CkVwcm9qZWN0cy9tMWFsaXZlL2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy91c2Vycy9pbmRleGVzL18QARoLCgdwcml2YXRlEAEaDwoLZGlzcGxheU5hbWUQARoMCghfX25hbWVfXxAB" target="_blank">Create Index 3</a>
+    </div>
+    
+    <div class="index">
+        <h3>4. Conversations Index (participants + lastMessageAt)</h3>
+        <p><strong>Collection:</strong> conversations</p>
+        <p><strong>Fields:</strong> participants (Array Contains), lastMessageAt (Descending)</p>
+        <a href="https://console.firebase.google.com/v1/r/project/m1alive/firestore/indexes?create_composite=Ck1wcm9qZWN0cy9tMWFsaXZlL2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9jb252ZXJzYXRpb25zL2luZGV4ZXMvXxABGhAKDHBhcnRpY2lwYW50cxgBGhEKDWxhc3RNZXNzYWdlQXQQAhoMCghfX25hbWVfXxAC" target="_blank">Create Index 4</a>
+    </div>
+    
+    <div class="index">
+        <h3>5. Wallet Transactions Index (userId + timestamp)</h3>
+        <p><strong>Collection:</strong> walletTransactions</p>
+        <p><strong>Fields:</strong> userId (Ascending), timestamp (Descending)</p>
+        <a href="https://console.firebase.google.com/v1/r/project/m1alive/firestore/indexes?create_composite=ClJwcm9qZWN0cy9tMWFsaXZlL2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy93YWxsZXRUcmFuc2FjdGlvbnMvaW5kZXhlcy9fEAEaCgoGdXNlcklkEAEaDQoJdGltZXN0YW1wEAIaDAoIX19uYW1lX18QAg" target="_blank">Create Index 5</a>
+    </div>
+    
+    
+    <div class="status">
+        <h3>✅ After Creating Indexes:</h3>
+        <p>1. Wait 1-5 minutes for indexes to build</p>
+        <p>2. Check status in <a href="https://console.firebase.google.com/project/m1alive/firestore/indexes" target="_blank">Firebase Console</a></p>
+        <p>3. All indexes should show "Enabled" status</p>
+    </div>
+</body>
+</html>

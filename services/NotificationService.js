@@ -1,6 +1,6 @@
 /**
  * Notification Service
- * Handles push notifications for events, orders, and engagement
+ * Handles push notifications for messages, events, discounts, and more
  */
 
 import * as Notifications from 'expo-notifications';
@@ -260,6 +260,153 @@ export const getScheduledNotifications = async () => {
   }
 };
 
+// Send message notification
+export const sendMessageNotification = async (messageData, preferences) => {
+  try {
+    // Check if user has message notifications enabled
+    if (!preferences?.enabled || !preferences?.messages?.enabled) {
+      return false;
+    }
+
+    const notificationType = messageData.isMention ? 'mentions' : 'newMessage';
+    if (!preferences?.messages?.[notificationType]) {
+      return false;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: messageData.senderName || 'New Message',
+        body: messageData.text || 'You have a new message',
+        data: {
+          type: 'message',
+          conversationId: messageData.conversationId,
+          messageId: messageData.id,
+          senderId: messageData.senderId,
+        },
+        sound: true,
+        badge: 1,
+      },
+      trigger: null, // Send immediately
+    });
+    return true;
+  } catch (error) {
+    console.warn('⚠️ Failed to send message notification:', error);
+    return false;
+  }
+};
+
+// Send event notification
+export const sendEventNotification = async (eventData, preferences, notificationType = 'newEvent') => {
+  try {
+    // Check if user has event notifications enabled
+    if (!preferences?.enabled || !preferences?.events?.enabled) {
+      return false;
+    }
+
+    if (!preferences?.events?.[notificationType]) {
+      return false;
+    }
+
+    let title, body;
+    switch (notificationType) {
+      case 'reminder':
+        title = 'Event Reminder';
+        body = `Your event "${eventData.title}" is ${eventData.reminderTime || 'soon'}!`;
+        break;
+      case 'newEvent':
+        title = 'New Event Available';
+        body = `Check out "${eventData.title}" - ${eventData.description || 'New event in your area'}`;
+        break;
+      case 'eventUpdate':
+        title = 'Event Updated';
+        body = `"${eventData.title}" has been updated`;
+        break;
+      case 'cancellation':
+        title = 'Event Cancelled';
+        body = `"${eventData.title}" has been cancelled`;
+        break;
+      default:
+        title = 'Event Notification';
+        body = eventData.title || 'You have an event update';
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        data: {
+          type: 'event',
+          eventId: eventData.id,
+          notificationType,
+        },
+        sound: true,
+      },
+      trigger: notificationType === 'reminder' && eventData.reminderDate
+        ? eventData.reminderDate
+        : null, // Send immediately for others
+    });
+    return true;
+  } catch (error) {
+    console.warn('⚠️ Failed to send event notification:', error);
+    return false;
+  }
+};
+
+// Send discount/promotion notification
+export const sendDiscountNotification = async (discountData, preferences, notificationType = 'newDeal') => {
+  try {
+    // Check if user has discount notifications enabled
+    if (!preferences?.enabled || !preferences?.discounts?.enabled) {
+      return false;
+    }
+
+    if (!preferences?.discounts?.[notificationType]) {
+      return false;
+    }
+
+    let title, body;
+    switch (notificationType) {
+      case 'newDeal':
+        title = '🎉 New Deal Available!';
+        body = `${discountData.title || 'Special offer'}: ${discountData.description || 'Check it out now!'}`;
+        break;
+      case 'priceDrop':
+        title = '💰 Price Drop!';
+        body = `${discountData.itemName} is now ${discountData.discountPercent || 'on sale'}!`;
+        break;
+      case 'flashSale':
+        title = '⚡ Flash Sale!';
+        body = `${discountData.title || 'Limited time offer'} - ${discountData.timeRemaining || 'Ending soon!'}`;
+        break;
+      case 'personalizedOffer':
+        title = '🎁 Personalized Offer';
+        body = `${discountData.title || 'Special offer just for you'}: ${discountData.description || 'Check it out!'}`;
+        break;
+      default:
+        title = 'Special Offer';
+        body = discountData.title || 'You have a new discount available';
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        data: {
+          type: 'discount',
+          discountId: discountData.id,
+          notificationType,
+        },
+        sound: true,
+      },
+      trigger: null, // Send immediately
+    });
+    return true;
+  } catch (error) {
+    console.warn('⚠️ Failed to send discount notification:', error);
+    return false;
+  }
+};
+
 // Cleanup listeners
 export const cleanupNotifications = () => {
   if (notificationListener) {
@@ -278,6 +425,9 @@ export default {
   sendBookingReminder,
   sendM1ATip,
   sendEngagementNotification,
+  sendMessageNotification,
+  sendEventNotification,
+  sendDiscountNotification,
   cancelAllNotifications,
   getScheduledNotifications,
   cleanupNotifications,

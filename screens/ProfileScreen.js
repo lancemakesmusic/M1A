@@ -1,35 +1,42 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { collection, getCountFromServer, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    Linking,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Linking,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ScrollIndicator from '../components/ScrollIndicator';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
 import { db, isFirebaseReady } from '../firebase';
-import { collection, query, where, getDocs, orderBy, limit, getCountFromServer } from 'firebase/firestore';
+import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
 
 export default function ProfileScreen() {
   const { user, loading, refreshUserProfile } = useContext(UserContext);
   const { theme } = useTheme();
   const navigation = useNavigation();
+  
+  // Check if we can go back (i.e., accessed from drawer)
+  const canGoBack = navigation.canGoBack();
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('posts');
   const [stats, setStats] = useState({ followers: 0, following: 0, posts: 0 });
   const [posts, setPosts] = useState([]);
   const [loadingStats, setLoadingStats] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [imageRefreshKey, setImageRefreshKey] = useState(0);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(true);
 
   // Load real stats from Firestore
   const loadStats = useCallback(async () => {
@@ -121,23 +128,49 @@ export default function ProfileScreen() {
     return date.toLocaleDateString();
   };
 
+  // Refresh when screen comes into focus (e.g., after editing)
   useFocusEffect(
     useCallback(() => {
+      let isMounted = true;
+      
       // Refresh profile when screen comes into focus (e.g., after editing)
       (async () => { 
-        await refreshUserProfile();
-        await loadStats();
-        await loadPosts();
+        try {
+          if (!isMounted) return;
+          // Single refresh call - no need for multiple attempts
+          await refreshUserProfile();
+          if (!isMounted) return;
+          // Force image refresh by updating key
+          setImageRefreshKey(Date.now());
+          await loadStats();
+          if (!isMounted) return;
+          await loadPosts();
+        } catch (error) {
+          console.error('Error refreshing profile:', error);
+        }
       })();
-    }, [refreshUserProfile, loadStats, loadPosts])
+      
+      return () => {
+        isMounted = false;
+      };
+    }, []) // Empty deps - only run on focus, not on every render
   );
+  
+  // Refresh image when photo URLs or timestamps change
+  useEffect(() => {
+    if (user) {
+      // Force image refresh when photo URLs or timestamps change
+      setImageRefreshKey(Date.now());
+    }
+  }, [user?.avatarUrl, user?.photoURL, user?.coverUrl, user?.photoUpdatedAt, user?.coverUpdatedAt]);
 
+  // Load stats and posts when user ID changes
   useEffect(() => {
     if (user?.id) {
       loadStats();
       loadPosts();
     }
-  }, [user?.id, loadStats, loadPosts]);
+  }, [user?.id]); // Only depend on user?.id, not the callbacks
 
   const onPullRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -175,8 +208,12 @@ export default function ProfileScreen() {
       <View style={styles.postHeader}>
         <View style={styles.postUserInfo}>
           <Image 
-            source={{ uri: user?.avatarUrl || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100' }} 
-            style={styles.postAvatar} 
+            source={getAvatarSource(user) || { uri: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100' }}
+            style={styles.postAvatar}
+            key={getImageKey(user, 'post-avatar')}
+            onError={(error) => {
+              console.warn('Post avatar failed to load:', error.nativeEvent.error);
+            }}
           />
           <View>
             <Text style={[styles.postUserName, { color: theme.text }]}>{user?.displayName || 'User'}</Text>
@@ -240,24 +277,52 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView 
       style={[styles.container, { backgroundColor: theme.background }]}
-      edges={['bottom', 'left', 'right']}
+      edges={['bottom', 'left', 'right', 'top']}
     >
-      <ScrollView
+      {/* Header with conditional Back Button */}
+      {canGoBack && (
+        <View style={[styles.topHeader, { borderBottomColor: theme.border }]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.topHeaderTitle, { color: theme.text }]}>Profile</Text>
+          <View style={styles.headerRight} />
+        </View>
+      )}
+
+      <View style={{ flex: 1 }}>
+        <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} />
         }
+        removeClippedSubviews={false}
+        collapsable={false}
         contentContainerStyle={styles.scrollContent}
+        onScrollBeginDrag={() => {
+          setShowScrollIndicator(false);
+        }}
+        scrollEventThrottle={16}
       >
         {/* Profile Header */}
         <View style={[styles.profileHeader, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
           {/* Cover Photo */}
           <View style={styles.coverPhotoContainer}>
-            {user.coverUrl ? (
+            {hasCover(user) ? (
               <Image 
-                source={{ uri: `${user.coverUrl}?t=${user.coverUpdatedAt || Date.now()}` }} 
+                source={getCoverSource(user, imageRefreshKey)}
                 style={styles.coverPhoto}
-                key={`cover-${user.coverUrl}-${user.coverUpdatedAt || ''}`}
+                key={getImageKey(user, 'cover') + `-${imageRefreshKey}`}
+                onError={(error) => {
+                  console.warn('Cover photo failed to load:', error.nativeEvent.error);
+                }}
+                onLoad={() => {
+                  console.log('✅ Cover photo loaded successfully');
+                }}
               />
             ) : (
               <View style={[styles.coverPhoto, { backgroundColor: theme.primary + '20' }]} />
@@ -273,11 +338,17 @@ export default function ProfileScreen() {
           {/* Profile Info */}
           <View style={styles.profileInfo}>
             <View style={styles.avatarContainer}>
-              {user.avatarUrl || user.photoURL ? (
+              {hasAvatar(user) ? (
                 <Image 
-                  source={{ uri: `${user.avatarUrl || user.photoURL}?t=${user.photoUpdatedAt || Date.now()}` }} 
+                  source={getAvatarSource(user, imageRefreshKey)}
                   style={styles.avatar}
-                  key={`avatar-${user.avatarUrl || user.photoURL}-${user.photoUpdatedAt || ''}`}
+                  key={getImageKey(user, 'avatar') + `-${imageRefreshKey}`}
+                  onError={(error) => {
+                    console.warn('Avatar failed to load:', error.nativeEvent.error);
+                  }}
+                  onLoad={() => {
+                    console.log('✅ Avatar loaded successfully');
+                  }}
                 />
               ) : (
                 <View style={[styles.placeholderAvatar, { backgroundColor: theme.primary }]}>
@@ -363,6 +434,12 @@ export default function ProfileScreen() {
               onPress={() => navigation.navigate('ProfileEdit')}
             >
               <Text style={styles.primaryButtonText}>Edit Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.secondaryButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+              onPress={() => navigation.navigate('CreatePost')}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={theme.text} />
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.secondaryButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
@@ -457,7 +534,16 @@ export default function ProfileScreen() {
             <Text style={[styles.emptyStateText, { color: theme.subtext }]}>No liked posts yet</Text>
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+      </View>
+      
+      {/* Scroll Indicator */}
+      {showScrollIndicator && (
+        <ScrollIndicator
+          visible={showScrollIndicator}
+          onScrollStart={() => setShowScrollIndicator(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -479,6 +565,27 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: '600',
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  topHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40, // Same width as back button to center title
   },
   profileHeader: {
     marginHorizontal: 20,

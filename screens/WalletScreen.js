@@ -1,35 +1,39 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState, useCallback } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-    RefreshControl,
-    Share,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import QRCode from 'react-native-qrcode-svg';
-import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../contexts/AuthContext';
-import WalletService from '../services/WalletService';
-import StripePaymentMethodsService from '../services/StripePaymentMethodsService';
-import { trackWalletTransaction, trackButtonClick, trackFeatureUsage } from '../services/AnalyticsService';
-import { sendPaymentConfirmation } from '../services/NotificationService';
-import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
+import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
+import useScreenTracking from '../hooks/useScreenTracking';
+import { trackButtonClick, trackWalletTransaction } from '../services/AnalyticsService';
+import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
+import StripePaymentMethodsService from '../services/StripePaymentMethodsService';
+import WalletService from '../services/WalletService';
 
 export default function WalletScreen() {
+  const navigation = useNavigation();
   const { user } = useAuth();
   const { theme } = useTheme();
   useScreenTracking('WalletScreen');
+  
+  // Check if we can go back (i.e., accessed from drawer)
+  const canGoBack = navigation.canGoBack();
   const [balance, setBalance] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -49,81 +53,6 @@ export default function WalletScreen() {
   const [showAddPaymentMethod, setShowAddPaymentMethod] = useState(false);
   const [deletingPaymentMethod, setDeletingPaymentMethod] = useState(null);
   const [qrCodeData, setQrCodeData] = useState('');
-
-  // Mock transaction data
-  const mockTransactions = [
-    {
-      id: '1',
-      type: 'received',
-      amount: 500.00,
-      description: 'Event booking payment',
-      timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-      status: 'completed',
-      icon: 'calendar',
-    },
-    {
-      id: '2',
-      type: 'sent',
-      amount: -75.50,
-      description: 'Service fee payment',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-      status: 'completed',
-      icon: 'card',
-    },
-    {
-      id: '3',
-      type: 'received',
-      amount: 200.00,
-      description: 'Refund - Event cancellation',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-      status: 'completed',
-      icon: 'refresh',
-    },
-    {
-      id: '4',
-      type: 'sent',
-      amount: -25.00,
-      description: 'Withdrawal to bank',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3), // 3 days ago
-      status: 'pending',
-      icon: 'arrow-up',
-    },
-    {
-      id: '5',
-      type: 'received',
-      amount: 1000.00,
-      description: 'Event booking payment',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7), // 1 week ago
-      status: 'completed',
-      icon: 'calendar',
-    },
-  ];
-
-  // Mock payment methods
-  const mockPaymentMethods = [
-    {
-      id: '1',
-      type: 'card',
-      name: 'Visa **** 4242',
-      expiry: '12/25',
-      isDefault: true,
-      icon: 'card',
-    },
-    {
-      id: '2',
-      type: 'bank',
-      name: 'Chase Bank **** 1234',
-      isDefault: false,
-      icon: 'business',
-    },
-    {
-      id: '3',
-      type: 'paypal',
-      name: 'PayPal Account',
-      isDefault: false,
-      icon: 'logo-paypal',
-    },
-  ];
 
   useEffect(() => {
     if (user?.uid) {
@@ -498,10 +427,26 @@ export default function WalletScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* Header with conditional Back Button */}
+      {canGoBack && (
+        <View style={[styles.topHeader, { borderBottomColor: theme.border }]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.topHeaderTitle, { color: theme.text }]}>Wallet</Text>
+          <View style={styles.headerRight} />
+        </View>
+      )}
+
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Wallet</Text>
+        {!canGoBack && <Text style={[styles.headerTitle, { color: theme.text }]}>Wallet</Text>}
+        {canGoBack && <View style={{ flex: 1 }} />}
         <TouchableOpacity style={styles.headerActionButton}>
           <Ionicons name="settings-outline" size={24} color={theme.text} />
         </TouchableOpacity>
@@ -1064,7 +1009,27 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
   },
-  
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  topHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40, // Same width as back button to center title
+  },
   // Header styles
   header: {
     flexDirection: 'row',

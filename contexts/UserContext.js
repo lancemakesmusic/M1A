@@ -1,5 +1,5 @@
 // contexts/UserContext.js
-import { createContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useEffect, useRef, useState } from 'react';
 import { debugFirebaseAuth } from '../debug-firebase';
 import {
     auth,
@@ -13,26 +13,78 @@ export const UserContext = createContext();
 export function UserProvider({ children }) {
   const [user, setUser] = useState(null);      // Firestore profile doc (not Firebase Auth user)
   const [loading, setLoading] = useState(true); // whether profile is being resolved
+  const refreshTimeoutRef = useRef(null);
+  const isRefreshingRef = useRef(false);
 
-  const refreshUserProfile = async (uid = auth.currentUser?.uid) => {
-    try {
-      if (!uid) {
-        setUser(null);
-        return;
-      }
-      // Wait for auth to be ready
-      if (!auth.currentUser) {
-        console.log('No authenticated user, skipping profile refresh');
-        setUser(null);
-        return;
-      }
-      const profile = await getUserProfile(uid);
-      setUser(profile); // can be null if no doc yet
-    } catch (e) {
-      console.warn('refreshUserProfile failed:', e);
-      setUser(null);
+  const refreshUserProfile = useCallback(async (uid = auth.currentUser?.uid) => {
+    // If already refreshing, skip
+    if (isRefreshingRef.current) {
+      return Promise.resolve();
     }
-  };
+    
+    // Debounce: Clear any pending refresh
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = null;
+    }
+    
+    // Debounce: Wait 200ms before actually refreshing
+    return new Promise((resolve) => {
+      refreshTimeoutRef.current = setTimeout(async () => {
+        // Double-check we're not already refreshing
+        if (isRefreshingRef.current) {
+          refreshTimeoutRef.current = null;
+          resolve();
+          return;
+        }
+        
+        isRefreshingRef.current = true;
+        refreshTimeoutRef.current = null;
+        
+        try {
+          if (!uid) {
+            setUser(null);
+            resolve();
+            return;
+          }
+          // Wait for auth to be ready
+          if (!auth.currentUser) {
+            console.log('No authenticated user, skipping profile refresh');
+            setUser(null);
+            resolve();
+            return;
+          }
+          const profile = await getUserProfile(uid);
+          if (profile) {
+            // Ensure photoUpdatedAt and coverUpdatedAt are numbers for cache-busting
+            if (profile.photoUpdatedAt && typeof profile.photoUpdatedAt !== 'number') {
+              profile.photoUpdatedAt = profile.photoUpdatedAt.toMillis ? profile.photoUpdatedAt.toMillis() : Date.now();
+            }
+            if (profile.coverUpdatedAt && typeof profile.coverUpdatedAt !== 'number') {
+              profile.coverUpdatedAt = profile.coverUpdatedAt.toMillis ? profile.coverUpdatedAt.toMillis() : Date.now();
+            }
+          }
+          
+          setUser(profile); // can be null if no doc yet
+          
+          // Log profile refresh (debouncing prevents excessive logs)
+          console.log('✅ Profile refreshed:', { 
+            hasAvatar: !!(profile?.avatarUrl || profile?.photoURL),
+            hasCover: !!profile?.coverUrl,
+            photoUpdatedAt: profile?.photoUpdatedAt,
+            coverUpdatedAt: profile?.coverUpdatedAt
+          });
+          resolve();
+        } catch (e) {
+          console.warn('refreshUserProfile failed:', e);
+          setUser(null);
+          resolve();
+        } finally {
+          isRefreshingRef.current = false;
+        }
+      }, 200);
+    });
+  }, []);
 
   const updateUserProfile = async (updates) => {
     try {

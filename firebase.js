@@ -1,5 +1,6 @@
 // firebase.js
-// Real Firebase implementation with fallback to mock
+// Real Firebase implementation - NO MOCK FALLBACKS
+// Configure Firebase credentials in .env file or app.json
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
@@ -27,253 +28,107 @@ import 'react-native-get-random-values';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { v4 as uuidv4 } from 'uuid';
 
-// Firebase configuration - uses environment variables or defaults
-// To use real Firebase, set these in your .env file or app.json extra section
+// Firebase configuration - REQUIRED from environment variables
+// Set these in your .env file:
+// EXPO_PUBLIC_FIREBASE_API_KEY=your_api_key
+// EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
+// EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+// EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
+// EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+// EXPO_PUBLIC_FIREBASE_APP_ID=your_app_id
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "AIzaSyBvQZvQZvQZvQZvQZvQZvQZvQZvQZvQZvQ",
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "m1alive.firebaseapp.com",
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "m1alive",
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "m1alive.appspot.com",
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "123456789012",
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "1:123456789012:web:abcdefghijklmnopqrstuvwxyz"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID
 };
 
-// Check if we have real Firebase credentials (not placeholder values)
-const hasRealFirebaseConfig = 
-  firebaseConfig.apiKey && 
-  firebaseConfig.apiKey !== "AIzaSyBvQZvQZvQZvQZvQZvQZvQZvQZvQZvQZvQ" &&
-  firebaseConfig.projectId && 
-  firebaseConfig.projectId !== "m1alive" &&
-  firebaseConfig.appId && 
-  firebaseConfig.appId !== "1:123456789012:web:abcdefghijklmnopqrstuvwxyz";
+// Validate Firebase configuration
+const requiredFields = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+const missingFields = requiredFields.filter(field => !firebaseConfig[field]);
 
-// Initialize Firebase
-let app, realAuth, realDb, realStorage, realFunctions;
-let isRealFirebase = false;
-
-// Only try to initialize real Firebase if we have real config
-if (hasRealFirebaseConfig) {
-  try {
-    app = initializeApp(firebaseConfig);
-    
-    // Initialize Auth with persistence
-    try {
-      realAuth = initializeAuth(app, {
-        persistence: getReactNativePersistence(AsyncStorage)
-      });
-    } catch (error) {
-      // Fallback to getAuth if initializeAuth fails
-      realAuth = getAuth(app);
-    }
-    
-    realDb = getFirestore(app);
-    realStorage = getStorage(app);
-    realFunctions = getFunctions(app);
-    
-    isRealFirebase = true;
-    console.log('🔥 Real Firebase initialized successfully!');
-    console.log('📦 Project:', firebaseConfig.projectId);
-  } catch (error) {
-    console.warn('⚠️ Firebase initialization failed, using mock:', error.message);
-    isRealFirebase = false;
-  }
-} else {
-  console.warn('⚠️ Using mock Firebase - configure real Firebase credentials to enable full functionality');
-  console.warn('💡 Set EXPO_PUBLIC_FIREBASE_* environment variables or update firebase.js config');
-  isRealFirebase = false;
+if (missingFields.length > 0) {
+  const errorMessage = `❌ FIREBASE CONFIGURATION ERROR: Missing required environment variables:\n${missingFields.map(f => `  - EXPO_PUBLIC_FIREBASE_${f.toUpperCase().replace(/([A-Z])/g, '_$1')}`).join('\n')}\n\nPlease configure Firebase credentials in your .env file or app.json extra section.`;
+  console.error(errorMessage);
+  throw new Error(errorMessage);
 }
 
-// Mock Firebase implementation (fallback)
-const mockAuth = {
-  currentUser: {
-    uid: 'wGdVeOThCQOF65f3emHhisgrUsx2',
-    email: 'brogdon.lance@gmail.com',
-    displayName: 'Lance'
-  },
-  onAuthStateChanged: (callback) => {
-    // Simulate immediate authentication
-    setTimeout(() => {
-      callback(mockAuth.currentUser);
-    }, 100);
-    // Return unsubscribe function
-    return () => console.log('Mock auth unsubscribe');
+// Initialize Firebase - REQUIRED, no fallback
+let app, auth, db, storage, functions;
+
+try {
+  app = initializeApp(firebaseConfig);
+  
+  // Initialize Auth with persistence
+  try {
+    auth = initializeAuth(app, {
+      persistence: getReactNativePersistence(AsyncStorage)
+    });
+  } catch (error) {
+    // Fallback to getAuth if initializeAuth fails (already initialized)
+    auth = getAuth(app);
   }
-};
-
-const mockFirestore = {
-  collection: (name) => ({
-    doc: (id) => ({
-      id: id || `mock-${Date.now()}`,
-      get: async () => ({
-        exists: () => true,
-        data: () => ({
-          displayName: 'Lance',
-          username: 'Lance makes music',
-          bio: 'Founder',
-          avatarUrl: '',
-          socials: { instagram: 'instagram.com/merkaba_ent' },
-          private: false,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        })
-      }),
-      set: async (data) => {
-        console.log('Mock Firestore set:', data);
-        return { id: id || `mock-${Date.now()}` };
-      },
-      update: async (data) => {
-        console.log('Mock Firestore update:', data);
-        return { id: id || `mock-${Date.now()}` };
-      }
-    }),
-    // Support for addDoc
-    add: async (data) => {
-      const docId = `mock-${Date.now()}`;
-      console.log('Mock Firestore add:', name, data);
-      return { id: docId };
-    }
-  })
-};
-
-const mockFunctions = {
-  httpsCallable: (name) => async (data) => {
-    console.log('Mock Functions call:', name, data);
-    return { data: { success: true, message: 'Mock function called' } };
-  }
-};
-
-const mockStorage = {
-  ref: (path) => ({
-    put: async (blob, metadata) => {
-      console.log('Mock Storage upload:', path, metadata);
-      return { ref: { getDownloadURL: async () => 'https://mock-url.com/image.jpg' } };
-    },
-    getDownloadURL: async () => 'https://mock-url.com/image.jpg'
-  })
-};
+  
+  db = getFirestore(app);
+  storage = getStorage(app);
+  functions = getFunctions(app);
+  
+  console.log('🔥 Real Firebase initialized successfully!');
+  console.log('📦 Project:', firebaseConfig.projectId);
+} catch (error) {
+  const errorMessage = `❌ FIREBASE INITIALIZATION FAILED: ${error.message}\n\nPlease check your Firebase configuration and ensure all credentials are correct.`;
+  console.error(errorMessage);
+  throw new Error(errorMessage);
+}
 
 /* ------------------------------------------------------------------ */
-/* Real Firebase + Mock Fallback Exports                               */
+/* Authentication Functions                                            */
 /* ------------------------------------------------------------------ */
-
-// Authentication functions with real Firebase + mock fallback
 export const signInWithEmailAndPassword = async (email, password) => {
-  if (isRealFirebase) {
-    try {
-      const result = await firebaseSignIn(realAuth, email, password);
-      console.log('✅ Real Firebase sign in successful');
-      return result;
-    } catch (error) {
-      console.error('❌ Real Firebase sign in failed:', error.message);
-      throw error;
-    }
-  } else {
-    console.log('🔧 Mock sign in:', email);
-    // Check for bypass auth or admin email from env
-    const bypassAuth = process.env.EXPO_PUBLIC_BYPASS_AUTH === 'true';
-    const adminEmail = process.env.EXPO_PUBLIC_ADMIN_EMAIL || 'brogdon.lance@gmail.com';
-    
-    // In mock mode, accept any password for any email (for demo purposes)
-    // Or check if it's the admin email or bypass is enabled
-    if (bypassAuth || email === adminEmail || email === 'brogdon.lance@gmail.com' || password.length >= 6) {
-      // Update mock user email if different
-      if (email !== mockAuth.currentUser.email) {
-        mockAuth.currentUser.email = email;
-        mockAuth.currentUser.displayName = email.split('@')[0];
-      }
-      console.log('✅ Mock sign in successful');
-      
-      // Notify all auth state listeners
-      if (mockAuth._listeners && mockAuth._listeners.length > 0) {
-        console.log('🔔 Notifying auth state listeners of login');
-        mockAuth._listeners.forEach(listener => {
-          try {
-            listener();
-          } catch (e) {
-            console.error('Error in auth state listener:', e);
-          }
-        });
-      }
-      
-      return { user: mockAuth.currentUser };
-    }
-    throw new Error('Invalid credentials');
+  try {
+    const result = await firebaseSignIn(auth, email, password);
+    console.log('✅ Firebase sign in successful');
+    return result;
+  } catch (error) {
+    console.error('❌ Firebase sign in failed:', error.message);
+    throw error;
   }
 };
 
 export const createUserWithEmailAndPassword = async (email, password) => {
-  if (isRealFirebase) {
-    try {
-      const result = await firebaseCreateUser(realAuth, email, password);
-      console.log('✅ Real Firebase user creation successful');
-      return result;
-    } catch (error) {
-      console.error('❌ Real Firebase user creation failed:', error.message);
-      throw error;
-    }
-  } else {
-    console.log('🔧 Mock user creation:', email);
-    return { user: mockAuth.currentUser };
+  try {
+    const result = await firebaseCreateUser(auth, email, password);
+    console.log('✅ Firebase user creation successful');
+    return result;
+  } catch (error) {
+    console.error('❌ Firebase user creation failed:', error.message);
+    throw error;
   }
 };
 
 export const signOut = async () => {
-  if (isRealFirebase) {
-    try {
-      await firebaseSignOut(realAuth);
-      console.log('✅ Real Firebase sign out successful');
-    } catch (error) {
-      console.error('❌ Real Firebase sign out failed:', error.message);
-      throw error;
-    }
-  } else {
-    console.log('🔧 Mock sign out');
+  try {
+    await firebaseSignOut(auth);
+    console.log('✅ Firebase sign out successful');
+  } catch (error) {
+    console.error('❌ Firebase sign out failed:', error.message);
+    throw error;
   }
 };
 
 export const onAuthStateChanged = (callback) => {
-  if (isRealFirebase) {
-    return firebaseOnAuthStateChanged(realAuth, callback);
-  } else {
-    // Mock auth state change - call immediately with current user
-    // Also set up a listener for when currentUser changes
-    const callCallback = () => {
-      callback(mockAuth.currentUser);
-    };
-    
-    // Call immediately with current user
-    callCallback();
-    
-    // Store callback so signIn can trigger it
-    if (!mockAuth._listeners) {
-      mockAuth._listeners = [];
-    }
-    mockAuth._listeners.push(callCallback);
-    
-    return () => {
-      if (mockAuth._listeners) {
-        const index = mockAuth._listeners.indexOf(callCallback);
-        if (index > -1) {
-          mockAuth._listeners.splice(index, 1);
-        }
-      }
-      console.log('Mock auth unsubscribe');
-    };
-  }
+  return firebaseOnAuthStateChanged(auth, callback);
 };
 
 export const updateProfile = async (user, updates) => {
-  if (isRealFirebase) {
-    try {
-      await firebaseUpdateProfile(user, updates);
-      console.log('✅ Real Firebase profile update successful');
-    } catch (error) {
-      console.error('❌ Real Firebase profile update failed:', error.message);
-      throw error;
-    }
-  } else {
-    console.log('🔧 Mock profile update:', updates);
-    Object.assign(mockAuth.currentUser, updates);
+  try {
+    await firebaseUpdateProfile(user, updates);
+    console.log('✅ Firebase profile update successful');
+  } catch (error) {
+    console.error('❌ Firebase profile update failed:', error.message);
+    throw error;
   }
 };
 
@@ -281,21 +136,20 @@ export const updateProfile = async (user, updates) => {
 /* Helper Functions                                                    */
 /* ------------------------------------------------------------------ */
 export const isFirebaseReady = () => {
-  return isRealFirebase && realAuth !== undefined;
+  // Real Firestore doesn't have a collection method on db
+  // Check if db exists and is a Firestore instance (not a mock)
+  return auth !== undefined && db !== undefined && typeof db.collection !== 'function';
 };
 
 /* ------------------------------------------------------------------ */
-/* Core Exports (Real Firebase + Mock Fallback)                       */
+/* Core Exports                                                        */
 /* ------------------------------------------------------------------ */
-export const auth = isRealFirebase ? realAuth : mockAuth;
-export const db = isRealFirebase ? realDb : mockFirestore;
-export { app }; // Export app for analytics
-export const storage = isRealFirebase ? realStorage : mockStorage;
-export const functions = isRealFirebase ? realFunctions : mockFunctions;
+export { app, auth, db, functions, storage };
 
-// Helper function for httpsCallable (Mock)
+// Helper function for httpsCallable
 export const httpsCallable = (functionName) => {
-  return mockFunctions.httpsCallable(functionName);
+  const { httpsCallable: firebaseHttpsCallable } = require('firebase/functions');
+  return firebaseHttpsCallable(functions, functionName);
 };
 
 /* ------------------------------------------------------------------ */
@@ -308,44 +162,25 @@ export const getUserProfile = async (uid) => {
     return null;
   }
   
-  if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-    // Real Firestore
-    const { doc, getDoc, Timestamp } = await import('firebase/firestore');
-    const userRef = doc(db, 'users', uid);
-    const snap = await getDoc(userRef);
-    if (!snap.exists()) return null;
-    
-    const data = snap.data();
-    // Convert Firestore Timestamps to numbers for photoUpdatedAt and coverUpdatedAt
-    const profile = { id: snap.id, ...data };
-    if (data.photoUpdatedAt && data.photoUpdatedAt.toMillis) {
-      profile.photoUpdatedAt = data.photoUpdatedAt.toMillis();
-    } else if (data.photoUpdatedAt && typeof data.photoUpdatedAt === 'object' && data.photoUpdatedAt.seconds) {
-      profile.photoUpdatedAt = data.photoUpdatedAt.seconds * 1000;
-    }
-    if (data.coverUpdatedAt && data.coverUpdatedAt.toMillis) {
-      profile.coverUpdatedAt = data.coverUpdatedAt.toMillis();
-    } else if (data.coverUpdatedAt && typeof data.coverUpdatedAt === 'object' && data.coverUpdatedAt.seconds) {
-      profile.coverUpdatedAt = data.coverUpdatedAt.seconds * 1000;
-    }
-    return profile;
-  } else if (db && typeof db.collection === 'function') {
-    // Mock Firestore
-    const userRef = db.collection('users').doc(uid);
-    const snap = await userRef.get();
-    if (!snap.exists()) return null;
-    const data = snap.data();
-    // Convert Date objects to timestamps
-    const profile = { ...data };
-    if (data.photoUpdatedAt instanceof Date) {
-      profile.photoUpdatedAt = data.photoUpdatedAt.getTime();
-    }
-    if (data.coverUpdatedAt instanceof Date) {
-      profile.coverUpdatedAt = data.coverUpdatedAt.getTime();
-    }
-    return profile;
+  const { doc, getDoc, Timestamp } = await import('firebase/firestore');
+  const userRef = doc(db, 'users', uid);
+  const snap = await getDoc(userRef);
+  if (!snap.exists()) return null;
+  
+  const data = snap.data();
+  // Convert Firestore Timestamps to numbers for photoUpdatedAt and coverUpdatedAt
+  const profile = { id: snap.id, ...data };
+  if (data.photoUpdatedAt && data.photoUpdatedAt.toMillis) {
+    profile.photoUpdatedAt = data.photoUpdatedAt.toMillis();
+  } else if (data.photoUpdatedAt && typeof data.photoUpdatedAt === 'object' && data.photoUpdatedAt.seconds) {
+    profile.photoUpdatedAt = data.photoUpdatedAt.seconds * 1000;
   }
-  return null;
+  if (data.coverUpdatedAt && data.coverUpdatedAt.toMillis) {
+    profile.coverUpdatedAt = data.coverUpdatedAt.toMillis();
+  } else if (data.coverUpdatedAt && typeof data.coverUpdatedAt === 'object' && data.coverUpdatedAt.seconds) {
+    profile.coverUpdatedAt = data.coverUpdatedAt.seconds * 1000;
+  }
+  return profile;
 };
 
 export const updateUserProfileInDB = async (uid, updates) => {
@@ -355,31 +190,23 @@ export const updateUserProfileInDB = async (uid, updates) => {
     return;
   }
   
-  if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-    // Real Firestore
-    const { doc, updateDoc, serverTimestamp, Timestamp } = await import('firebase/firestore');
-    const userRef = doc(db, 'users', uid);
-    
-    // Convert timestamp fields to Firestore Timestamp if they're numbers
-    const firestoreUpdates = { ...updates };
-    if (firestoreUpdates.photoUpdatedAt && typeof firestoreUpdates.photoUpdatedAt === 'number') {
-      firestoreUpdates.photoUpdatedAt = Timestamp.fromMillis(firestoreUpdates.photoUpdatedAt);
-    }
-    if (firestoreUpdates.coverUpdatedAt && typeof firestoreUpdates.coverUpdatedAt === 'number') {
-      firestoreUpdates.coverUpdatedAt = Timestamp.fromMillis(firestoreUpdates.coverUpdatedAt);
-    }
-    
-    await updateDoc(userRef, { 
-      ...firestoreUpdates, 
-      updatedAt: serverTimestamp() 
-    });
-    console.log('[Firestore] Profile updated successfully:', Object.keys(updates));
-  } else if (db && typeof db.collection === 'function') {
-    // Mock Firestore
-    const userRef = db.collection('users').doc(uid);
-    await userRef.update({ ...updates, updatedAt: new Date() });
-    console.log('[Mock Firestore] Profile updated successfully:', Object.keys(updates));
+  const { doc, updateDoc, serverTimestamp, Timestamp } = await import('firebase/firestore');
+  const userRef = doc(db, 'users', uid);
+  
+  // Convert timestamp fields to Firestore Timestamp if they're numbers
+  const firestoreUpdates = { ...updates };
+  if (firestoreUpdates.photoUpdatedAt && typeof firestoreUpdates.photoUpdatedAt === 'number') {
+    firestoreUpdates.photoUpdatedAt = Timestamp.fromMillis(firestoreUpdates.photoUpdatedAt);
   }
+  if (firestoreUpdates.coverUpdatedAt && typeof firestoreUpdates.coverUpdatedAt === 'number') {
+    firestoreUpdates.coverUpdatedAt = Timestamp.fromMillis(firestoreUpdates.coverUpdatedAt);
+  }
+  
+  await updateDoc(userRef, { 
+    ...firestoreUpdates, 
+    updatedAt: serverTimestamp() 
+  });
+  console.log('[Firestore] Profile updated successfully:', Object.keys(updates));
 };
 
 export const createUserProfileIfMissing = async (uid, seed = {}) => {
@@ -388,25 +215,31 @@ export const createUserProfileIfMissing = async (uid, seed = {}) => {
     console.warn('No authenticated user for createUserProfileIfMissing');
     return null;
   }
-  const userRef = db.collection('users').doc(uid);
-  const snap = await userRef.get();
+  
+  const { doc, getDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
+  const userRef = doc(db, 'users', uid);
+  const snap = await getDoc(userRef);
 
-  if (!snap.exists) {
+  if (!snap.exists()) {
     const defaults = {
       displayName: '',
       username: '',
       bio: '',
       avatarUrl: '',
+      coverUrl: '',
+      photoURL: '',
       socials: {},
       private: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      showOnlineStatus: true,
+      allowMessages: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       ...seed,
     };
-    await userRef.set(defaults, { merge: true });
-    return defaults;
+    await setDoc(userRef, defaults, { merge: true });
+    return { id: uid, ...defaults };
   }
-  return snap.data();
+  return { id: snap.id, ...snap.data() };
 };
 
 /* ------------------------------------------------------------------ */
@@ -463,41 +296,75 @@ export const uploadImageAsync = async (uri, folder = 'avatars', maxSize = null) 
     size: blob.size,
   });
 
-  // 4) upload using real or mock storage
-  if (isRealFirebase && realStorage) {
-    // Real Firebase Storage
-    const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
-    const storageRef = ref(realStorage, path);
-    try {
-      await uploadBytes(storageRef, blob, metadata);
-      const downloadURL = await getDownloadURL(storageRef);
-      return downloadURL;
-    } catch (err) {
-      console.error('[Storage upload error]', {
-        code: err?.code,
-        message: err?.message,
-      });
-      throw err;
-    }
-  } else {
-    // Mock storage
-    const storageRef = storage.ref(path);
-    try {
-      await storageRef.put(blob, metadata);
-      return await storageRef.getDownloadURL();
-    } catch (err) {
-      console.error('[Storage upload error]', {
-        code: err?.code,
-        message: err?.message,
-      });
-      throw err;
-    }
+  // 4) upload using Firebase Storage
+  const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+  const storageRef = ref(storage, path);
+  try {
+    await uploadBytes(storageRef, blob, metadata);
+    const downloadURL = await getDownloadURL(storageRef);
+    console.log('[Storage] Upload successful:', downloadURL);
+    return downloadURL;
+  } catch (err) {
+    console.error('[Storage upload error]', {
+      code: err?.code,
+      message: err?.message,
+    });
+    throw err;
   }
 };
 
-/* ------------------------------------------------------------------ */
-/* Optional sanity log                                                 */
-/* ------------------------------------------------------------------ */
-try {
-  console.log('🐻 Firebase initialized for project: m1alive');
-} catch {}
+// Upload video or audio files
+export const uploadFileAsync = async (uri, folder = 'posts', fileType = 'video') => {
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error('Not signed in');
+
+  // Read file into Blob
+  const res = await fetch(uri);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to read file: ${res.status} ${text}`);
+  }
+  const blob = await res.blob();
+  if (!blob || blob.size === 0) throw new Error('Selected file is empty or unreadable');
+  
+  // Size limits: 50MB for video, 25MB for audio
+  const maxSize = fileType === 'video' ? 50 * 1024 * 1024 : 25 * 1024 * 1024;
+  if (blob.size > maxSize) {
+    throw new Error(`${fileType === 'video' ? 'Video' : 'Audio'} exceeds ${maxSize / (1024 * 1024)}MB limit`);
+  }
+
+  // Determine file extension and content type
+  let extension = 'mp4';
+  let contentType = 'video/mp4';
+  if (fileType === 'audio') {
+    extension = 'mp3';
+    contentType = 'audio/mpeg';
+  }
+
+  // Build path + metadata
+  const filename = `${uuidv4()}.${extension}`;
+  const path = `${folder}/${uid}/${filename}`;
+  const metadata = { contentType };
+
+  console.log('[Storage debug]', {
+    path,
+    type: metadata.contentType,
+    size: blob.size,
+  });
+
+  // Upload using Firebase Storage
+  const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+  const storageRef = ref(storage, path);
+  try {
+    await uploadBytes(storageRef, blob, metadata);
+    const downloadURL = await getDownloadURL(storageRef);
+    console.log('[Storage] Upload successful:', downloadURL);
+    return downloadURL;
+  } catch (err) {
+    console.error('[Storage upload error]', {
+      code: err?.code,
+      message: err?.message,
+    });
+    throw err;
+  }
+};

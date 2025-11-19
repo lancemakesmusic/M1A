@@ -20,7 +20,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import ErrorRecovery from '../components/ErrorRecovery';
 import { trackEventBookingStarted, trackEventBookingCompleted, trackFunnelStep, trackButtonClick, trackFeatureUsage, trackError } from '../services/AnalyticsService';
-import { scheduleEventReminder, sendBookingReminder } from '../services/NotificationService';
+import { scheduleEventReminder, sendBookingReminder, sendEventNotification } from '../services/NotificationService';
+import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import GoogleCalendarService from '../services/GoogleCalendarService';
 import BookingCalendar from '../components/BookingCalendar';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
@@ -123,6 +124,7 @@ export default function EventBookingScreen({ navigation }) {
         shadow: 'rgba(0,0,0,0.1)',
     };
     const { user } = useAuth();
+    const { preferences: notificationPrefs } = useNotificationPreferences();
     const insets = useSafeAreaInsets();
     useScreenTracking('EventBookingScreen');
     
@@ -885,12 +887,27 @@ export default function EventBookingScreen({ navigation }) {
             });
 
             // Schedule notifications
-            await scheduleEventReminder(startDate, eventTitle);
-            await sendBookingReminder(formData.email, {
-                eventType: formData.eventType,
-                date: formData.eventDate,
-                time: formData.eventStartTime,
-                totalCost: totalCost,
+            const eventData = {
+                id: backendResult.bookingId || 'pending',
+                title: eventTitle,
+                description: `Event Type: ${formData.eventType}\nGuests: ${formData.guestCount}`,
+                startDate: startDate,
+                reminderDate: new Date(startDate.getTime() - 24 * 60 * 60 * 1000), // 24 hours before
+            };
+            
+            // Send event booking confirmation notification
+            await sendEventNotification(eventData, notificationPrefs, 'newEvent');
+            
+            // Schedule reminder if enabled
+            if (notificationPrefs?.events?.reminders) {
+                await scheduleEventReminder(startDate, eventTitle, backendResult.bookingId);
+            }
+            
+            // Send booking reminder
+            await sendBookingReminder({
+                id: backendResult.bookingId,
+                date: startDate,
+                serviceName: eventTitle,
             });
 
             setIsSubmitting(false);

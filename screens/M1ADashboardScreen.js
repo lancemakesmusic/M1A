@@ -1,17 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
 import {
-    Dimensions,
-    FlatList,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  FlatList,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import FeatureRecommendations from '../components/FeatureRecommendations';
+import ScrollIndicator from '../components/ScrollIndicator';
 import TutorialOverlay from '../components/TutorialOverlay';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
@@ -20,7 +22,9 @@ import { db, isFirebaseReady } from '../firebase';
 
 const { width } = Dimensions.get('window');
 
-export default function M1ADashboardScreen({ navigation }) {
+export default function M1ADashboardScreen({ navigation: navProp }) {
+  const navHook = useNavigation();
+  const navigation = navProp || navHook;
   const { theme } = useTheme();
   const { user } = useAuth();
   const { 
@@ -32,9 +36,13 @@ export default function M1ADashboardScreen({ navigation }) {
     markTutorialComplete,
     getTutorialSteps
   } = useM1APersonalization();
+  
+  // Check if we can go back (i.e., not the first screen in stack - accessed from drawer)
+  const canGoBack = navigation.canGoBack();
   const [refreshing, setRefreshing] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [stats, setStats] = useState({
     totalEvents: 0,
     upcomingEvents: 0,
@@ -340,11 +348,33 @@ export default function M1ADashboardScreen({ navigation }) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* Header with conditional Back Button */}
+      {canGoBack && (
+        <View style={[styles.topHeader, { borderBottomColor: theme.border }]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.topHeaderTitle, { color: theme.text }]}>M1A Dashboard</Text>
+          <View style={styles.headerRight} />
+        </View>
+      )}
+
+      <View style={{ flex: 1 }}>
+        <ScrollView
         style={styles.scrollView}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
+        onScrollBeginDrag={() => {
+          setShowScrollIndicator(false);
+        }}
+        scrollEventThrottle={16}
+        removeClippedSubviews={false}
+        collapsable={false}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -424,7 +454,8 @@ export default function M1ADashboardScreen({ navigation }) {
             ))}
           </View>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {/* Tutorial Overlay */}
       <TutorialOverlay
@@ -437,6 +468,14 @@ export default function M1ADashboardScreen({ navigation }) {
         onSkip={handleTutorialSkip}
         personaType={userPersona?.id}
       />
+      
+      {/* Scroll Indicator */}
+      {showScrollIndicator && (
+        <ScrollIndicator
+          visible={showScrollIndicator}
+          onScrollStart={() => setShowScrollIndicator(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -444,6 +483,27 @@ export default function M1ADashboardScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  topHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40, // Same width as back button to center title
   },
   scrollView: {
     flex: 1,

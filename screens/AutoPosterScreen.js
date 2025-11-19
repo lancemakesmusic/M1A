@@ -15,6 +15,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ScrollIndicator from '../components/ScrollIndicator';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db as firestore, functions, httpsCallable } from '../firebase';
@@ -44,6 +45,7 @@ export default function AutoPosterScreen({ navigation }) {
   const [showContentModal, setShowContentModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showMediaUploader, setShowMediaUploader] = useState(false);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [mediaLibrary, setMediaLibrary] = useState([]);
   const [isAutoPosterActive, setIsAutoPosterActive] = useState(false);
@@ -629,10 +631,17 @@ export default function AutoPosterScreen({ navigation }) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView
+      <View style={{ flex: 1 }}>
+        <ScrollView
         style={styles.scrollView}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
+        onScrollBeginDrag={() => {
+          setShowScrollIndicator(false);
+        }}
+        scrollEventThrottle={16}
+        removeClippedSubviews={false}
+        collapsable={false}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -805,7 +814,8 @@ export default function AutoPosterScreen({ navigation }) {
             contentContainerStyle={styles.mediaList}
           />
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {/* Content Generation Modal */}
       <Modal
@@ -1090,6 +1100,14 @@ export default function AutoPosterScreen({ navigation }) {
           </View>
         </View>
       </Modal>
+      
+      {/* Scroll Indicator */}
+      {showScrollIndicator && (
+        <ScrollIndicator
+          visible={showScrollIndicator}
+          onScrollStart={() => setShowScrollIndicator(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }

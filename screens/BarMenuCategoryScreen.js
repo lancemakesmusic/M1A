@@ -306,11 +306,8 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
           createdAt: serverTimestamp(),
         });
         orderId = orderRef.id;
-      } else if (db && typeof db.collection === 'function') {
-        const orderRef = await db.collection('barOrders').add(orderData);
-        orderId = orderRef.id;
       } else {
-        orderId = `ORDER-${Date.now()}`;
+        throw new Error('Firestore not ready');
       }
       setOrderNumber(orderId);
 

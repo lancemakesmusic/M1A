@@ -23,13 +23,17 @@
         "NSPhotoLibraryAddUsageDescription": "M1A needs access to save photos to your library.",
         "ITSAppUsesNonExemptEncryption": false
       },
+      "usesAppleSignIn": false,
       "config": {
         "usesNonExemptEncryption": false
       },
       "associatedDomains": [
         "applinks:m1a.app",
         "applinks:www.m1a.app"
-      ]
+      ],
+      "entitlements": {
+        "aps-environment": "production"
+      }
     },
     "android": {
       "package": "com.merkabaent.m1a",
@@ -66,6 +70,14 @@
         {
           "photosPermission": "M1A needs access to your photos to upload profile and cover images.",
           "cameraPermission": "M1A needs access to your camera to take photos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#9C27B0",
+          "sounds": []
         }
       ],
       "expo-web-browser"

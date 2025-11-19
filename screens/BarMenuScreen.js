@@ -378,25 +378,10 @@ export default function BarMenuScreen({ navigation }) {
           return orderRef.id;
         } catch (firestoreError) {
           console.warn('Firestore save failed, using mock order ID:', firestoreError);
-          return `MOCK-${Date.now()}`;
-        }
-      } else if (db && typeof db.collection === 'function') {
-        // Mock Firestore - use mock API
-        try {
-          const mockCollection = db.collection('barOrders');
-          const mockOrderRef = await mockCollection.add({
-            ...orderData,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-          return mockOrderRef.id || `MOCK-${Date.now()}`;
-        } catch (mockError) {
-          console.warn('Mock Firestore save failed, using local order ID:', mockError);
-          return `LOCAL-${Date.now()}`;
+          throw new Error('Firestore save failed');
         }
       } else {
-        // No Firestore available, generate local order number
-        return `LOCAL-${Date.now()}`;
+        throw new Error('Firestore not ready');
       }
     } catch (error) {
       console.error('Error saving order to Firestore:', error);

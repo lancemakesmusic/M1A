@@ -26,6 +26,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, isFirebaseReady } from '../firebase';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackFeatureUsage } from '../services/AnalyticsService';
+import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
 
 export default function UserProfileViewScreen({ route, navigation }) {
   const { theme } = useTheme();
@@ -61,12 +62,8 @@ export default function UserProfileViewScreen({ route, navigation }) {
         if (userSnap.exists()) {
           setUser({ id: userSnap.id, ...userSnap.data() });
         }
-      } else if (db && typeof db.collection === 'function') {
-        // Mock Firestore
-        const userDoc = await db.collection('users').doc(userId).get();
-        if (userDoc.exists) {
-          setUser({ id: userDoc.id, ...userDoc.data() });
-        }
+      } else {
+        throw new Error('Firestore not ready');
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
@@ -97,14 +94,8 @@ export default function UserProfileViewScreen({ route, navigation }) {
           receiverId: user.id,
           createdAt: serverTimestamp(),
         });
-      } else if (db && typeof db.collection === 'function') {
-        // Mock Firestore
-        await db.collection('conversations').doc(conversationId).collection('messages').add({
-          text: messageText.trim(),
-          senderId: currentUser.uid,
-          receiverId: user.id,
-          createdAt: new Date(),
-        });
+      } else {
+        throw new Error('Firestore not ready');
       }
 
       Alert.alert('Message Sent', 'Your message has been sent successfully.');
@@ -145,9 +136,8 @@ export default function UserProfileViewScreen({ route, navigation }) {
           ...inquiryPayload,
           createdAt: serverTimestamp(),
         });
-      } else if (db && typeof db.collection === 'function') {
-        // Mock Firestore
-        await db.collection('inquiries').add(inquiryPayload);
+      } else {
+        throw new Error('Firestore not ready');
       }
 
       Alert.alert(
@@ -225,11 +215,11 @@ export default function UserProfileViewScreen({ route, navigation }) {
         <View style={[styles.profileHeader, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
           {/* Cover Photo */}
           <View style={styles.coverPhotoContainer}>
-            {user.coverUrl ? (
+            {hasCover(user) ? (
               <Image 
-                source={{ uri: `${user.coverUrl}?t=${user.coverUpdatedAt || Date.now()}` }} 
+                source={getCoverSource(user)}
                 style={styles.coverPhoto}
-                key={`cover-${user.coverUrl}-${user.coverUpdatedAt || ''}`}
+                key={getImageKey(user, 'cover')}
               />
             ) : (
               <View style={[styles.coverPhoto, { backgroundColor: theme.primary + '20' }]} />
@@ -239,11 +229,11 @@ export default function UserProfileViewScreen({ route, navigation }) {
           {/* Profile Info */}
           <View style={styles.profileInfo}>
             <View style={styles.avatarContainer}>
-              {user.avatarUrl || user.photoURL ? (
+              {hasAvatar(user) ? (
                 <Image 
-                  source={{ uri: `${user.avatarUrl || user.photoURL}?t=${user.photoUpdatedAt || Date.now()}` }} 
+                  source={getAvatarSource(user)}
                   style={styles.avatar}
-                  key={`avatar-${user.avatarUrl || user.photoURL}-${user.photoUpdatedAt || ''}`}
+                  key={getImageKey(user, 'avatar')}
                 />
               ) : (
                 <Image

@@ -1,92 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import EmptyState from '../components/EmptyState';
+import { useAuth } from '../contexts/AuthContext';
+import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { auth, db, isFirebaseReady } from '../firebase';
-import { collection, query, where, getDocs, orderBy, limit, arrayContains, doc, getDoc } from 'firebase/firestore';
-import { useAuth } from '../contexts/AuthContext';
-import EmptyState from '../components/EmptyState';
-
-// Mock data - moved outside component to prevent infinite re-renders
-const mockConversations = [
-  {
-    id: '1',
-    name: 'John Doe',
-    lastMessage: 'Hey, how are you doing?',
-    timestamp: new Date(Date.now() - 1000 * 60 * 5), // 5 minutes ago
-    unreadCount: 2,
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
-    isOnline: true,
-  },
-  {
-    id: '2',
-    name: 'Sarah Wilson',
-    lastMessage: 'Thanks for the help with the project!',
-    timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-    unreadCount: 0,
-    avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=100&h=100&fit=crop&crop=face',
-    isOnline: false,
-  },
-  {
-    id: '3',
-    name: 'Mike Johnson',
-    lastMessage: 'See you tomorrow at the meeting',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-    unreadCount: 1,
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
-    isOnline: true,
-  },
-  {
-    id: '4',
-    name: 'Emily Davis',
-    lastMessage: 'The event was amazing!',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-    unreadCount: 0,
-    avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face',
-    isOnline: false,
-  },
-];
-
-const mockUsers = [
-  {
-    id: '5',
-    name: 'Alex Thompson',
-    username: '@alexthompson',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
-    isOnline: true,
-  },
-  {
-    id: '6',
-    name: 'Lisa Chen',
-    username: '@lisachen',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop&crop=face',
-    isOnline: false,
-  },
-  {
-    id: '7',
-    name: 'David Rodriguez',
-    username: '@davidrod',
-    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop&crop=face',
-    isOnline: true,
-  },
-];
+import { sendMessageNotification } from '../services/NotificationService';
+import { getAvatarUrl } from '../utils/photoUtils';
 
 export default function MessagesScreen() {
+  const navigation = useNavigation();
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { preferences: notificationPrefs } = useNotificationPreferences();
+  
+  // Check if we can go back (i.e., accessed from drawer)
+  const canGoBack = navigation.canGoBack();
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -138,7 +83,7 @@ export default function MessagesScreen() {
               lastMessage: data.lastMessage || '',
               timestamp: data.lastMessageAt?.toDate() || new Date(),
               unreadCount: data.unreadCount?.[user.uid] || 0,
-              avatar: otherUser?.avatarUrl || otherUser?.photoURL || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+              avatar: getAvatarUrl(otherUser) || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
               isOnline: otherUser?.isOnline || false,
             };
           })
@@ -176,13 +121,16 @@ export default function MessagesScreen() {
         
         const usersData = usersSnapshot.docs
           .filter(docSnap => docSnap.id !== user.uid)
-          .map(docSnap => ({
-            id: docSnap.id,
-            name: docSnap.data().displayName || 'Unknown User',
-            username: docSnap.data().username || '',
-            avatar: docSnap.data().avatarUrl || docSnap.data().photoURL || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
-            isOnline: docSnap.data().isOnline || false,
-          }));
+          .map(docSnap => {
+            const userData = { id: docSnap.id, ...docSnap.data() };
+            return {
+              id: docSnap.id,
+              name: userData.displayName || 'Unknown User',
+              username: userData.username || '',
+              avatar: getAvatarUrl(userData) || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+              isOnline: userData.isOnline || false,
+            };
+          });
         
         setAvailableUsers(usersData);
       } else {
@@ -256,6 +204,18 @@ export default function MessagesScreen() {
       //   senderId: uid,
       //   createdAt: serverTimestamp(),
       // });
+      
+      // Send notification to recipient (if not current user)
+      if (selectedConversation && selectedConversation.id !== uid) {
+        await sendMessageNotification({
+          id: newMessage.id,
+          text: messageText,
+          senderId: uid,
+          senderName: user?.displayName || 'Someone',
+          conversationId: selectedConversation.id,
+          isMention: messageText.includes('@'),
+        }, notificationPrefs);
+      }
     } catch (e) {
       console.warn('Send failed:', e);
     }
@@ -391,10 +351,26 @@ export default function MessagesScreen() {
 
   // Main conversations list view
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* Header with conditional Back Button */}
+      {canGoBack && (
+        <View style={[styles.topHeader, { borderBottomColor: theme.border }]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.topHeaderTitle, { color: theme.text }]}>Messages</Text>
+          <View style={styles.headerRight} />
+        </View>
+      )}
+
       {/* Header with Search */}
       <View style={[styles.header, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Messages</Text>
+        {!canGoBack && <Text style={[styles.headerTitle, { color: theme.text }]}>Messages</Text>}
+        {canGoBack && <View style={{ flex: 1 }} />}
         <View style={styles.headerActions}>
           <TouchableOpacity 
             onPress={() => setShowUserSearch(!showUserSearch)}
@@ -547,7 +523,27 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
   },
-  
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  topHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40, // Same width as back button to center title
+  },
   // Header styles
   header: {
     flexDirection: 'row',

@@ -23,6 +23,9 @@ import { auth, updateProfile, updateUserProfileInDB, uploadImageAsync } from '..
 export default function ProfileEditScreen({ navigation }) {
   const { user, updateUserProfile, refreshUserProfile } = useContext(UserContext);
   const { theme, toggleTheme } = useTheme();
+  
+  // Track if we just uploaded a photo to force navigation refresh
+  const [justUploadedPhoto, setJustUploadedPhoto] = useState(false);
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [username, setUsername] = useState(user?.username ?? '');
@@ -162,22 +165,38 @@ export default function ProfileEditScreen({ navigation }) {
       setCacheBust(newCacheBust);
       
       // Force a small delay to ensure state update propagates
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Refresh user profile in context - wait for it to complete
+      // Single refresh call - debounced in UserContext
       if (refreshUserProfile) {
         await refreshUserProfile();
-        // Small delay to ensure Firestore has propagated
-        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
       // Force another cache bust to ensure image refreshes
       setCacheBust(Date.now());
       
-      Alert.alert('Success', 'Profile photo updated!');
+      // Update local context state immediately
+      if (updateUserProfile) {
+        // This ensures the context has the latest data
+        await updateUserProfile({});
+      }
       
-      // Don't navigate away - let user continue editing if needed
-      // ProfileScreen will refresh when navigated to via useFocusEffect
+      setJustUploadedPhoto(true);
+      Alert.alert('Success', 'Profile photo updated!', [
+        {
+          text: 'View Profile',
+          onPress: async () => {
+            // Navigate to profile screen
+            navigation.navigate('ProfileMain');
+            setJustUploadedPhoto(false);
+          }
+        },
+        {
+          text: 'Continue Editing',
+          style: 'cancel',
+          onPress: () => setJustUploadedPhoto(false)
+        }
+      ]);
     } catch (e) {
       console.error('[Avatar Upload Error]', e);
       // Keep local URI visible even if upload fails
@@ -251,22 +270,38 @@ export default function ProfileEditScreen({ navigation }) {
       setCacheBust(newCacheBust);
       
       // Force a small delay to ensure state update propagates
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Refresh user profile in context - wait for it to complete
+      // Single refresh call - debounced in UserContext
       if (refreshUserProfile) {
         await refreshUserProfile();
-        // Small delay to ensure Firestore has propagated
-        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
       // Force another cache bust to ensure image refreshes
       setCacheBust(Date.now());
       
-      Alert.alert('Success', 'Cover photo updated!');
+      // Update local context state immediately
+      if (updateUserProfile) {
+        // This ensures the context has the latest data
+        await updateUserProfile({});
+      }
       
-      // Don't navigate away - let user continue editing if needed
-      // ProfileScreen will refresh when navigated to via useFocusEffect
+      setJustUploadedPhoto(true);
+      Alert.alert('Success', 'Cover photo updated!', [
+        {
+          text: 'View Profile',
+          onPress: async () => {
+            // Navigate to profile screen
+            navigation.navigate('ProfileMain');
+            setJustUploadedPhoto(false);
+          }
+        },
+        {
+          text: 'Continue Editing',
+          style: 'cancel',
+          onPress: () => setJustUploadedPhoto(false)
+        }
+      ]);
     } catch (e) {
       console.error('[Cover Upload Error]', e);
       // Keep local URI visible even if upload fails

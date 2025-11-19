@@ -334,19 +334,21 @@ export default function FeedbackScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* Header with Back Button */}
+      <View style={[styles.topHeader, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
+        </TouchableOpacity>
+        <Text style={[styles.topHeaderTitle, { color: theme.text }]}>Send Feedback</Text>
+        <View style={styles.headerRight} />
+      </View>
+
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={styles.backButton}
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Feedback</Text>
-          <View style={{ width: 24 }} />
-        </View>
 
         {/* App Rating Section */}
         <View style={[styles.ratingSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
@@ -554,15 +556,33 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  topHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40, // Same width as back button to center title
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 20,
     paddingBottom: 10,
-  },
-  backButton: {
-    padding: 4,
   },
   headerTitle: {
     fontSize: 20,

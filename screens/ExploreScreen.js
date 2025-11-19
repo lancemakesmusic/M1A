@@ -17,228 +17,36 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import EmptyState from '../components/EmptyState';
+import ScrollIndicator from '../components/ScrollIndicator';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
+import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackFeatureUsage, trackSearch } from '../services/AnalyticsService';
+import { sendDiscountNotification } from '../services/NotificationService';
 import ReviewService from '../services/ReviewService';
 import SharingService from '../services/SharingService';
 import UsersScreen from './UsersScreen';
-import EmptyState from '../components/EmptyState';
 
 const { width } = Dimensions.get('window');
 const itemWidth = (width - 60) / 2; // 2 columns with padding
-
-// Mock data - reorganized under 3 main categories: Events, Services, Bar
-const mockItems = [
-  // EVENTS
-  {
-    id: '1',
-    name: 'NYE 2026 RSVP',
-    description: 'Ring in the New Year with Merkaba Entertainment! Join us for an unforgettable New Year\'s Eve celebration. Formal attire dress code required. RSVP required - select your persona to continue.',
-    price: 0,
-    category: 'Events',
-    subcategory: 'New Year\'s Eve',
-    rating: 5.0,
-    popularity: 100,
-    image: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&h=800&fit=crop&q=80',
-    artist: 'Merkaba Entertainment',
-    duration: 'Dec 31, 2026',
-    isRSVP: true,
-    requiresPersona: true,
-    dressCode: 'Formal Attire Required',
-  },
-
-  // SERVICES (from merkaba-entertainment.square.site)
-  {
-    id: '6',
-    name: 'Vocal Recording',
-    description: 'Elevate your sound with our industry-quality vocal recording service, complete with final mix and mastering options. Book your session today to experience professional-grade audio production tailored to your unique style.',
-    price: 50,
-    category: 'Services',
-    subcategory: 'Audio Production',
-    rating: 4.9,
-    popularity: 95,
-    image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&h=800&fit=crop&q=80',
-    artist: 'Merkaba Entertainment',
-    duration: '1 hr+',
-  },
-  {
-    id: '20',
-    name: 'Recording Time',
-    description: 'Professional studio recording time. Special deal: 10 hours for $200 (save $300!). Perfect for extended recording sessions, album production, or multiple song projects. Book now to secure your studio time.',
-    price: 200,
-    category: 'Services',
-    subcategory: 'Audio Production',
-    rating: 5.0,
-    popularity: 98,
-    image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&h=800&fit=crop&q=80',
-    artist: 'Merkaba Entertainment',
-    duration: '10 hours',
-    isDeal: true,
-    dealHours: 10,
-    dealPrice: 200,
-    regularPrice: 500, // $50/hour x 10 hours = $500, deal saves $300
-  },
-  {
-    id: '7',
-    name: 'Photography',
-    description: 'Capture your most precious moments with our high-quality photography services tailored to meet your individual needs. Book your appointment today to secure stunning images that will last a lifetime.',
-    price: 150,
-    category: 'Services',
-    subcategory: 'Photography',
-    rating: 4.8,
-    popularity: 92,
-    image: 'https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?w=800&h=800&fit=crop&q=80',
-    artist: 'Merkaba Entertainment',
-    duration: '1 hr+',
-  },
-  {
-    id: '8',
-    name: 'Videography',
-    description: 'Experience top-tier videography services tailored to your unique event needs. Book now to capture your special moments with professional quality and expertise.',
-    price: 500,
-    category: 'Services',
-    subcategory: 'Video Production',
-    rating: 4.9,
-    popularity: 94,
-    image: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=800&h=800&fit=crop&q=80',
-    artist: 'Merkaba Entertainment',
-    duration: '3 hrs+',
-  },
-  {
-    id: '9',
-    name: 'Graphic Design',
-    description: 'Elevate your brand with our high-quality custom graphic design service. Our expert designers will work closely with you to bring your vision to life, ensuring a professional and tailored result that truly represents your unique style and message.',
-    price: 50,
-    category: 'Services',
-    subcategory: 'Design',
-    rating: 4.8,
-    popularity: 88,
-    image: 'https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800&h=800&fit=crop&q=80',
-    artist: 'Merkaba Entertainment',
-    duration: '30 mins',
-  },
-  {
-    id: '10',
-    name: 'Website Development',
-    description: 'Experience a tailored website development service designed to enhance user experience, drive traffic, and boost conversions. Book your appointment now to elevate your online presence!',
-    price: 250,
-    category: 'Services',
-    subcategory: 'Web Development',
-    rating: 4.9,
-    popularity: 90,
-    image: 'https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&h=800&fit=crop&q=80',
-    artist: 'Merkaba Entertainment',
-    duration: '30 mins',
-  },
-  {
-    id: '13',
-    name: 'Auto Poster',
-    description: 'AI-powered content generation and social media scheduling',
-    price: 50,
-    category: 'Services',
-    subcategory: 'Digital Marketing',
-    rating: 4.9,
-    popularity: 96,
-    image: 'https://images.unsplash.com/photo-1524820197278-540916411e20?w=800&h=800&fit=crop&q=80',
-    artist: 'AI Content Studio',
-    duration: 'Instant',
-    isAutoPoster: true,
-  },
-
-  // BAR
-  {
-    id: '14',
-    name: 'Craft Cocktails',
-    description: 'Premium handcrafted cocktails made to order',
-    price: 15,
-    category: 'Bar',
-    subcategory: 'Drinks',
-    rating: 4.8,
-    popularity: 94,
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=400&h=400&fit=crop',
-    artist: 'Mixology Masters',
-    duration: '5-10 minutes',
-  },
-  {
-    id: '15',
-    name: 'Wine Selection',
-    description: 'Curated selection of fine wines from around the world',
-    price: 12,
-    category: 'Bar',
-    subcategory: 'Drinks',
-    rating: 4.7,
-    popularity: 89,
-    image: 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?w=400&h=400&fit=crop',
-    artist: 'Wine Connoisseurs',
-    duration: 'Immediate',
-  },
-  {
-    id: '16',
-    name: 'Beer & Spirits',
-    description: 'Wide selection of craft beers and premium spirits',
-    price: 8,
-    category: 'Bar',
-    subcategory: 'Drinks',
-    rating: 4.5,
-    popularity: 92,
-    image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop',
-    artist: 'Brew Masters',
-    duration: 'Immediate',
-  },
-  {
-    id: '17',
-    name: 'Bar Snacks & Appetizers',
-    description: 'Delicious snacks and appetizers to complement your drinks',
-    price: 10,
-    category: 'Bar',
-    subcategory: 'Food',
-    rating: 4.6,
-    popularity: 87,
-    image: 'https://images.unsplash.com/photo-1551218808-94e220e084d2?w=400&h=400&fit=crop',
-    artist: 'Culinary Delights',
-    duration: '10-15 minutes',
-  },
-  {
-    id: '19',
-    name: 'Non-Alcoholic Beverages',
-    description: 'Fresh juices, sodas, and specialty non-alcoholic drinks',
-    price: 6,
-    category: 'Bar',
-    subcategory: 'Drinks',
-    rating: 4.4,
-    popularity: 85,
-    image: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=400&fit=crop',
-    artist: 'Refreshment Station',
-    duration: 'Immediate',
-  },
-  {
-    id: '18',
-    name: 'Premium Bottle Service',
-    description: 'Exclusive bottle service with VIP treatment',
-    price: 200,
-    category: 'Bar',
-    subcategory: 'VIP Service',
-    rating: 4.9,
-    popularity: 96,
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=400&h=400&fit=crop',
-    artist: 'VIP Experience',
-    duration: 'All night',
-  },
-];
 
 export default function ExploreScreen() {
   const navigation = useNavigation();
   const { theme } = useTheme();
   const { userPersona } = useM1APersonalization();
+  const { preferences: notificationPrefs } = useNotificationPreferences();
   useScreenTracking('ExploreScreen');
+  
+  // Check if we can go back (i.e., accessed from drawer)
+  const canGoBack = navigation.canGoBack();
   
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState('Users');
+  const [selectedCategory, setSelectedCategory] = useState('Services');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
@@ -250,6 +58,7 @@ export default function ExploreScreen() {
   const [searchHistory, setSearchHistory] = useState([]);
   const [showRSVPModal, setShowRSVPModal] = useState(false);
   const [selectedRSVPItem, setSelectedRSVPItem] = useState(null);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [rsvpData, setRsvpData] = useState({
     name: '',
     email: '',
@@ -263,6 +72,33 @@ export default function ExploreScreen() {
   useEffect(() => {
     loadItems();
   }, []); // Empty dependency array - loadItems is stable
+
+  // Send discount notifications when deals are available
+  useEffect(() => {
+    const checkForDeals = async () => {
+      if (!notificationPrefs?.discounts?.enabled || !notificationPrefs?.enabled) {
+        return;
+      }
+
+      const deals = items.filter(item => item.isDeal);
+      if (deals.length > 0 && notificationPrefs?.discounts?.newDeals) {
+        // Send notification for the most popular deal
+        const topDeal = deals.sort((a, b) => (b.popularity || 0) - (a.popularity || 0))[0];
+        await sendDiscountNotification({
+          id: topDeal.id,
+          title: topDeal.name,
+          description: topDeal.description,
+          discountPercent: topDeal.regularPrice 
+            ? `${Math.round(((topDeal.regularPrice - topDeal.dealPrice) / topDeal.regularPrice) * 100)}% off`
+            : 'Special deal',
+        }, notificationPrefs, 'newDeal');
+      }
+    };
+
+    if (items.length > 0) {
+      checkForDeals();
+    }
+  }, [items, notificationPrefs]);
 
   // Only load ratings when user explicitly views reviews (not automatically)
   const loadItemRatings = async (itemId) => {
@@ -323,18 +159,17 @@ export default function ExploreScreen() {
           setLoading(false);
           return;
         }
+      } else {
+        console.warn('Firestore not ready, showing empty list');
+        setItems([]);
       }
-      // Fallback to mock data (either mock Firestore or no items found)
-      // This ensures the app works even if Firestore is empty (for initial setup)
-      console.log('No items in Firestore, using mock data. Please migrate data to Firestore.');
-      setItems(mockItems);
     } catch (e) {
-      console.warn('Firebase load failed, using mock data:', e);
-      setItems(mockItems);
+      console.error('Firebase load failed:', e);
+      setItems([]); // Show empty state instead of mock data
     } finally {
       setLoading(false);
     }
-  }, []); // Empty dependency array - mockItems is static fallback
+  }, []); // Empty dependency array - loadItems is stable
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -432,18 +267,34 @@ export default function ExploreScreen() {
     
     // Special handling for AutoPoster
     if (item.isAutoPoster) {
-      // Navigate to parent navigator to access HomeStack screens
-      navigation.getParent()?.navigate('Home', {
-        screen: 'AutoPoster',
+      // Navigate directly to AutoPoster screen in drawer
+      navigation.navigate('AutoPoster');
+      return;
+    }
+    
+    // Handle Bar items - navigate to BarMenuCategoryScreen
+    // Note: BarMenuCategory is in HomeStack, so we need to navigate through MainApp
+    if (item.category === 'Bar') {
+      navigation.navigate('MainApp', {
+        screen: 'Home',
+        params: {
+          screen: 'BarMenuCategory',
+          params: { category: item.subcategory || 'Drinks', categoryName: item.subcategory || 'Drinks' },
+        },
       });
       return;
     }
     
-    // Navigate to service booking via parent navigator
-    navigation.getParent()?.navigate('Home', {
-      screen: 'ServiceBooking',
-      params: { item },
-    });
+    // All Services and Events (non-RSVP) go to ServiceBooking
+    // This includes: Services, Events that aren't RSVP
+    if (item.category === 'Services' || (item.category === 'Events' && !item.isRSVP)) {
+      // Navigate directly to ServiceBooking screen in drawer
+      navigation.navigate('ServiceBooking', { item });
+      return;
+    }
+    
+    // Fallback: Navigate to service booking for any other item
+    navigation.navigate('ServiceBooking', { item });
   };
 
   const handleRSVPSubmit = async () => {
@@ -471,22 +322,8 @@ export default function ExploreScreen() {
           status: 'confirmed',
           createdAt: serverTimestamp(),
         });
-      } else if (db && typeof db.collection === 'function') {
-        // Mock Firestore
-        await db.collection('rsvps').add({
-          eventId: selectedRSVPItem.id,
-          eventName: selectedRSVPItem.name,
-          userId: userPersona?.id || 'anonymous',
-          persona: userPersona?.id || null,
-          personaName: userPersona?.title || null,
-          name: rsvpData.name,
-          email: rsvpData.email,
-          phone: rsvpData.phone || '',
-          guestCount: rsvpData.guestCount,
-          specialRequests: rsvpData.specialRequests || '',
-          status: 'confirmed',
-          createdAt: new Date(),
-        });
+      } else {
+        throw new Error('Firestore not ready');
       }
 
       Alert.alert(
@@ -693,13 +530,37 @@ export default function ExploreScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* Header with conditional Back Button */}
+      {canGoBack && (
+        <View style={[styles.topHeader, { borderBottomColor: theme.border }]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.topHeaderTitle, { color: theme.text }]}>Explore</Text>
+          <View style={styles.headerRight} />
+        </View>
+      )}
+
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Explore</Text>
-        <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
-          Events • Services • Bar
-        </Text>
+        {!canGoBack && (
+          <>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Explore</Text>
+            <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+              Events • Services • Bar
+            </Text>
+          </>
+        )}
+        {canGoBack && (
+          <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+            Events • Services • Bar
+          </Text>
+        )}
       </View>
 
       {/* Search Bar */}
@@ -775,28 +636,36 @@ export default function ExploreScreen() {
       {selectedCategory === 'Users' ? (
         <UsersScreen navigation={navigation} />
       ) : (
-        /* Instagram-style Grid for Events, Services */
-        <FlatList
-          data={filteredItems}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.row}
-          contentContainerStyle={styles.gridContainer}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <EmptyState
-              icon={getCategoryIcon(selectedCategory)}
-              title={`No ${selectedCategory.toLowerCase()} found`}
-              message={searchQuery 
-                ? `No ${selectedCategory.toLowerCase()} match your search "${searchQuery}". Try a different search term.`
-                : `There are no ${selectedCategory.toLowerCase()} available at this time. Check back later or try a different category.`}
-              actionLabel={searchQuery ? "Clear Search" : "Refresh"}
-              onAction={searchQuery ? () => setSearchQuery('') : onRefresh}
-            />
-          }
-        />
+        <View style={{ flex: 1 }}>
+          {/* Instagram-style Grid for Events, Services */}
+          <FlatList
+            data={filteredItems}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            numColumns={2}
+            columnWrapperStyle={styles.row}
+            contentContainerStyle={styles.gridContainer}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            showsVerticalScrollIndicator={false}
+            onScrollBeginDrag={() => {
+              setShowScrollIndicator(false);
+            }}
+            scrollEventThrottle={16}
+            removeClippedSubviews={false}
+            collapsable={false}
+            ListEmptyComponent={
+              <EmptyState
+                icon={getCategoryIcon(selectedCategory)}
+                title={`No ${selectedCategory.toLowerCase()} found`}
+                message={searchQuery 
+                  ? `No ${selectedCategory.toLowerCase()} match your search "${searchQuery}". Try a different search term.`
+                  : `There are no ${selectedCategory.toLowerCase()} available at this time. Check back later or try a different category.`}
+                actionLabel={searchQuery ? "Clear Search" : "Refresh"}
+                onAction={searchQuery ? () => setSearchQuery('') : onRefresh}
+              />
+            }
+          />
+        </View>
       )}
 
       {/* RSVP Modal */}
@@ -920,6 +789,13 @@ export default function ExploreScreen() {
         </View>
       </Modal>
       
+      {/* Scroll Indicator */}
+      {showScrollIndicator && selectedCategory !== 'Users' && (
+        <ScrollIndicator
+          visible={showScrollIndicator}
+          onScrollStart={() => setShowScrollIndicator(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -936,6 +812,27 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 16,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  topHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40, // Same width as back button to center title
   },
   header: {
     padding: 20,

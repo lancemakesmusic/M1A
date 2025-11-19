@@ -345,13 +345,26 @@ export default function HelpScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* Header with Back Button */}
+      <View style={[styles.topHeader, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
+        </TouchableOpacity>
+        <Text style={[styles.topHeaderTitle, { color: theme.text }]}>Help & Support</Text>
+        <View style={styles.headerRight} />
+      </View>
+
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Help & Support</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Find Answers</Text>
           <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
-            Find answers and get help
+            Search FAQs, tutorials, and contact support
           </Text>
         </View>
 
@@ -555,6 +568,27 @@ export default function HelpScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  topHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40, // Same width as back button to center title
   },
   header: {
     padding: 20,

@@ -1,20 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AnimatedCard from '../components/AnimatedCard';
-import TutorialOverlay from '../components/TutorialOverlay';
 import ErrorRecovery from '../components/ErrorRecovery';
+import ScrollIndicator from '../components/ScrollIndicator';
+import ServiceCardWithAnimation from '../components/ServiceCardWithAnimation';
+import TutorialOverlay from '../components/TutorialOverlay';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -38,6 +39,7 @@ export default function HomeScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(true);
 
   // Show tutorial on first visit to home screen
   useEffect(() => {
@@ -385,11 +387,21 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView
+      <View style={{ flex: 1 }}>
+        <ScrollView
         style={styles.scrollView}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        onScrollBeginDrag={() => {
+          setShowScrollIndicator(false);
+        }}
+        scrollEventThrottle={16}
+        removeClippedSubviews={false}
+        nestedScrollEnabled={true}
+        collapsable={false}
+        bounces={true}
+        alwaysBounceVertical={false}
       >
         {/* Header with Value Proposition */}
         <View style={styles.header}>
@@ -518,21 +530,23 @@ export default function HomeScreen({ navigation }) {
           </Text>
           
           <View style={styles.servicesContainer}>
-            {primaryServices.map((service) => (
-              <AnimatedCard
-                key={service.id}
-                style={[
-                  styles.serviceCard, 
-                  { 
-                    backgroundColor: theme.cardBackground,
-                    shadowColor: theme.shadow,
-                  }
-                ]}
-                onPress={service.onPress}
-                accessibilityRole="button"
-                accessibilityLabel={`${service.title}. ${service.description}`}
-                accessibilityHint="Tap to open this service"
-              >
+            {primaryServices.map((service, index) => (
+              <View key={service.id} style={styles.serviceCardWrapper} collapsable={false} removeClippedSubviews={false}>
+                <ServiceCardWithAnimation
+                  index={index}
+                  delay={150}
+                  style={[
+                    styles.serviceCard, 
+                    { 
+                      backgroundColor: theme.cardBackground,
+                      shadowColor: theme.shadow,
+                    }
+                  ]}
+                  onPress={service.onPress}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${service.title}. ${service.description}`}
+                  accessibilityHint="Tap to open this service"
+                >
                 {/* Color accent on the left */}
                 <View style={[styles.colorAccent, { backgroundColor: service.color }]} />
                 
@@ -544,7 +558,8 @@ export default function HomeScreen({ navigation }) {
                   <Text style={[styles.serviceDescription, { color: theme.subtext }]}>{service.description}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
-              </AnimatedCard>
+                </ServiceCardWithAnimation>
+              </View>
             ))}
           </View>
         </View>
@@ -575,7 +590,8 @@ export default function HomeScreen({ navigation }) {
             </View>
           </View>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {/* Hamburger Menu Modal */}
       <Modal
@@ -624,6 +640,14 @@ export default function HomeScreen({ navigation }) {
         onSkip={handleTutorialSkip}
         personaType={userPersona?.id || 'promoter'}
       />
+      
+      {/* Scroll Indicator */}
+      {showScrollIndicator && (
+        <ScrollIndicator
+          visible={showScrollIndicator}
+          onScrollStart={() => setShowScrollIndicator(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -634,9 +658,11 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     paddingBottom: 20,
+    backgroundColor: 'transparent',
   },
   header: {
     paddingTop: 20,
@@ -800,6 +826,10 @@ const styles = StyleSheet.create({
   },
   servicesContainer: {
     gap: 12,
+  },
+  serviceCardWrapper: {
+    flex: 1,
+    minHeight: 80,
   },
   serviceCard: {
     flexDirection: 'row',

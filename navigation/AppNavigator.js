@@ -24,6 +24,7 @@ import CalendarScreen from '../screens/CalendarScreen';
 import UserProfileViewScreen from '../screens/UserProfileViewScreen';
 import BarCategoryScreen from '../screens/BarCategoryScreen';
 import BarMenuCategoryScreen from '../screens/BarMenuCategoryScreen';
+import CreatePostScreen from '../screens/CreatePostScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -100,6 +101,11 @@ function HomeStackNavigator() {
       <Stack.Screen
         name="BarMenuCategory"
         component={BarMenuCategoryScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="CreatePost"
+        component={CreatePostScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>
