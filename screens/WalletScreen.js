@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useContext, useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -10,17 +10,29 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
+    RefreshControl,
+    Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import QRCode from 'react-native-qrcode-svg';
 import { useTheme } from '../contexts/ThemeContext';
-import { UserContext } from '../contexts/UserContext';
+import { useAuth } from '../contexts/AuthContext';
+import WalletService from '../services/WalletService';
+import StripePaymentMethodsService from '../services/StripePaymentMethodsService';
+import { trackWalletTransaction, trackButtonClick, trackFeatureUsage } from '../services/AnalyticsService';
+import { sendPaymentConfirmation } from '../services/NotificationService';
+import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
+import useScreenTracking from '../hooks/useScreenTracking';
+import EmptyState from '../components/EmptyState';
 
 export default function WalletScreen() {
-  const { user } = useContext(UserContext);
+  const { user } = useAuth();
   const { theme } = useTheme();
-  const [balance, setBalance] = useState(1250.75);
+  useScreenTracking('WalletScreen');
+  const [balance, setBalance] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState(false);
   const [showSendMoney, setShowSendMoney] = useState(false);
   const [showTransactionHistory, setShowTransactionHistory] = useState(false);
@@ -32,6 +44,11 @@ export default function WalletScreen() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
+  const [insights, setInsights] = useState(null);
+  const [processing, setProcessing] = useState(false);
+  const [showAddPaymentMethod, setShowAddPaymentMethod] = useState(false);
+  const [deletingPaymentMethod, setDeletingPaymentMethod] = useState(null);
+  const [qrCodeData, setQrCodeData] = useState('');
 
   // Mock transaction data
   const mockTransactions = [
@@ -109,24 +126,155 @@ export default function WalletScreen() {
   ];
 
   useEffect(() => {
-    loadWalletData();
-  }, []);
+    if (user?.uid) {
+      loadWalletData();
+      // Generate QR code data
+      const qrData = JSON.stringify({
+        type: 'wallet_payment',
+        userId: user.uid,
+        email: user.email || '',
+        walletId: user.uid,
+      });
+      setQrCodeData(qrData);
+    }
+  }, [user?.uid]);
 
-  const loadWalletData = async () => {
+  const loadWalletData = useCallback(async () => {
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
-      // Initialize with mock data
-      setTransactions(mockTransactions);
-      setPaymentMethods(mockPaymentMethods);
-      setSelectedPaymentMethod(mockPaymentMethods.find(pm => pm.isDefault));
       
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Load balance, transactions, and payment methods in parallel
+      const [walletBalance, walletTransactions, walletPaymentMethods] = await Promise.all([
+        WalletService.getBalance(user.uid),
+        WalletService.getTransactions(user.uid),
+        WalletService.getPaymentMethods(user.uid),
+      ]);
+
+      setBalance(walletBalance);
+      // Use real transactions from WalletService (no mock fallback)
+      setTransactions(walletTransactions || []);
+      // Use real payment methods from WalletService (no mock fallback)
+      setPaymentMethods(walletPaymentMethods || []);
+      setSelectedPaymentMethod(
+        walletPaymentMethods?.find(pm => pm.isDefault) || null
+      );
     } catch (error) {
       console.error('Error loading wallet data:', error);
-      Alert.alert('Error', 'Failed to load wallet data');
+      // Show empty state instead of mock data
+      setBalance(0);
+      setTransactions([]);
+      setPaymentMethods([]);
+      setSelectedPaymentMethod(null);
     } finally {
       setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.uid]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadWalletData();
+  }, [loadWalletData]);
+
+  const loadInsights = useCallback(async () => {
+    if (!user?.uid) return;
+    
+    try {
+      // First load transactions to ensure we have data
+      const transactions = await WalletService.getTransactions(user.uid);
+      const walletInsights = await WalletService.getInsights(user.uid, 'month');
+      setInsights(walletInsights);
+    } catch (error) {
+      console.error('Error loading insights:', error);
+      // Set default insights if error
+      setInsights({
+        totalReceived: 0,
+        totalSent: 0,
+        netChange: 0,
+        transactionCount: 0,
+        topCategories: [],
+      });
+    }
+  }, [user?.uid]);
+
+  const handleSetDefaultPaymentMethod = async (paymentMethod) => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'Please log in to manage payment methods');
+      return;
+    }
+
+    try {
+      setProcessing(true);
+      // Get Stripe customer ID from user or create one
+      // For now, using userId as customerId (you may need to adjust this)
+      const customerId = user.uid;
+      
+      await StripePaymentMethodsService.setDefaultPaymentMethod(customerId, paymentMethod.id);
+      
+      // Reload payment methods
+      await loadWalletData();
+      
+      Alert.alert('Success', 'Default payment method updated');
+      trackButtonClick('set_default_payment_method', 'WalletScreen');
+    } catch (error) {
+      console.error('Error setting default payment method:', error);
+      Alert.alert('Error', error.message || 'Failed to set default payment method');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleDeletePaymentMethod = async (paymentMethod) => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'Please log in to manage payment methods');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Payment Method',
+      `Are you sure you want to delete ${paymentMethod.name}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeletingPaymentMethod(paymentMethod.id);
+              await StripePaymentMethodsService.deletePaymentMethod(paymentMethod.id);
+              
+              // Reload payment methods
+              await loadWalletData();
+              
+              Alert.alert('Success', 'Payment method deleted');
+              trackButtonClick('delete_payment_method', 'WalletScreen');
+            } catch (error) {
+              console.error('Error deleting payment method:', error);
+              Alert.alert('Error', error.message || 'Failed to delete payment method');
+            } finally {
+              setDeletingPaymentMethod(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleShareQRCode = async () => {
+    try {
+      const shareText = `Send money to my M1A wallet!\n\nScan the QR code or use my wallet ID: ${user?.uid || 'N/A'}`;
+      await Share.share({
+        message: shareText,
+        title: 'My M1A Wallet QR Code',
+      });
+      trackButtonClick('share_qr_code', 'WalletScreen');
+    } catch (error) {
+      console.error('Error sharing QR code:', error);
     }
   };
 
@@ -144,7 +292,12 @@ export default function WalletScreen() {
     return timestamp.toLocaleDateString();
   };
 
-  const handleAddFunds = () => {
+  const handleAddFunds = async () => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'Please log in to add funds');
+      return;
+    }
+
     if (!amount || parseFloat(amount) <= 0) {
       Alert.alert('Invalid Amount', 'Please enter a valid amount');
       return;
@@ -164,27 +317,45 @@ export default function WalletScreen() {
           text: 'Confirm', 
           onPress: async () => {
             try {
+              setProcessing(true);
               const newAmount = parseFloat(amount);
-              setBalance(prev => prev + newAmount);
               
-              // Add transaction to history
-              const newTransaction = {
-                id: Date.now().toString(),
-                type: 'received',
-                amount: newAmount,
-                description: `Added funds via ${selectedPaymentMethod.name}`,
-                timestamp: new Date(),
-                status: 'completed',
-                icon: 'add-circle',
-                paymentMethod: selectedPaymentMethod.name
-              };
-              
-              setTransactions(prev => [newTransaction, ...prev]);
-              setAmount('');
-              setShowAddFunds(false);
-              Alert.alert('Success', 'Funds added successfully!');
+              // Add funds via WalletService (handles Stripe payment)
+              const result = await WalletService.addFunds(
+                user.uid,
+                newAmount,
+                selectedPaymentMethod.id,
+                {
+                  paymentMethod: selectedPaymentMethod.name,
+                }
+              );
+
+              if (result.success) {
+                // Track analytics
+                await trackWalletTransaction({
+                  type: 'received',
+                  amount: newAmount,
+                });
+                
+                // Record positive action for rating prompt
+                await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.PAYMENT_SUCCESS, {
+                  type: 'add_funds',
+                  amount: newAmount,
+                });
+                
+                // Reload wallet data to get updated balance
+                await loadWalletData();
+                setAmount('');
+                setShowAddFunds(false);
+                Alert.alert('Success', 'Funds added successfully!');
+              } else {
+                throw new Error('Payment failed');
+              }
             } catch (error) {
-              Alert.alert('Error', 'Failed to add funds. Please try again.');
+              console.error('Error adding funds:', error);
+              Alert.alert('Error', error.message || 'Failed to add funds. Please try again.');
+            } finally {
+              setProcessing(false);
             }
           }
         }
@@ -192,13 +363,19 @@ export default function WalletScreen() {
     );
   };
 
-  const handleSendMoney = () => {
+  const handleSendMoney = async () => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'Please log in to send money');
+      return;
+    }
+
     if (!amount || !recipient || parseFloat(amount) <= 0) {
       Alert.alert('Invalid Details', 'Please enter valid amount and recipient');
       return;
     }
     
-    if (parseFloat(amount) > balance) {
+    const sendAmount = parseFloat(amount);
+    if (sendAmount > balance) {
       Alert.alert('Insufficient Funds', 'You don\'t have enough balance');
       return;
     }
@@ -212,28 +389,48 @@ export default function WalletScreen() {
           text: 'Confirm', 
           onPress: async () => {
             try {
-              const sendAmount = parseFloat(amount);
-              setBalance(prev => prev - sendAmount);
+              setProcessing(true);
               
-              // Add transaction to history
-              const newTransaction = {
-                id: Date.now().toString(),
-                type: 'sent',
-                amount: -sendAmount,
-                description: `Sent to ${recipient}`,
-                timestamp: new Date(),
-                status: 'completed',
-                icon: 'arrow-up',
-                recipient: recipient
-              };
+              // For now, we'll use recipient as email/UID
+              // In production, you'd look up the user by email/phone
+              const recipientUserId = recipient; // This should be resolved from email/phone
               
-              setTransactions(prev => [newTransaction, ...prev]);
-              setAmount('');
-              setRecipient('');
-              setShowSendMoney(false);
-              Alert.alert('Success', 'Money sent successfully!');
+              // Send money via WalletService
+              const result = await WalletService.sendMoney(
+                user.uid,
+                recipientUserId,
+                sendAmount,
+                `Sent to ${recipient}`
+              );
+
+              if (result.success) {
+                // Track analytics
+                await trackWalletTransaction({
+                  type: 'sent',
+                  amount: -sendAmount,
+                });
+                trackButtonClick('send_money', 'WalletScreen');
+                
+                // Record positive action for rating prompt
+                await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.PAYMENT_SUCCESS, {
+                  type: 'send_money',
+                  amount: sendAmount,
+                });
+                
+                // Reload wallet data
+                await loadWalletData();
+                setAmount('');
+                setRecipient('');
+                setShowSendMoney(false);
+                Alert.alert('Success', 'Money sent successfully!');
+              } else {
+                throw new Error('Failed to send money');
+              }
             } catch (error) {
-              Alert.alert('Error', 'Failed to send money. Please try again.');
+              console.error('Error sending money:', error);
+              Alert.alert('Error', error.message || 'Failed to send money. Please try again.');
+            } finally {
+              setProcessing(false);
             }
           }
         }
@@ -385,6 +582,15 @@ export default function WalletScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderTransaction}
           scrollEnabled={false}
+          ListEmptyComponent={
+            <EmptyState
+              icon="receipt-outline"
+              title="No transactions yet"
+              message="Your transaction history will appear here once you make your first payment or receive funds."
+              actionLabel="Add Funds"
+              onAction={() => setShowAddFunds(true)}
+            />
+          }
         />
       </View>
 
@@ -402,6 +608,15 @@ export default function WalletScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderPaymentMethod}
           scrollEnabled={false}
+          ListEmptyComponent={
+            <EmptyState
+              icon="card-outline"
+              title="No payment methods"
+              message="Add a payment method to make purchases and add funds to your wallet."
+              actionLabel="Add Payment Method"
+              onAction={() => setShowPaymentMethods(true)}
+            />
+          }
         />
       </View>
 
@@ -474,10 +689,21 @@ export default function WalletScreen() {
             </View>
 
             <TouchableOpacity 
-              style={[styles.confirmButton, { backgroundColor: theme.primary }]}
+              style={[
+                styles.confirmButton, 
+                { 
+                  backgroundColor: processing ? theme.subtext : theme.primary,
+                  opacity: processing ? 0.6 : 1,
+                }
+              ]}
               onPress={handleAddFunds}
+              disabled={processing}
             >
-              <Text style={styles.confirmButtonText}>Add Funds</Text>
+              {processing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.confirmButtonText}>Add Funds</Text>
+              )}
             </TouchableOpacity>
           </ScrollView>
         </SafeAreaView>
@@ -523,10 +749,21 @@ export default function WalletScreen() {
             </View>
 
             <TouchableOpacity 
-              style={[styles.confirmButton, { backgroundColor: theme.primary }]}
+              style={[
+                styles.confirmButton, 
+                { 
+                  backgroundColor: processing ? theme.subtext : theme.primary,
+                  opacity: processing ? 0.6 : 1,
+                }
+              ]}
               onPress={handleSendMoney}
+              disabled={processing}
             >
-              <Text style={styles.confirmButtonText}>Send Money</Text>
+              {processing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.confirmButtonText}>Send Money</Text>
+              )}
             </TouchableOpacity>
           </ScrollView>
         </SafeAreaView>
@@ -552,6 +789,21 @@ export default function WalletScreen() {
             keyExtractor={(item) => item.id}
             renderItem={renderTransaction}
             contentContainerStyle={styles.transactionList}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
+            }
+            ListEmptyComponent={
+              <EmptyState
+                icon="receipt-outline"
+                title="No transactions yet"
+                message="Your transaction history will appear here once you make your first payment or receive funds."
+                actionLabel="Add Funds"
+                onAction={() => {
+                  setShowTransactionHistory(false);
+                  setShowAddFunds(true);
+                }}
+              />
+            }
           />
         </SafeAreaView>
       </Modal>
@@ -571,15 +823,43 @@ export default function WalletScreen() {
             <View style={{ width: 60 }} />
           </View>
 
-          <View style={styles.qrContainer}>
-            <View style={[styles.qrCode, { backgroundColor: '#fff', borderColor: theme.border }]}>
-              <Text style={styles.qrText}>QR Code Placeholder</Text>
-              <Text style={[styles.qrSubtext, { color: theme.subtext }]}>Scan to receive money</Text>
+          <ScrollView style={styles.qrContent} contentContainerStyle={styles.qrContentContainer}>
+            <View style={styles.qrContainer}>
+              <View style={[styles.qrCodeWrapper, { backgroundColor: '#fff', borderColor: theme.border }]}>
+                {qrCodeData ? (
+                  <QRCode
+                    value={qrCodeData}
+                    size={250}
+                    color="#000000"
+                    backgroundColor="#FFFFFF"
+                  />
+                ) : (
+                  <ActivityIndicator size="large" color={theme.primary} />
+                )}
+              </View>
+              <Text style={[styles.qrSubtext, { color: theme.subtext, marginTop: 16 }]}>
+                Scan to send money to this wallet
+              </Text>
+              <Text style={[styles.qrWalletId, { color: theme.text }]}>
+                Wallet ID: {user?.uid?.substring(0, 8)}...
+              </Text>
+              
+              <TouchableOpacity
+                style={[styles.shareButton, { backgroundColor: theme.primary }]}
+                onPress={handleShareQRCode}
+              >
+                <Ionicons name="share-outline" size={20} color="#fff" />
+                <Text style={styles.shareButtonText}>Share QR Code</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={[styles.qrInstructions, { color: theme.text }]}>
-              Share this QR code with others to receive money directly to your wallet
-            </Text>
-          </View>
+            
+            <View style={[styles.qrInfoCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+              <Ionicons name="information-circle" size={24} color={theme.primary} />
+              <Text style={[styles.qrInstructions, { color: theme.text }]}>
+                Share this QR code with others to receive money directly to your wallet. They can scan it with the M1A app to send you funds instantly.
+              </Text>
+            </View>
+          </ScrollView>
         </SafeAreaView>
       </Modal>
 
@@ -595,7 +875,14 @@ export default function WalletScreen() {
               <Text style={[styles.modalCancel, { color: theme.primary }]}>Close</Text>
             </TouchableOpacity>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Payment Methods</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => {
+              Alert.alert(
+                'Add Payment Method',
+                'To add a payment method, you can add it during checkout or in your account settings. For now, payment methods are managed through Stripe.',
+                [{ text: 'OK' }]
+              );
+              trackButtonClick('add_payment_method_info', 'WalletScreen');
+            }}>
               <Text style={[styles.modalAction, { color: theme.primary }]}>Add</Text>
             </TouchableOpacity>
           </View>
@@ -604,33 +891,76 @@ export default function WalletScreen() {
             data={paymentMethods}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={[styles.paymentMethodItem, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-                onPress={() => {
-                  setSelectedPaymentMethod(item);
-                  setShowPaymentMethods(false);
-                }}
-              >
-                <View style={styles.paymentMethodIcon}>
-                  <Ionicons name={item.icon} size={24} color={theme.primary} />
-                </View>
-                <View style={styles.paymentMethodContent}>
-                  <Text style={[styles.paymentMethodName, { color: theme.text }]}>{item.name}</Text>
-                  {item.expiry && (
-                    <Text style={[styles.paymentMethodExpiry, { color: theme.subtext }]}>Expires {item.expiry}</Text>
-                  )}
-                </View>
-                {item.isDefault && (
-                  <View style={[styles.defaultBadge, { backgroundColor: theme.primary }]}>
-                    <Text style={styles.defaultText}>Default</Text>
+              <View style={[styles.paymentMethodItem, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <TouchableOpacity 
+                  style={styles.paymentMethodContentWrapper}
+                  onPress={() => {
+                    setSelectedPaymentMethod(item);
+                    setShowPaymentMethods(false);
+                  }}
+                >
+                  <View style={styles.paymentMethodIcon}>
+                    <Ionicons name={item.icon || 'card'} size={24} color={theme.primary} />
                   </View>
-                )}
-                {selectedPaymentMethod?.id === item.id && (
-                  <Ionicons name="checkmark-circle" size={24} color={theme.primary} />
-                )}
-              </TouchableOpacity>
+                  <View style={styles.paymentMethodContent}>
+                    <Text style={[styles.paymentMethodName, { color: theme.text }]}>{item.name}</Text>
+                    {item.expiry && (
+                      <Text style={[styles.paymentMethodExpiry, { color: theme.subtext }]}>Expires {item.expiry}</Text>
+                    )}
+                    {item.brand && (
+                      <Text style={[styles.paymentMethodExpiry, { color: theme.subtext }]}>{item.brand}</Text>
+                    )}
+                  </View>
+                  {item.isDefault && (
+                    <View style={[styles.defaultBadge, { backgroundColor: theme.primary }]}>
+                      <Text style={styles.defaultText}>Default</Text>
+                    </View>
+                  )}
+                  {selectedPaymentMethod?.id === item.id && (
+                    <Ionicons name="checkmark-circle" size={24} color={theme.primary} />
+                  )}
+                </TouchableOpacity>
+                
+                <View style={styles.paymentMethodActions}>
+                  {!item.isDefault && (
+                    <TouchableOpacity
+                      style={[styles.paymentMethodActionButton, { backgroundColor: theme.primary + '20' }]}
+                      onPress={() => handleSetDefaultPaymentMethod(item)}
+                      disabled={processing}
+                    >
+                      <Ionicons name="star-outline" size={18} color={theme.primary} />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.paymentMethodActionButton, { backgroundColor: theme.error + '20' }]}
+                    onPress={() => handleDeletePaymentMethod(item)}
+                    disabled={deletingPaymentMethod === item.id}
+                  >
+                    {deletingPaymentMethod === item.id ? (
+                      <ActivityIndicator size="small" color={theme.error} />
+                    ) : (
+                      <Ionicons name="trash-outline" size={18} color={theme.error} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
             )}
             contentContainerStyle={styles.paymentMethodList}
+            ListEmptyComponent={
+              <EmptyState
+                icon="card-outline"
+                title="No payment methods"
+                message="Add a payment method to make purchases and add funds to your wallet."
+                actionLabel="Learn More"
+                onAction={() => {
+                  Alert.alert(
+                    'Add Payment Method',
+                    'Payment methods can be added during checkout or through your account settings. They are securely stored with Stripe.',
+                    [{ text: 'OK' }]
+                  );
+                }}
+              />
+            }
           />
         </SafeAreaView>
       </Modal>
@@ -640,6 +970,7 @@ export default function WalletScreen() {
         visible={showInsights}
         animationType="slide"
         presentationStyle="pageSheet"
+        onShow={loadInsights}
       >
         <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
           <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
@@ -650,46 +981,75 @@ export default function WalletScreen() {
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.insightsContent}>
-            <View style={[styles.insightCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-              <Text style={[styles.insightTitle, { color: theme.text }]}>This Month</Text>
-              <View style={styles.insightRow}>
-                <Text style={[styles.insightLabel, { color: theme.subtext }]}>Total Received</Text>
-                <Text style={[styles.insightValue, { color: theme.success }]}>+$1,750.00</Text>
-              </View>
-              <View style={styles.insightRow}>
-                <Text style={[styles.insightLabel, { color: theme.subtext }]}>Total Sent</Text>
-                <Text style={[styles.insightValue, { color: theme.error }]}>-$100.50</Text>
-              </View>
-              <View style={styles.insightRow}>
-                <Text style={[styles.insightLabel, { color: theme.subtext }]}>Net Change</Text>
-                <Text style={[styles.insightValue, { color: theme.success }]}>+$1,649.50</Text>
-              </View>
-            </View>
+          <ScrollView 
+            style={styles.insightsContent}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
+            }
+          >
+            {insights ? (
+              <>
+                <View style={[styles.insightCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                  <Text style={[styles.insightTitle, { color: theme.text }]}>This Month</Text>
+                  <View style={styles.insightRow}>
+                    <Text style={[styles.insightLabel, { color: theme.subtext }]}>Total Received</Text>
+                    <Text style={[styles.insightValue, { color: theme.success }]}>
+                      +${insights.totalReceived.toFixed(2)}
+                    </Text>
+                  </View>
+                  <View style={styles.insightRow}>
+                    <Text style={[styles.insightLabel, { color: theme.subtext }]}>Total Sent</Text>
+                    <Text style={[styles.insightValue, { color: theme.error }]}>
+                      -${insights.totalSent.toFixed(2)}
+                    </Text>
+                  </View>
+                  <View style={styles.insightRow}>
+                    <Text style={[styles.insightLabel, { color: theme.subtext }]}>Net Change</Text>
+                    <Text style={[
+                      styles.insightValue, 
+                      { color: insights.netChange >= 0 ? theme.success : theme.error }
+                    ]}>
+                      {insights.netChange >= 0 ? '+' : ''}${insights.netChange.toFixed(2)}
+                    </Text>
+                  </View>
+                  <View style={styles.insightRow}>
+                    <Text style={[styles.insightLabel, { color: theme.subtext }]}>Transactions</Text>
+                    <Text style={[styles.insightValue, { color: theme.text }]}>
+                      {insights.transactionCount}
+                    </Text>
+                  </View>
+                </View>
 
-            <View style={[styles.insightCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-              <Text style={[styles.insightTitle, { color: theme.text }]}>Top Categories</Text>
-              <View style={styles.insightRow}>
-                <Text style={[styles.insightLabel, { color: theme.subtext }]}>Event Bookings</Text>
-                <Text style={[styles.insightValue, { color: theme.text }]}>$1,500.00</Text>
-              </View>
-              <View style={styles.insightRow}>
-                <Text style={[styles.insightLabel, { color: theme.subtext }]}>Service Fees</Text>
-                <Text style={[styles.insightValue, { color: theme.text }]}>$250.00</Text>
-              </View>
-              <View style={styles.insightRow}>
-                <Text style={[styles.insightLabel, { color: theme.subtext }]}>Refunds</Text>
-                <Text style={[styles.insightValue, { color: theme.text }]}>$200.00</Text>
-              </View>
-            </View>
+                {insights.topCategories.length > 0 && (
+                  <View style={[styles.insightCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                    <Text style={[styles.insightTitle, { color: theme.text }]}>Top Categories</Text>
+                    {insights.topCategories.map((category, index) => (
+                      <View key={index} style={styles.insightRow}>
+                        <Text style={[styles.insightLabel, { color: theme.subtext }]}>
+                          {category.name}
+                        </Text>
+                        <Text style={[styles.insightValue, { color: theme.text }]}>
+                          ${category.amount.toFixed(2)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
 
-            <View style={[styles.insightCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-              <Text style={[styles.insightTitle, { color: theme.text }]}>Recent Activity</Text>
-              <Text style={[styles.insightText, { color: theme.subtext }]}>
-                You've been very active this month with 15 transactions. 
-                Your balance has grown by 132% compared to last month.
-              </Text>
-            </View>
+                <View style={[styles.insightCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                  <Text style={[styles.insightTitle, { color: theme.text }]}>Activity Summary</Text>
+                  <Text style={[styles.insightText, { color: theme.subtext }]}>
+                    You've completed {insights.transactionCount} transaction{insights.transactionCount !== 1 ? 's' : ''} this month.
+                    {insights.netChange > 0 && ` Your balance has increased by $${insights.netChange.toFixed(2)}.`}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.primary} />
+                <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading insights...</Text>
+              </View>
+            )}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -847,6 +1207,23 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderRadius: 12,
     borderWidth: 1,
+    justifyContent: 'space-between',
+  },
+  paymentMethodContentWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  paymentMethodActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  paymentMethodActionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   paymentMethodIcon: {
     width: 40,
@@ -979,7 +1356,60 @@ const styles = StyleSheet.create({
   },
   
   // QR Code styles
+  qrContent: {
+    flex: 1,
+  },
+  qrContentContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
   qrContainer: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  qrCodeWrapper: {
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  qrWalletId: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 8,
+    fontFamily: 'monospace',
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 20,
+    gap: 8,
+  },
+  shareButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  qrInfoCard: {
+    flexDirection: 'row',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 24,
+    gap: 12,
+  },
+  qrCode: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1052,5 +1482,18 @@ const styles = StyleSheet.create({
   insightText: {
     fontSize: 16,
     lineHeight: 24,
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    fontSize: 16,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

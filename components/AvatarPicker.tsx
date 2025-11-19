@@ -17,7 +17,7 @@ export default function AvatarPicker({ currentUrl }: { currentUrl?: string }) {
         return;
       }
       const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images || 'images',
         allowsEditing: true, // enables square crop UI on iOS
         aspect: [1, 1],
         quality: 0.9,

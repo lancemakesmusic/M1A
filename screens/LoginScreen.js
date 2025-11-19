@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { signInWithEmailAndPassword } from '../firebase';
+import { trackLogin, trackButtonClick, trackError } from '../services/AnalyticsService';
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
@@ -50,12 +51,15 @@ export default function LoginScreen({ navigation }) {
     setErrors({});
     
     try {
+      trackButtonClick('login_button', 'LoginScreen');
       console.log('🔐 Attempting sign in:', email);
       await signInWithEmailAndPassword(email, password);
       console.log('✅ Login successful');
+      await trackLogin('email');
       // Navigation will be handled by AuthContext
     } catch (error) {
       console.error('❌ Login error:', error.message);
+      trackError(error.message, 'login_error', 'LoginScreen');
       let errorMessage = 'Login failed. Please try again.';
       
       if (error.message.includes('user-not-found')) {

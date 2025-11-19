@@ -8,14 +8,43 @@
     "scheme": "m1a",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.merkabaent.m1a",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "M1A needs access to your photo library to upload profile photos and cover images.",
+        "NSCameraUsageDescription": "M1A needs access to your camera to take photos for your profile.",
+        "NSPhotoLibraryAddUsageDescription": "M1A needs access to save photos to your library.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "associatedDomains": [
+        "applinks:m1a.app",
+        "applinks:www.m1a.app"
+      ]
     },
     "android": {
+      "package": "com.merkabaent.m1a",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECORD_AUDIO"
+      ],
       "edgeToEdgeEnabled": true
     },
     "web": {
@@ -32,14 +61,22 @@
           "backgroundColor": "#ffffff"
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "M1A needs access to your photos to upload profile and cover images.",
+          "cameraPermission": "M1A needs access to your camera to take photos."
+        }
+      ],
       "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
     },
+    "owner": "lancemakesmusic",
     "extra": {
       "eas": {
-        "projectId": "replace-with-your-EAS-project-id-if-using-EAS"
+        "projectId": "5768f0a5-467f-4215-b351-84636ca67414"
       }
     }
   }

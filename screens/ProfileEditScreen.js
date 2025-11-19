@@ -1,27 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useContext, useEffect, useState } from 'react';
 import {
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
-import { auth, uploadImageAsync } from '../firebase';
+import { auth, updateProfile, updateUserProfileInDB, uploadImageAsync } from '../firebase';
 
 export default function ProfileEditScreen({ navigation }) {
-  const { user, updateUserProfile } = useContext(UserContext);
+  const { user, updateUserProfile, refreshUserProfile } = useContext(UserContext);
   const { theme, toggleTheme } = useTheme();
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
@@ -32,6 +32,8 @@ export default function ProfileEditScreen({ navigation }) {
   const [socials, setSocials] = useState(user?.socials ?? {});
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? user?.photoURL ?? '');
   const [coverUrl, setCoverUrl] = useState(user?.coverUrl ?? '');
+  const [localAvatarUri, setLocalAvatarUri] = useState(null); // Store local file URI for immediate display
+  const [localCoverUri, setLocalCoverUri] = useState(null); // Store local file URI for immediate display
   const [privateProfile, setPrivateProfile] = useState(!!user?.private);
   const [showOnlineStatus, setShowOnlineStatus] = useState(user?.showOnlineStatus ?? true);
   const [allowMessages, setAllowMessages] = useState(user?.allowMessages ?? true);
@@ -40,14 +42,40 @@ export default function ProfileEditScreen({ navigation }) {
 
   // Cache-busting to force <Image> refresh after upload
   const [cacheBust, setCacheBust] = useState(Date.now());
-  const cacheBusted = avatarUrl ? `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}t=${cacheBust}` : '';
-  const coverCacheBusted = coverUrl ? `${coverUrl}${coverUrl.includes('?') ? '&' : '?'}t=${cacheBust}` : '';
+  
+  // Check if URL is a mock URL (for development/testing)
+  const isMockUrl = (url) => url && (url.includes('mock-url.com') || url.includes('placeholder'));
+  
+  // Use local URI if available (immediate display), otherwise use uploaded URL
+  const displayAvatarUrl = localAvatarUri || (avatarUrl && !isMockUrl(avatarUrl) ? avatarUrl : null);
+  const displayCoverUrl = localCoverUri || (coverUrl && !isMockUrl(coverUrl) ? coverUrl : null);
+  
+  const cacheBusted = displayAvatarUrl ? `${displayAvatarUrl}${displayAvatarUrl.includes('?') ? '&' : '?'}t=${cacheBust}` : '';
+  const coverCacheBusted = displayCoverUrl ? `${displayCoverUrl}${displayCoverUrl.includes('?') ? '&' : '?'}t=${cacheBust}` : '';
 
   useEffect(() => {
-    // Keep local state in sync if context updates
-    setAvatarUrl(user?.avatarUrl ?? user?.photoURL ?? '');
-    setCoverUrl(user?.coverUrl ?? '');
-  }, [user?.avatarUrl, user?.photoURL, user?.coverUrl]);
+    // Keep local state in sync if context updates, but only if we're not currently uploading
+    if (!uploadingAvatar && !uploadingCover) {
+      const newAvatarUrl = user?.avatarUrl ?? user?.photoURL ?? '';
+      const newCoverUrl = user?.coverUrl ?? '';
+      
+      // Only update if different (avoid clearing local URIs unnecessarily)
+      if (newAvatarUrl !== avatarUrl) {
+        setAvatarUrl(newAvatarUrl);
+        // Clear local URI if we have a real uploaded URL (not mock)
+        if (newAvatarUrl && !isMockUrl(newAvatarUrl)) {
+          setLocalAvatarUri(null);
+        }
+      }
+      if (newCoverUrl !== coverUrl) {
+        setCoverUrl(newCoverUrl);
+        // Clear local URI if we have a real uploaded URL (not mock)
+        if (newCoverUrl && !isMockUrl(newCoverUrl)) {
+          setLocalCoverUri(null);
+        }
+      }
+    }
+  }, [user?.avatarUrl, user?.photoURL, user?.coverUrl, uploadingAvatar, uploadingCover]);
 
   const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -58,20 +86,8 @@ export default function ProfileEditScreen({ navigation }) {
     return true;
   };
 
-  const uploadImage = async (uri, path, isCover = false) => {
-    if (!auth.currentUser?.uid) throw new Error('Not signed in');
-
-    // Resize & compress
-    const manipulated = await ImageManipulator.manipulateAsync(
-      uri,
-      [{ resize: { width: isCover ? 1200 : 1024 } }],
-      { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
-    );
-
-    // Upload using mock Firebase
-    const downloadURL = await uploadImageAsync(manipulated.uri);
-    return downloadURL;
-  };
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
 
   const onPickAvatar = async () => {
     try {
@@ -79,37 +95,96 @@ export default function ProfileEditScreen({ navigation }) {
       if (!ok) return;
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images || 'images',
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 1,
+        quality: 0.9,
       });
       if (result.canceled) return;
 
       const localUri = result.assets?.[0]?.uri;
       if (!localUri) return;
 
-      setSaving(true);
-      const downloadURL = await uploadImage(localUri, 'avatars');
-
-      // Update Auth profile (mock)
-      console.log('Mock updateProfile:', { photoURL: downloadURL });
-
-      // Update Firestore (mock)
-      console.log('Mock updateDoc:', {
-        photoURL: downloadURL,
-        avatarUrl: downloadURL,
-        photoUpdatedAt: Date.now(),
-      });
-
-      setAvatarUrl(downloadURL);
+      // Show image immediately using local URI
+      setLocalAvatarUri(localUri);
       setCacheBust(Date.now());
-      Alert.alert('Success', 'Avatar updated!');
+      
+      setUploadingAvatar(true);
+      
+      console.log('[Avatar Upload] Starting upload...', localUri);
+      
+      // Upload to Firebase Storage
+      const downloadURL = await uploadImageAsync(localUri, 'avatars', 1024);
+      
+      console.log('[Avatar Upload] Upload complete, URL:', downloadURL);
+      
+      if (!downloadURL) {
+        throw new Error('Upload failed - no URL returned');
+      }
+
+      // Update Firebase Auth profile photo
+      if (auth.currentUser) {
+        try {
+          await updateProfile(auth.currentUser, { photoURL: downloadURL });
+        } catch (err) {
+          console.warn('Failed to update auth profile photo:', err);
+        }
+      }
+
+      // Update Firestore user profile
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        try {
+          // Use serverTimestamp for Firestore, or Date.now() for mock
+          const timestamp = Date.now();
+          await updateUserProfileInDB(uid, {
+            avatarUrl: downloadURL,
+            photoURL: downloadURL,
+            photoUpdatedAt: timestamp,
+          });
+          console.log('[Avatar Upload] Profile updated in Firestore with timestamp:', timestamp);
+        } catch (err) {
+          console.error('Failed to update Firestore profile:', err);
+          Alert.alert('Warning', 'Photo uploaded but profile update failed. Please try again.');
+        }
+      }
+
+      // Update local state - keep local URI if mock URL, otherwise use uploaded URL
+      const newCacheBust = Date.now();
+      if (isMockUrl(downloadURL)) {
+        // Keep using local URI for mock Firebase
+        setAvatarUrl(downloadURL); // Still save to Firestore for persistence
+      } else {
+        // Use uploaded URL for real Firebase
+        setAvatarUrl(downloadURL);
+        setLocalAvatarUri(null); // Clear local URI since we have real URL
+      }
+      setCacheBust(newCacheBust);
+      
+      // Force a small delay to ensure state update propagates
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Refresh user profile in context - wait for it to complete
+      if (refreshUserProfile) {
+        await refreshUserProfile();
+        // Small delay to ensure Firestore has propagated
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      // Force another cache bust to ensure image refreshes
+      setCacheBust(Date.now());
+      
+      Alert.alert('Success', 'Profile photo updated!');
+      
+      // Don't navigate away - let user continue editing if needed
+      // ProfileScreen will refresh when navigated to via useFocusEffect
     } catch (e) {
       console.error('[Avatar Upload Error]', e);
-      Alert.alert('Upload failed', e?.message || 'Please try again.');
+      // Keep local URI visible even if upload fails
+      // setLocalAvatarUri remains set so image still displays
+      Alert.alert('Upload failed', e?.message || 'Please try again. The image is still visible but may not persist.');
     } finally {
-      setSaving(false);
+      setUploadingAvatar(false);
     }
   };
 
@@ -119,33 +194,86 @@ export default function ProfileEditScreen({ navigation }) {
       if (!ok) return;
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images || 'images',
         allowsEditing: true,
         aspect: [3, 1],
-        quality: 1,
+        quality: 0.9,
       });
       if (result.canceled) return;
 
       const localUri = result.assets?.[0]?.uri;
       if (!localUri) return;
 
-      setSaving(true);
-      const downloadURL = await uploadImage(localUri, 'covers', true);
-
-      // Update Firestore (mock)
-      console.log('Mock updateDoc:', {
-        coverUrl: downloadURL,
-        coverUpdatedAt: Date.now(),
-      });
-
-      setCoverUrl(downloadURL);
+      // Show image immediately using local URI
+      setLocalCoverUri(localUri);
       setCacheBust(Date.now());
+      
+      setUploadingCover(true);
+      
+      console.log('[Cover Upload] Starting upload...', localUri);
+      
+      // Upload to Firebase Storage
+      const downloadURL = await uploadImageAsync(localUri, 'covers', 1200);
+      
+      console.log('[Cover Upload] Upload complete, URL:', downloadURL);
+      
+      if (!downloadURL) {
+        throw new Error('Upload failed - no URL returned');
+      }
+
+      // Update Firestore user profile
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        try {
+          // Use serverTimestamp for Firestore, or Date.now() for mock
+          const timestamp = Date.now();
+          await updateUserProfileInDB(uid, {
+            coverUrl: downloadURL,
+            coverUpdatedAt: timestamp,
+          });
+          console.log('[Cover Upload] Profile updated in Firestore with timestamp:', timestamp);
+        } catch (err) {
+          console.error('Failed to update Firestore profile:', err);
+          Alert.alert('Warning', 'Photo uploaded but profile update failed. Please try again.');
+        }
+      }
+
+      // Update local state - keep local URI if mock URL, otherwise use uploaded URL
+      const newCacheBust = Date.now();
+      if (isMockUrl(downloadURL)) {
+        // Keep using local URI for mock Firebase
+        setCoverUrl(downloadURL); // Still save to Firestore for persistence
+      } else {
+        // Use uploaded URL for real Firebase
+        setCoverUrl(downloadURL);
+        setLocalCoverUri(null); // Clear local URI since we have real URL
+      }
+      setCacheBust(newCacheBust);
+      
+      // Force a small delay to ensure state update propagates
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Refresh user profile in context - wait for it to complete
+      if (refreshUserProfile) {
+        await refreshUserProfile();
+        // Small delay to ensure Firestore has propagated
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      // Force another cache bust to ensure image refreshes
+      setCacheBust(Date.now());
+      
       Alert.alert('Success', 'Cover photo updated!');
+      
+      // Don't navigate away - let user continue editing if needed
+      // ProfileScreen will refresh when navigated to via useFocusEffect
     } catch (e) {
       console.error('[Cover Upload Error]', e);
-      Alert.alert('Upload failed', e?.message || 'Please try again.');
+      // Keep local URI visible even if upload fails
+      // setLocalCoverUri remains set so image still displays
+      Alert.alert('Upload failed', e?.message || 'Please try again. The image is still visible but may not persist.');
     } finally {
-      setSaving(false);
+      setUploadingCover(false);
     }
   };
 
@@ -209,16 +337,34 @@ export default function ProfileEditScreen({ navigation }) {
       
       {/* Avatar */}
       <View style={styles.avatarSection}>
-        <TouchableOpacity onPress={onPickAvatar} activeOpacity={0.8} disabled={saving}>
-          {avatarUrl ? (
-            <Image source={{ uri: cacheBusted }} style={styles.avatar} />
+        <TouchableOpacity onPress={onPickAvatar} activeOpacity={0.8} disabled={uploadingAvatar || saving}>
+          {uploadingAvatar ? (
+            <View style={[styles.avatarPlaceholder, { backgroundColor: theme.cardBackground }]}>
+              <ActivityIndicator size="large" color={theme.primary} />
+            </View>
+          ) : displayAvatarUrl ? (
+            <View style={styles.avatarContainer}>
+              <Image 
+                key={`avatar-${cacheBust}`}
+                source={{ uri: cacheBusted }} 
+                style={styles.avatar}
+                onError={(e) => {
+                  console.error('Avatar image load error:', e);
+                  // Fallback to placeholder if image fails to load
+                  setAvatarUrl('');
+                }}
+              />
+              <View style={[styles.avatarOverlay, { backgroundColor: 'rgba(0,0,0,0.3)' }]}>
+                <Ionicons name="camera" size={24} color="#fff" />
+              </View>
+            </View>
           ) : (
             <View style={[styles.avatarPlaceholder, { backgroundColor: theme.cardBackground }]}>
               <Ionicons name="camera" size={32} color={theme.subtext} />
             </View>
           )}
           <Text style={[styles.avatarLabel, { color: theme.primary }]}>
-            {saving ? 'Uploading…' : 'Change Avatar'}
+            {uploadingAvatar ? 'Uploading…' : 'Change Profile Photo'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -226,9 +372,29 @@ export default function ProfileEditScreen({ navigation }) {
       {/* Cover Photo */}
       <View style={styles.coverSection}>
         <Text style={[styles.fieldLabel, { color: theme.text }]}>Cover Photo</Text>
-        <TouchableOpacity onPress={onPickCover} activeOpacity={0.8} disabled={saving}>
-          {coverUrl ? (
-            <Image source={{ uri: coverCacheBusted }} style={styles.coverPreview} />
+        <TouchableOpacity onPress={onPickCover} activeOpacity={0.8} disabled={uploadingCover || saving}>
+          {uploadingCover ? (
+            <View style={[styles.coverPlaceholder, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <Text style={[styles.coverPlaceholderText, { color: theme.subtext }]}>Uploading...</Text>
+            </View>
+          ) : displayCoverUrl ? (
+            <View style={styles.coverContainer}>
+              <Image 
+                key={`cover-${cacheBust}`}
+                source={{ uri: coverCacheBusted }} 
+                style={styles.coverPreview}
+                onError={(e) => {
+                  console.error('Cover image load error:', e);
+                  // Fallback to placeholder if image fails to load
+                  setCoverUrl('');
+                }}
+              />
+              <View style={[styles.coverOverlay, { backgroundColor: 'rgba(0,0,0,0.3)' }]}>
+                <Ionicons name="camera" size={24} color="#fff" />
+                <Text style={styles.coverOverlayText}>Change Cover</Text>
+              </View>
+            </View>
           ) : (
             <View style={[styles.coverPlaceholder, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
               <Ionicons name="image" size={32} color={theme.subtext} />
@@ -507,11 +673,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
+  avatarContainer: {
+    position: 'relative',
+    marginBottom: 8,
+  },
   avatar: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    marginBottom: 8,
+  },
+  avatarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatarPlaceholder: {
     width: 100,
@@ -530,10 +709,31 @@ const styles = StyleSheet.create({
   coverSection: {
     marginBottom: 24,
   },
+  coverContainer: {
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
   coverPreview: {
     width: '100%',
     height: 120,
     borderRadius: 12,
+  },
+  coverOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  coverOverlayText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
   },
   coverPlaceholder: {
     width: '100%',

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { useCallback, useContext, useMemo, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -17,6 +17,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
+import { db, isFirebaseReady } from '../firebase';
+import { collection, query, where, getDocs, orderBy, limit, getCountFromServer } from 'firebase/firestore';
 
 export default function ProfileScreen() {
   const { user, loading, refreshUserProfile } = useContext(UserContext);
@@ -24,53 +26,129 @@ export default function ProfileScreen() {
   const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('posts');
+  const [stats, setStats] = useState({ followers: 0, following: 0, posts: 0 });
+  const [posts, setPosts] = useState([]);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [loadingPosts, setLoadingPosts] = useState(false);
 
-  // Mock data for demonstration
-  const mockStats = {
-    followers: 1247,
-    following: 342,
-    posts: 89,
+  // Load real stats from Firestore
+  const loadStats = useCallback(async () => {
+    if (!user?.id) return;
+    
+    setLoadingStats(true);
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        // Real Firestore
+        const userId = user.id;
+        
+        // Get followers count
+        const followersQuery = query(collection(db, 'followers'), where('followingId', '==', userId));
+        const followersSnapshot = await getCountFromServer(followersQuery);
+        const followersCount = followersSnapshot.data().count;
+        
+        // Get following count
+        const followingQuery = query(collection(db, 'followers'), where('followerId', '==', userId));
+        const followingSnapshot = await getCountFromServer(followingQuery);
+        const followingCount = followingSnapshot.data().count;
+        
+        // Get posts count
+        const postsQuery = query(collection(db, 'posts'), where('userId', '==', userId));
+        const postsSnapshot = await getCountFromServer(postsQuery);
+        const postsCount = postsSnapshot.data().count;
+        
+        setStats({
+          followers: followersCount,
+          following: followingCount,
+          posts: postsCount,
+        });
+      } else {
+        // Fallback to mock if Firebase not ready
+        setStats({ followers: 0, following: 0, posts: 0 });
+      }
+    } catch (error) {
+      console.error('Error loading stats:', error);
+      setStats({ followers: 0, following: 0, posts: 0 });
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [user?.id]);
+
+  // Load real posts from Firestore
+  const loadPosts = useCallback(async () => {
+    if (!user?.id) return;
+    
+    setLoadingPosts(true);
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        // Real Firestore
+        const postsQuery = query(
+          collection(db, 'posts'),
+          where('userId', '==', user.id),
+          orderBy('createdAt', 'desc'),
+          limit(20)
+        );
+        const postsSnapshot = await getDocs(postsQuery);
+        const postsData = postsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          timestamp: doc.data().createdAt?.toDate ? formatTimestamp(doc.data().createdAt.toDate()) : 'Unknown',
+        }));
+        setPosts(postsData);
+      } else {
+        // Fallback to empty array if Firebase not ready
+        setPosts([]);
+      }
+    } catch (error) {
+      console.error('Error loading posts:', error);
+      setPosts([]);
+    } finally {
+      setLoadingPosts(false);
+    }
+  }, [user?.id]);
+
+  const formatTimestamp = (date) => {
+    if (!date) return 'Unknown';
+    const now = new Date();
+    const diff = now - date;
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    
+    if (minutes < 1) return 'now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString();
   };
-
-  const mockPosts = [
-    {
-      id: '1',
-      type: 'image',
-      content: 'Just finished an amazing recording session! 🎵',
-      media: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400',
-      likes: 23,
-      comments: 5,
-      timestamp: '2h ago',
-    },
-    {
-      id: '2',
-      type: 'text',
-      content: 'Excited to announce our upcoming live performance at the downtown venue. Tickets are now available!',
-      likes: 45,
-      comments: 12,
-      timestamp: '1d ago',
-    },
-    {
-      id: '3',
-      type: 'video',
-      content: 'Behind the scenes of our latest music video shoot',
-      media: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400',
-      likes: 67,
-      comments: 8,
-      timestamp: '3d ago',
-    },
-  ];
 
   useFocusEffect(
     useCallback(() => {
-      (async () => { await refreshUserProfile(); })();
-    }, [refreshUserProfile])
+      // Refresh profile when screen comes into focus (e.g., after editing)
+      (async () => { 
+        await refreshUserProfile();
+        await loadStats();
+        await loadPosts();
+      })();
+    }, [refreshUserProfile, loadStats, loadPosts])
   );
+
+  useEffect(() => {
+    if (user?.id) {
+      loadStats();
+      loadPosts();
+    }
+  }, [user?.id, loadStats, loadPosts]);
 
   const onPullRefresh = useCallback(async () => {
     setRefreshing(true);
-    try { await refreshUserProfile(); } finally { setRefreshing(false); }
-  }, [refreshUserProfile]);
+    try { 
+      await refreshUserProfile();
+      await loadStats();
+      await loadPosts();
+    } finally { 
+      setRefreshing(false); 
+    }
+  }, [refreshUserProfile, loadStats, loadPosts]);
 
   const normalizedSocials = useMemo(() => {
     if (!user?.socials || typeof user.socials !== 'object') return [];
@@ -160,7 +238,10 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView 
+      style={[styles.container, { backgroundColor: theme.background }]}
+      edges={['bottom', 'left', 'right']}
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -171,8 +252,20 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View style={[styles.profileHeader, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
           {/* Cover Photo */}
-          <View style={[styles.coverPhoto, { backgroundColor: theme.primary + '20' }]}>
-            <TouchableOpacity style={styles.coverEditButton}>
+          <View style={styles.coverPhotoContainer}>
+            {user.coverUrl ? (
+              <Image 
+                source={{ uri: `${user.coverUrl}?t=${user.coverUpdatedAt || Date.now()}` }} 
+                style={styles.coverPhoto}
+                key={`cover-${user.coverUrl}-${user.coverUpdatedAt || ''}`}
+              />
+            ) : (
+              <View style={[styles.coverPhoto, { backgroundColor: theme.primary + '20' }]} />
+            )}
+            <TouchableOpacity 
+              style={styles.coverEditButton}
+              onPress={() => navigation.navigate('ProfileEdit')}
+            >
               <Ionicons name="camera" size={20} color={theme.primary} />
             </TouchableOpacity>
           </View>
@@ -180,14 +273,21 @@ export default function ProfileScreen() {
           {/* Profile Info */}
           <View style={styles.profileInfo}>
             <View style={styles.avatarContainer}>
-              {user.avatarUrl ? (
-                <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+              {user.avatarUrl || user.photoURL ? (
+                <Image 
+                  source={{ uri: `${user.avatarUrl || user.photoURL}?t=${user.photoUpdatedAt || Date.now()}` }} 
+                  style={styles.avatar}
+                  key={`avatar-${user.avatarUrl || user.photoURL}-${user.photoUpdatedAt || ''}`}
+                />
               ) : (
                 <View style={[styles.placeholderAvatar, { backgroundColor: theme.primary }]}>
                   <Text style={styles.avatarText}>👤</Text>
                 </View>
               )}
-              <TouchableOpacity style={[styles.avatarEditButton, { backgroundColor: theme.primary }]}>
+              <TouchableOpacity 
+                style={[styles.avatarEditButton, { backgroundColor: theme.primary }]}
+                onPress={() => navigation.navigate('ProfileEdit')}
+              >
                 <Ionicons name="camera" size={16} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -225,16 +325,34 @@ export default function ProfileScreen() {
           {/* Stats */}
           <View style={styles.statsContainer}>
             <TouchableOpacity style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.text }]}>{formatNumber(mockStats.posts)}</Text>
-              <Text style={[styles.statLabel, { color: theme.subtext }]}>Posts</Text>
+              {loadingStats ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <>
+                  <Text style={[styles.statNumber, { color: theme.text }]}>{formatNumber(stats.posts)}</Text>
+                  <Text style={[styles.statLabel, { color: theme.subtext }]}>Posts</Text>
+                </>
+              )}
             </TouchableOpacity>
             <TouchableOpacity style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.text }]}>{formatNumber(mockStats.followers)}</Text>
-              <Text style={[styles.statLabel, { color: theme.subtext }]}>Followers</Text>
+              {loadingStats ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <>
+                  <Text style={[styles.statNumber, { color: theme.text }]}>{formatNumber(stats.followers)}</Text>
+                  <Text style={[styles.statLabel, { color: theme.subtext }]}>Followers</Text>
+                </>
+              )}
             </TouchableOpacity>
             <TouchableOpacity style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.text }]}>{formatNumber(mockStats.following)}</Text>
-              <Text style={[styles.statLabel, { color: theme.subtext }]}>Following</Text>
+              {loadingStats ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <>
+                  <Text style={[styles.statNumber, { color: theme.text }]}>{formatNumber(stats.following)}</Text>
+                  <Text style={[styles.statLabel, { color: theme.subtext }]}>Following</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
 
@@ -284,27 +402,52 @@ export default function ProfileScreen() {
 
         {/* Content */}
         {activeTab === 'posts' && (
-          <FlatList
-            data={mockPosts}
-            renderItem={renderPost}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-            showsVerticalScrollIndicator={false}
-          />
+          <>
+            {loadingPosts ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.primary} />
+                <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading posts...</Text>
+              </View>
+            ) : posts.length > 0 ? (
+              <FlatList
+                data={posts}
+                renderItem={renderPost}
+                keyExtractor={(item) => item.id}
+                scrollEnabled={false}
+                showsVerticalScrollIndicator={false}
+              />
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="document-text-outline" size={48} color={theme.subtext} />
+                <Text style={[styles.emptyStateText, { color: theme.subtext }]}>No posts yet</Text>
+              </View>
+            )}
+          </>
         )}
 
         {activeTab === 'media' && (
           <View style={styles.mediaGrid}>
-            {mockPosts.filter(post => post.media).map((post) => (
-              <TouchableOpacity key={post.id} style={styles.mediaItem}>
-                <Image source={{ uri: post.media }} style={styles.mediaImage} />
-                {post.type === 'video' && (
-                  <View style={styles.videoOverlay}>
-                    <Ionicons name="play" size={24} color="#fff" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
+            {loadingPosts ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.primary} />
+              </View>
+            ) : posts.filter(post => post.media || post.imageUrl).length > 0 ? (
+              posts.filter(post => post.media || post.imageUrl).map((post) => (
+                <TouchableOpacity key={post.id} style={styles.mediaItem}>
+                  <Image source={{ uri: post.media || post.imageUrl }} style={styles.mediaImage} />
+                  {post.type === 'video' && (
+                    <View style={styles.videoOverlay}>
+                      <Ionicons name="play" size={24} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="images-outline" size={48} color={theme.subtext} />
+                <Text style={[styles.emptyStateText, { color: theme.subtext }]}>No media yet</Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -339,19 +482,26 @@ const styles = StyleSheet.create({
   },
   profileHeader: {
     marginHorizontal: 20,
-    marginTop: 0,
+    marginTop: 20,
     marginBottom: 20,
     borderRadius: 16,
     borderWidth: 1,
     overflow: 'hidden',
   },
-  coverPhoto: {
+  coverPhotoContainer: {
+    position: 'relative',
     height: 120,
-    justifyContent: 'flex-end',
-    alignItems: 'flex-end',
-    padding: 16,
+    width: '100%',
+  },
+  coverPhoto: {
+    width: '100%',
+    height: 120,
+    resizeMode: 'cover',
   },
   coverEditButton: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -572,6 +722,14 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 16,
     marginTop: 12,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
   },
   editButton: {
     marginTop: 24,

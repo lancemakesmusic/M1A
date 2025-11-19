@@ -5,9 +5,22 @@ Replaces direct JSON loading with encrypted credential support
 """
 import os
 import json
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
-from security_manager import SecurityManager
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+try:
+    from scripts.security_manager import SecurityManager
+except ImportError:
+    # Fallback: try relative import
+    try:
+        from .security_manager import SecurityManager
+    except ImportError:
+        # If security_manager doesn't exist, set to None
+        SecurityManager = None
 
 class SecureConfigLoader:
     def __init__(self):
@@ -16,10 +29,13 @@ class SecureConfigLoader:
     
     def _init_security(self):
         """Initialize security manager if master key is available"""
+        if SecurityManager is None:
+            # SecurityManager not available, will use legacy mode
+            return
         try:
             self.security_manager = SecurityManager()
-        except ValueError:
-            # No master key set, will use legacy mode
+        except (ValueError, Exception):
+            # No master key set or other error, will use legacy mode
             pass
     
     def load_client_config(self, client_name: str) -> Dict[str, Any]:

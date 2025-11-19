@@ -280,6 +280,32 @@ export function M1APersonalizationProvider({ children }) {
           content: 'Track client interactions, manage contracts, and build your reputation.',
         },
       ],
+      guest: [
+        {
+          title: 'Welcome to Merkaba!',
+          description: 'Your personal customer service assistant',
+          icon: 'person',
+          content: 'M1A is here to help you enjoy your experience at Merkaba. Ask me about drinks, events, or request on-site assistance.',
+        },
+        {
+          title: 'Drink Recommendations',
+          description: 'Get personalized drink suggestions',
+          icon: 'wine',
+          content: 'Tell me what you like, and I\'ll recommend the perfect drinks from our menu.',
+        },
+        {
+          title: 'On-Site Service',
+          description: 'Request assistance anytime',
+          icon: 'help-circle',
+          content: 'Need cleanup, have an accident, or need any assistance? Tap the service request button and we\'ll help right away.',
+        },
+        {
+          title: 'About Merkaba',
+          description: 'Learn about our services',
+          icon: 'information-circle',
+          content: 'Ask me about what we do at Merkaba, our events, services, and how we can make your experience special.',
+        },
+      ],
     };
 
     return personaSteps[userPersona.id] || personaSteps.promoter;

@@ -19,6 +19,24 @@ const { width } = Dimensions.get('window');
 // User personas with tailored features and descriptions
 const userPersonas = [
   {
+    id: 'guest',
+    title: 'Guest',
+    subtitle: 'Patrons & Fans',
+    description: 'Attend events, enjoy drinks, and experience Merkaba with personalized customer service',
+    icon: 'person',
+    color: '#3498DB',
+    gradient: ['#3498DB', '#5DADE2'],
+    features: [
+      'Drink Recommendations',
+      'Event Information',
+      'On-Site Service Requests',
+      'Merkaba Information',
+      'Customer Support',
+      'Service Discovery'
+    ],
+    primaryActions: ['Browse Menu', 'Request Service', 'Learn About Merkaba', 'Get Help']
+  },
+  {
     id: 'promoter',
     title: 'Event Promoter',
     subtitle: 'Music & Entertainment Events',
@@ -148,22 +166,12 @@ export default function M1APersonalizationScreen({ navigation }) {
         await savePersona(selectedPersona);
         await savePreferences({
           primaryFocus: selectedPersona.primaryActions,
-          tutorialCompleted: false,
+          tutorialCompleted: false, // Will show tutorial on first home screen visit
         });
         await completeOnboarding();
         
-        Alert.alert(
-          'Welcome to M1A!',
-          `Your ${selectedPersona.title} experience is now customized. Let's explore your personalized dashboard!`,
-          [
-            {
-              text: 'Get Started',
-              onPress: () => {
-                navigation.goBack();
-              }
-            }
-          ]
-        );
+        // Onboarding complete - RootNavigation will automatically show AppNavigator
+        // No need to navigate manually, the context change will trigger re-render
       } catch (error) {
         console.error('Error saving personalization:', error);
         Alert.alert('Error', 'Failed to save your preferences. Please try again.');
@@ -288,11 +296,7 @@ export default function M1APersonalizationScreen({ navigation }) {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]}>M1A Setup</Text>
-        <View style={styles.placeholder} />
       </View>
 
       {/* Progress Indicator */}
@@ -343,23 +347,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E5E5',
   },
-  backButton: {
-    padding: 8,
-  },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-  },
-  placeholder: {
-    width: 40,
   },
   progressContainer: {
     alignItems: 'center',

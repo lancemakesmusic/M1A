@@ -2,25 +2,40 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    Image,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  FlatList,
+  Image,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db as firestore, functions, httpsCallable } from '../firebase';
 
-// EternalMemoriesPro Backend Configuration
-const BACKEND_BASE_URL = 'http://127.0.0.1:5000'; // Update this to your backend URL
+import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { Platform } from 'react-native';
+import { v4 as uuidv4 } from 'uuid';
+
+// Backend Configuration - Use network IP for physical devices
+const getApiBaseUrl = () => {
+  if (process.env.EXPO_PUBLIC_API_BASE_URL) {
+    return process.env.EXPO_PUBLIC_API_BASE_URL;
+  }
+  if (Platform.OS === 'web') {
+    return 'http://localhost:8001';
+  }
+  // Use the same network IP as Metro bundler
+  return 'http://172.20.10.3:8001';
+};
+const BACKEND_BASE_URL = getApiBaseUrl();
 
 export default function AutoPosterScreen({ navigation }) {
   const { user } = useAuth();
@@ -28,10 +43,13 @@ export default function AutoPosterScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [showContentModal, setShowContentModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showMediaUploader, setShowMediaUploader] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [mediaLibrary, setMediaLibrary] = useState([]);
   const [isAutoPosterActive, setIsAutoPosterActive] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [generatingContent, setGeneratingContent] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
 
   // Content generation states
   const [contentPrompt, setContentPrompt] = useState('');
@@ -40,6 +58,15 @@ export default function AutoPosterScreen({ navigation }) {
   const [brandVoice, setBrandVoice] = useState('professional');
   const [targetAudience, setTargetAudience] = useState('general');
   const [generatedContent, setGeneratedContent] = useState('');
+  
+  // Scheduling states
+  const [scheduledDate, setScheduledDate] = useState(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const [scheduledTime, setScheduledTime] = useState(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState(null);
+  
+  // Platform selection
   const [selectedPlatforms, setSelectedPlatforms] = useState({
     instagram: false,
     facebook: false,
@@ -131,17 +158,19 @@ export default function AutoPosterScreen({ navigation }) {
     try {
       console.log('📋 Loading scheduled posts from backend...');
       
-      const response = await fetch(`${BACKEND_BASE_URL}/api/autoposter/scheduled-posts?userId=${user.uid}`);
+      const response = await fetch(`${BACKEND_BASE_URL}/api/scheduled-posts?userId=${user.uid}`);
       const result = await response.json();
       
-      if (result.status === 'success') {
-        setScheduledPosts(result.posts);
-        console.log('✅ Scheduled posts loaded:', result.posts.length);
+      if (result.success || result.status === 'success') {
+        setScheduledPosts(result.posts || []);
+        console.log('✅ Scheduled posts loaded:', (result.posts || []).length);
       } else {
         console.error('❌ Failed to load scheduled posts:', result.message);
+        setScheduledPosts([]);
       }
     } catch (error) {
       console.error('Error loading scheduled posts:', error);
+      setScheduledPosts([]);
     }
   };
 
@@ -149,17 +178,19 @@ export default function AutoPosterScreen({ navigation }) {
     try {
       console.log('📸 Loading media library from backend...');
       
-      const response = await fetch(`${BACKEND_BASE_URL}/api/autoposter/media-library?userId=${user.uid}`);
+      const response = await fetch(`${BACKEND_BASE_URL}/api/media-library?userId=${user.uid}`);
       const result = await response.json();
       
-      if (result.status === 'success') {
-        setMediaLibrary(result.media);
-        console.log('✅ Media library loaded:', result.media.length);
+      if (result.success || result.status === 'success') {
+        setMediaLibrary(result.media || []);
+        console.log('✅ Media library loaded:', (result.media || []).length);
       } else {
         console.error('❌ Failed to load media library:', result.message);
+        setMediaLibrary([]);
       }
     } catch (error) {
       console.error('Error loading media library:', error);
+      setMediaLibrary([]);
     }
   };
 
@@ -188,31 +219,32 @@ export default function AutoPosterScreen({ navigation }) {
     }
 
     try {
+      setGeneratingContent(true);
       console.log('🤖 Generating content with backend...');
       console.log('Prompt:', contentPrompt);
       console.log('Content Type:', contentType);
       console.log('Platform:', platform);
       
-      // Call the EternalMemoriesPro backend
-      const response = await fetch(`${BACKEND_BASE_URL}/api/autoposter/generate-content`, {
+      // Call the backend API
+      const response = await fetch(`${BACKEND_BASE_URL}/api/generate-content`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           prompt: contentPrompt,
-          contentType,
-          platform,
-          brandVoice,
-          targetAudience
+          content_type: contentType,
+          platform: platform,
+          brand_voice: brandVoice,
+          target_audience: targetAudience
         })
       });
 
       const result = await response.json();
       console.log('📝 Backend Response:', result);
 
-      if (result.status === 'success') {
-        setGeneratedContent(result.content);
+      if (result.success || result.status === 'success') {
+        setGeneratedContent(result.content || 'Content generated successfully!');
         console.log('✅ Content generated successfully');
         Alert.alert('Success', 'Content generated successfully!');
       } else {
@@ -222,6 +254,8 @@ export default function AutoPosterScreen({ navigation }) {
     } catch (error) {
       console.error('❌ Error generating content:', error);
       Alert.alert('Error', `Failed to generate content: ${error.message}`);
+    } finally {
+      setGeneratingContent(false);
     }
   };
 
@@ -235,31 +269,48 @@ export default function AutoPosterScreen({ navigation }) {
         return;
       }
 
+      if (!content || !content.trim()) {
+        Alert.alert('No Content', 'Please enter content or generate content first.');
+        return;
+      }
+
+      // Combine date and time
+      const scheduledDateTime = new Date(scheduledDate);
+      scheduledDateTime.setHours(scheduledTime.getHours());
+      scheduledDateTime.setMinutes(scheduledTime.getMinutes());
+      scheduledDateTime.setSeconds(0);
+
       console.log('📅 Scheduling post with backend...');
       console.log('Content:', content);
       console.log('Platforms:', selectedPlatforms);
+      console.log('Scheduled Time:', scheduledDateTime.toISOString());
       
-      // Call the EternalMemoriesPro backend
-      const response = await fetch(`${BACKEND_BASE_URL}/api/autoposter/schedule-post`, {
+      // Call the backend API
+      const response = await fetch(`${BACKEND_BASE_URL}/api/schedule-post`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          content,
-          imageUrl,
+          uid: user.uid,
+          content: content,
+          imageUrl: imageUrl || selectedMedia?.uri || '',
           platforms: selectedPlatforms,
-          scheduledTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours from now
-          userId: user.uid
+          scheduledTime: scheduledDateTime.toISOString(),
+          status: 'scheduled',
+          autoGenerated: false,
+          createdAt: new Date().toISOString()
         })
       });
 
       const result = await response.json();
       console.log('📝 Schedule Response:', result);
 
-      if (result.status === 'success') {
+      if (result.success || result.status === 'success') {
         Alert.alert('Success', `Post scheduled successfully for ${selectedPlatformsList.length} platform(s)!`);
         setShowScheduleModal(false);
+        setGeneratedContent('');
+        setSelectedMedia(null);
         loadScheduledPosts();
       } else {
         Alert.alert('Error', result.message || 'Failed to schedule post');
@@ -329,21 +380,22 @@ export default function AutoPosterScreen({ navigation }) {
     }));
   };
 
-  // Simple media upload test
-  const testMediaUpload = async () => {
+  // Enhanced media upload function
+  const uploadMedia = async () => {
     try {
-      console.log('📸 Testing media upload with backend...');
+      setUploadingMedia(true);
+      console.log('📸 Uploading media...');
       
       // Request permissions
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant camera roll permissions to test media upload');
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload media');
         return;
       }
       
       // Pick an image
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaType.Images,
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images || 'images',
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -353,18 +405,38 @@ export default function AutoPosterScreen({ navigation }) {
         const asset = result.assets[0];
         console.log('📷 Image selected:', asset.uri);
         
+        // Optimize image if needed
+        let processedImage = asset.uri;
+        try {
+          const manipulated = await ImageManipulator.manipulateAsync(
+            asset.uri,
+            [{ resize: { width: 1080 } }],
+            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+          );
+          processedImage = manipulated.uri;
+        } catch (manipError) {
+          console.log('Image manipulation skipped:', manipError);
+        }
+        
+        // Set selected media for use in post
+        setSelectedMedia({
+          uri: processedImage,
+          type: 'image',
+          name: `media_${uuidv4()}.jpg`
+        });
+        
         // Create FormData for file upload
         const formData = new FormData();
         formData.append('media', {
-          uri: asset.uri,
+          uri: processedImage,
           type: 'image/jpeg',
-          name: 'test_image.jpg',
+          name: `media_${uuidv4()}.jpg`,
         });
         formData.append('userId', user.uid);
-        formData.append('title', 'Test Upload - Phase 1');
+        formData.append('title', `Media Upload - ${new Date().toLocaleDateString()}`);
         
         // Upload to backend
-        const response = await fetch(`${BACKEND_BASE_URL}/api/autoposter/upload-media`, {
+        const response = await fetch(`${BACKEND_BASE_URL}/api/upload-media`, {
           method: 'POST',
           body: formData,
           headers: {
@@ -372,23 +444,26 @@ export default function AutoPosterScreen({ navigation }) {
           },
         });
         
-        const result = await response.json();
-        console.log('📝 Upload Response:', result);
+        const uploadResult = await response.json();
+        console.log('📝 Upload Response:', uploadResult);
         
-        if (result.status === 'success') {
-          console.log('✅ Media uploaded to backend:', result.media.id);
+        if (uploadResult.success || uploadResult.status === 'success') {
+          console.log('✅ Media uploaded to backend');
           
           // Refresh media library
           await loadMediaLibrary();
           
-          Alert.alert('Success', 'Media upload test completed successfully!');
+          Alert.alert('Success', 'Media uploaded successfully!');
+          setShowMediaUploader(false);
         } else {
-          Alert.alert('Error', result.message || 'Failed to upload media');
+          Alert.alert('Error', uploadResult.message || 'Failed to upload media');
         }
       }
     } catch (error) {
-      console.error('❌ Media upload test failed:', error);
-      Alert.alert('Error', `Media upload test failed: ${error.message}`);
+      console.error('❌ Media upload failed:', error);
+      Alert.alert('Error', `Media upload failed: ${error.message}`);
+    } finally {
+      setUploadingMedia(false);
     }
   };
 
@@ -649,21 +724,40 @@ export default function AutoPosterScreen({ navigation }) {
           </View>
         </View>
 
-        {/* Quick Actions */}
+        {/* Quick Actions - Full Kit */}
         <View style={styles.quickActions}>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: theme.primary }]}
             onPress={() => setShowContentModal(true)}
           >
-            <Ionicons name="create" size={20} color="white" />
+            <Ionicons name="sparkles" size={20} color="white" />
             <Text style={styles.actionButtonText}>Generate Content</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: theme.cardBackground, borderWidth: 1, borderColor: theme.border }]}
+            style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}
+            onPress={() => setShowMediaUploader(true)}
+          >
+            <Ionicons name="image" size={20} color="white" />
+            <Text style={styles.actionButtonText}>Upload Media</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.quickActions}>
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: '#4ECDC4' }]}
             onPress={() => setShowScheduleModal(true)}
           >
-            <Ionicons name="calendar" size={20} color={theme.text} />
-            <Text style={[styles.actionButtonText, { color: theme.text }]}>Schedule Post</Text>
+            <Ionicons name="calendar" size={20} color="white" />
+            <Text style={styles.actionButtonText}>Schedule Post</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: theme.cardBackground, borderWidth: 1, borderColor: theme.border }]}
+            onPress={() => {
+              setShowContentModal(true);
+              setShowScheduleModal(false);
+            }}
+          >
+            <Ionicons name="rocket" size={20} color={theme.text} />
+            <Text style={[styles.actionButtonText, { color: theme.text }]}>Quick Post</Text>
           </TouchableOpacity>
         </View>
 
@@ -679,7 +773,7 @@ export default function AutoPosterScreen({ navigation }) {
           
           <TouchableOpacity
             style={[styles.testButton, { backgroundColor: '#4ECDC4', marginTop: 12 }]}
-            onPress={testMediaUpload}
+            onPress={uploadMedia}
           >
             <Ionicons name="camera" size={20} color="white" />
             <Text style={styles.testButtonText}>Test Media Upload</Text>
@@ -824,17 +918,174 @@ export default function AutoPosterScreen({ navigation }) {
                 style={[styles.textInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
                 value={generatedContent}
                 onChangeText={setGeneratedContent}
-                placeholder="Enter your post content..."
+                placeholder="Enter your post content or use generated content..."
                 placeholderTextColor={theme.subtext}
                 multiline
               />
 
+              {/* Selected Media Preview */}
+              {selectedMedia && (
+                <View style={styles.mediaPreview}>
+                  <Image source={{ uri: selectedMedia.uri }} style={styles.mediaPreviewImage} />
+                  <TouchableOpacity
+                    style={styles.removeMediaButton}
+                    onPress={() => setSelectedMedia(null)}
+                  >
+                    <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Media Upload Button */}
+              <TouchableOpacity
+                style={[styles.mediaButton, { backgroundColor: theme.background, borderColor: theme.border }]}
+                onPress={uploadMedia}
+                disabled={uploadingMedia}
+              >
+                <Ionicons name="image-outline" size={20} color={theme.text} />
+                <Text style={[styles.mediaButtonText, { color: theme.text }]}>
+                  {uploadingMedia ? 'Uploading...' : selectedMedia ? 'Change Media' : 'Add Media'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Date Picker */}
+              <Text style={[styles.inputLabel, { color: theme.text, marginTop: 16 }]}>Schedule Date</Text>
+              <TouchableOpacity
+                style={[styles.pickerButton, { backgroundColor: theme.background, borderColor: theme.border }]}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Ionicons name="calendar-outline" size={20} color={theme.text} />
+                <Text style={[styles.pickerButtonText, { color: theme.text }]}>
+                  {scheduledDate.toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+              {showDatePicker && (
+                <DateTimePicker
+                  value={scheduledDate}
+                  mode="date"
+                  display="default"
+                  minimumDate={new Date()}
+                  onChange={(event, selectedDate) => {
+                    setShowDatePicker(Platform.OS === 'ios');
+                    if (selectedDate) {
+                      setScheduledDate(selectedDate);
+                    }
+                  }}
+                />
+              )}
+
+              {/* Time Picker */}
+              <Text style={[styles.inputLabel, { color: theme.text, marginTop: 16 }]}>Schedule Time</Text>
+              <TouchableOpacity
+                style={[styles.pickerButton, { backgroundColor: theme.background, borderColor: theme.border }]}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Ionicons name="time-outline" size={20} color={theme.text} />
+                <Text style={[styles.pickerButtonText, { color: theme.text }]}>
+                  {scheduledTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </TouchableOpacity>
+              {showTimePicker && (
+                <DateTimePicker
+                  value={scheduledTime}
+                  mode="time"
+                  display="default"
+                  onChange={(event, selectedTime) => {
+                    setShowTimePicker(Platform.OS === 'ios');
+                    if (selectedTime) {
+                      setScheduledTime(selectedTime);
+                    }
+                  }}
+                />
+              )}
+
+              {/* Platform Selection in Schedule Modal */}
+              <Text style={[styles.inputLabel, { color: theme.text, marginTop: 16 }]}>Select Platforms</Text>
+              <View style={styles.platformsRow}>
+                {socialPlatforms.map((plat) => (
+                  <TouchableOpacity
+                    key={plat.id}
+                    style={[
+                      styles.platformChip,
+                      {
+                        backgroundColor: selectedPlatforms[plat.id] ? plat.color : theme.background,
+                        borderColor: plat.color,
+                      }
+                    ]}
+                    onPress={() => togglePlatformSelection(plat.id)}
+                  >
+                    <Ionicons 
+                      name={plat.icon} 
+                      size={16} 
+                      color={selectedPlatforms[plat.id] ? 'white' : plat.color} 
+                    />
+                    <Text style={[
+                      styles.platformChipText,
+                      { color: selectedPlatforms[plat.id] ? 'white' : plat.color }
+                    ]}>
+                      {plat.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
               <TouchableOpacity
                 style={[styles.scheduleButton, { backgroundColor: theme.primary }]}
-                onPress={() => schedulePost(generatedContent, '')}
+                onPress={() => schedulePost(generatedContent, selectedMedia?.uri)}
               >
                 <Text style={styles.scheduleButtonText}>Schedule Post</Text>
               </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Media Uploader Modal */}
+      <Modal
+        visible={showMediaUploader}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowMediaUploader(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.cardBackground }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Upload Media</Text>
+              <TouchableOpacity onPress={() => setShowMediaUploader(false)}>
+                <Ionicons name="close" size={24} color={theme.subtext} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>
+                Upload images or videos for your posts
+              </Text>
+              
+              <TouchableOpacity
+                style={[styles.uploadButton, { backgroundColor: theme.primary }]}
+                onPress={uploadMedia}
+                disabled={uploadingMedia}
+              >
+                <Ionicons name="cloud-upload-outline" size={24} color="white" />
+                <Text style={styles.uploadButtonText}>
+                  {uploadingMedia ? 'Uploading...' : 'Choose Media'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Media Library Preview */}
+              {mediaLibrary.length > 0 && (
+                <>
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 24 }]}>Your Media Library</Text>
+                  <FlatList
+                    data={mediaLibrary}
+                    renderItem={renderMediaItem}
+                    keyExtractor={(item) => item.id || item.uri}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.mediaList}
+                  />
+                </>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -1071,10 +1322,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 16,
     borderRadius: 8,
-    alignItems: 'center',
     marginTop: 20,
+    gap: 8,
   },
   generateButtonText: {
     color: 'white',
@@ -1181,6 +1435,83 @@ const styles = StyleSheet.create({
     minWidth: 200,
   },
   testButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  mediaPreview: {
+    marginTop: 16,
+    position: 'relative',
+    alignItems: 'center',
+  },
+  mediaPreviewImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+  },
+  removeMediaButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: 'white',
+    borderRadius: 12,
+  },
+  mediaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 12,
+    gap: 8,
+  },
+  mediaButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  pickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+  },
+  pickerButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  platformsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  platformChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 6,
+  },
+  platformChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 16,
+    gap: 8,
+  },
+  uploadButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',

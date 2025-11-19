@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     Dimensions,
     KeyboardAvoidingView,
+    Modal,
     Platform,
     ScrollView,
     StyleSheet,
@@ -13,9 +15,17 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import ErrorRecovery from '../components/ErrorRecovery';
+import { trackEventBookingStarted, trackEventBookingCompleted, trackFunnelStep, trackButtonClick, trackFeatureUsage, trackError } from '../services/AnalyticsService';
+import { scheduleEventReminder, sendBookingReminder } from '../services/NotificationService';
+import GoogleCalendarService from '../services/GoogleCalendarService';
+import BookingCalendar from '../components/BookingCalendar';
+import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
+import StripeService from '../services/StripeService';
+import useScreenTracking from '../hooks/useScreenTracking';
 
 const { width } = Dimensions.get('window');
 
@@ -60,40 +70,61 @@ const eventTypes = [
     },
 ];
 
-// Pricing structure - moved outside component
-  const pricing = {
-    barPackages: {
-      'No Bar – (Free)': { basePrice: 0, hourlyRate: 0 },
-      'Well Open Bar – $25/person (4 hrs, +$5/hr after)': { basePrice: 25, hourlyRate: 5, includedHours: 4 },
-      'Standard Open Bar – $35/person (4 hrs, +$7/hr after)': { basePrice: 35, hourlyRate: 7, includedHours: 4 },
-      'Deluxe Open Bar – $50/person (4 hrs, +$10/hr after)': { basePrice: 50, hourlyRate: 10, includedHours: 4 },
-    },
-    addOnServices: {
-      'Extra Speakers': 150,
-      'Extra Lighting': 200,
-      'Fog Machine': 100,
-      'Photography': 150,
-      'Videography': 200,
-      'Highlight Reel and video edit': 500,
-      'MC Services': 100,
-      'Live DJ': 600,
-      'Audio Recording of Speeches': 75,
-      'Flier/Graphic Design': 150,
-      'Event Promotion': 300,
-      'Pyrotechnics': 1000,
-      'Basic Fireworks Display': 5000,
-      'Premium Fireworks Display': 10000,
-    },
-    bundlePackages: {
-      'Performance Package – $1,000 (Speakers, Lighting, DJ, MC)': 1000,
-      'Media Coverage Package – $1,000 (Videography, Audio, Reel, Promotion)': 1000,
-      'Premium Celebration Package – $16,000 (Pyro + Fireworks)': 16000,
-    },
-  };
+// Pricing structure - matches Google Form exactly
+// Reference: https://docs.google.com/forms/d/e/1FAIpQLSfC8LAitY57iQDvvP-lMhY5JTXy9OC5reaMh2L4aGL6Y9E1Dg/viewform
+const pricing = {
+  // Venue rental fee (hourly rate)
+  venueRental: {
+    weekday: 250,    // Monday-Thursday: $250/hour
+    weekend: 300,    // Friday-Sunday: $300/hour
+  },
+  barPackages: {
+    'No Bar – (Free)': { basePrice: 0, hourlyRate: 0, includedHours: 0 },
+    'Well Open Bar – $25/person (4 hrs, +$5/hr after)': { basePrice: 25, hourlyRate: 5, includedHours: 4 },
+    'Standard Open Bar – $35/person (4 hrs, +$7/hr after)': { basePrice: 35, hourlyRate: 7, includedHours: 4 },
+    'Deluxe Open Bar – $50/person (4 hrs, +$10/hr after)': { basePrice: 50, hourlyRate: 10, includedHours: 4 },
+  },
+  // Add-on services - flat fees
+  addOnServices: {
+    'Extra Speakers': 150,
+    'Extra Lighting': 200,
+    'Fog Machine': 100,
+    'Highlight Reel and video edit': 500,
+    'Live DJ': 600,
+    'Flier/Graphic Design': 150,
+    'Event Promotion': 300,
+    'Pyrotechnics': 1000,
+    'Basic Fireworks Display': 5000,
+    'Premium Fireworks Display': 10000,
+  },
+  // Add-on services - hourly rates (multiply by duration)
+  addOnServicesHourly: {
+    'Photography': 150,  // $150/hr
+    'Videography': 200,  // $200/hr
+    'MC Services': 100,  // $100/hr
+    'Audio Recording of Speeches': 75,  // $75/hr
+  },
+  bundlePackages: {
+    'Performance Package – $1,000 (Speakers, Lighting, DJ, MC)': 1000,
+    'Media Coverage Package – $1,000 (Videography, Audio, Reel, Promotion)': 1000,
+    'Premium Celebration Package – $16,000 (Pyro + Fireworks)': 16000,
+  },
+};
 
 export default function EventBookingScreen({ navigation }) {
-    const { theme } = useTheme();
+    const themeContext = useTheme();
+    const theme = themeContext?.theme || {
+        background: '#FFFFFF',
+        cardBackground: '#F8F9FA',
+        text: '#000000',
+        subtext: '#666666',
+        primary: '#007AFF',
+        border: '#E5E5E7',
+        shadow: 'rgba(0,0,0,0.1)',
+    };
     const { user } = useAuth();
+    const insets = useSafeAreaInsets();
+    useScreenTracking('EventBookingScreen');
     
     // Step management
     const [currentStep, setCurrentStep] = useState(1);
@@ -102,9 +133,17 @@ export default function EventBookingScreen({ navigation }) {
     // Date picker states
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [selectedTime, setSelectedTime] = useState(new Date());
+    const [tempTime, setTempTime] = useState(new Date()); // Temporary time for picker
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
     const [showGuestPicker, setShowGuestPicker] = useState(false);
+    const [showCalendar, setShowCalendar] = useState(false);
+    const [availabilityError, setAvailabilityError] = useState('');
+    const [paymentStep, setPaymentStep] = useState('none'); // 'none', 'processing', 'success', 'failed'
+    const [paymentError, setPaymentError] = useState(null);
+    const [requiresDeposit, setRequiresDeposit] = useState(true);
+    const [depositAmount, setDepositAmount] = useState(0);
+    const [paymentIntentId, setPaymentIntentId] = useState(null);
     
     // Form data with better structure
     const [formData, setFormData] = useState({
@@ -164,7 +203,34 @@ export default function EventBookingScreen({ navigation }) {
     }, [formData.barPackage, formData.guestCount, formData.duration, formData.addOnServices, formData.bundlePackage, formData.isWeekday]);
 
 
-  // Date picker handlers
+  // Calendar date selection handler
+  const handleCalendarDateSelect = (date) => {
+    setSelectedDate(date);
+    setShowCalendar(false);
+    setAvailabilityError('');
+    const formattedDate = date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    updateFormData('eventDate', formattedDate);
+    
+    // Auto-detect weekday for discount
+    const dayOfWeek = date.getDay();
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4;
+    updateFormData('isWeekday', isWeekday);
+  };
+
+  // Availability check handler
+  const handleAvailabilityCheck = (isAvailable, message) => {
+    if (!isAvailable) {
+      setAvailabilityError(message);
+      Alert.alert('Date Unavailable', message);
+    }
+  };
+
+  // Date picker handlers (fallback)
   const onDateChange = (event, selectedDate) => {
     setShowDatePicker(false);
     if (selectedDate) {
@@ -175,92 +241,162 @@ export default function EventBookingScreen({ navigation }) {
         month: 'long',
         day: 'numeric'
       });
-            console.log('Date selected:', formattedDate);
-            updateFormData('eventDate', formattedDate);
+      updateFormData('eventDate', formattedDate);
       
       // Auto-detect weekday for discount
       const dayOfWeek = selectedDate.getDay();
-            const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4;
-            updateFormData('isWeekday', isWeekday);
+      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4;
+      updateFormData('isWeekday', isWeekday);
     }
   };
 
   const onTimeChange = (event, selectedTime) => {
-    setShowTimePicker(false);
-    if (selectedTime) {
-      setSelectedTime(selectedTime);
-      const formattedTime = selectedTime.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
-            console.log('Time selected:', formattedTime);
-            updateFormData('eventStartTime', formattedTime);
+    // Only update temporary time, don't close picker
+    if (selectedTime && Platform.OS === 'ios') {
+      setTempTime(selectedTime);
+    } else if (selectedTime && Platform.OS === 'android' && event.type === 'set') {
+      // Android: only update if user confirmed (not dismissed)
+      setTempTime(selectedTime);
+      handleTimeConfirm(selectedTime);
     }
+  };
+
+  const handleTimeConfirm = (timeToConfirm) => {
+    const time = timeToConfirm || tempTime;
+    setSelectedTime(time);
+    const formattedTime = time.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    console.log('Time confirmed:', formattedTime);
+    updateFormData('eventStartTime', formattedTime);
+    setShowTimePicker(false);
+    trackButtonClick('confirm_time', 'EventBookingScreen');
+  };
+
+  const handleTimeCancel = () => {
+    // Reset temp time to current selected time
+    setTempTime(selectedTime);
+    setShowTimePicker(false);
+    trackButtonClick('cancel_time', 'EventBookingScreen');
+  };
+
+  const openTimePicker = () => {
+    // Initialize temp time with current selected time or current time
+    setTempTime(formData.eventStartTime ? selectedTime : new Date());
+    setShowTimePicker(true);
+    trackButtonClick('open_time_picker', 'EventBookingScreen');
   };
 
     const calculateTotal = useCallback(() => {
     let total = 0;
     let breakdown = {};
 
-    // Bar package calculation
+    // 1. VENUE RENTAL FEE (matches Google Form calculation)
+    // Hourly rate: $250 (weekday Monday-Thursday) or $300 (weekend Friday-Sunday)
+    const hourlyRate = formData.isWeekday ? pricing.venueRental.weekday : pricing.venueRental.weekend;
+    const rentalFee = formData.duration * hourlyRate;
+    
+    breakdown.venueRental = {
+      hourlyRate: hourlyRate,
+      duration: formData.duration,
+      total: rentalFee,
+      label: formData.isWeekday ? 'Venue Rental (Weekday)' : 'Venue Rental (Weekend)',
+    };
+    total += rentalFee;
+
+    // 2. BAR PACKAGE CALCULATION (matches Google Form exactly)
     const barPackage = pricing.barPackages[formData.barPackage];
-    if (barPackage.basePrice > 0) {
+    if (barPackage && barPackage.basePrice > 0) {
+      // Base cost = basePrice per person
       const baseCost = barPackage.basePrice * formData.guestCount;
-            let extraHours = Math.max(0, formData.duration - barPackage.includedHours);
-      let extraCost = extraHours * barPackage.hourlyRate * formData.guestCount;
-      let barTotal = baseCost + extraCost;
+      // Extra hours beyond included hours
+      const extraHours = Math.max(0, formData.duration - (barPackage.includedHours || 0));
+      // Extra cost = extraHours * hourlyRate per person
+      const extraCost = extraHours * barPackage.hourlyRate * formData.guestCount;
+      const barTotal = baseCost + extraCost;
       
       breakdown.barPackage = {
         name: formData.barPackage,
         baseCost,
         extraCost,
+        extraHours,
+        guestCount: formData.guestCount,
         total: barTotal,
       };
       total += barTotal;
     }
 
-    // Add-on services calculation
-    let addOnTotal = 0;
-    formData.addOnServices.forEach(service => {
-      const serviceCost = pricing.addOnServices[service];
-      if (serviceCost) {
-        addOnTotal += serviceCost;
-      }
-    });
+    // 3. ADD-ON SERVICES - FLAT FEES (matches Google Form)
+    let addOnFlatTotal = 0;
+    const flatServices = [];
+    if (formData.addOnServices && Array.isArray(formData.addOnServices)) {
+      formData.addOnServices.forEach(service => {
+        // Check if it's a flat fee service
+        if (pricing.addOnServices[service]) {
+          const serviceCost = pricing.addOnServices[service];
+          addOnFlatTotal += serviceCost;
+          flatServices.push({ name: service, cost: serviceCost });
+        }
+      });
+    }
+
+    // 4. ADD-ON SERVICES - HOURLY RATES (matches Google Form)
+    // Photography, Videography, MC Services, Audio Recording are hourly
+    let addOnHourlyTotal = 0;
+    const hourlyServices = [];
+    if (formData.addOnServices && Array.isArray(formData.addOnServices)) {
+      formData.addOnServices.forEach(service => {
+        // Check if it's an hourly rate service
+        if (pricing.addOnServicesHourly[service]) {
+          const hourlyRate = pricing.addOnServicesHourly[service];
+          const serviceCost = hourlyRate * formData.duration;
+          addOnHourlyTotal += serviceCost;
+          hourlyServices.push({ 
+            name: service, 
+            hourlyRate, 
+            duration: formData.duration, 
+            cost: serviceCost 
+          });
+        }
+      });
+    }
+
+    const addOnTotal = addOnFlatTotal + addOnHourlyTotal;
     if (addOnTotal > 0) {
       breakdown.addOnServices = {
-        services: formData.addOnServices,
+        flatServices: flatServices,
+        hourlyServices: hourlyServices,
+        flatTotal: addOnFlatTotal,
+        hourlyTotal: addOnHourlyTotal,
         total: addOnTotal,
       };
       total += addOnTotal;
     }
 
-    // Bundle package calculation
-    if (formData.bundlePackage) {
+    // 5. BUNDLE PACKAGE CALCULATION (matches Google Form)
+    if (formData.bundlePackage && pricing.bundlePackages[formData.bundlePackage]) {
       const bundleCost = pricing.bundlePackages[formData.bundlePackage];
-      if (bundleCost) {
-        breakdown.bundlePackage = {
-          name: formData.bundlePackage,
-          total: bundleCost,
-        };
-        total += bundleCost;
-      }
+      breakdown.bundlePackage = {
+        name: formData.bundlePackage,
+        total: bundleCost,
+      };
+      total += bundleCost;
     }
 
-    // Weekday discount (10% off for Monday-Thursday)
-    if (formData.isWeekday) {
-      breakdown.weekdayDiscount = {
-        originalTotal: total,
-        discount: total * 0.1,
-        finalTotal: total * 0.9,
-      };
-      total = total * 0.9;
-    }
+    // Note: Google Form uses different hourly rates for weekday vs weekend
+    // ($250 vs $300) instead of a percentage discount, which is already applied above
+    // No additional discount needed - the weekday rate is already lower
 
     breakdown.finalTotal = total;
     setTotalCost(total);
     setBreakdown(breakdown);
+    
+    // Calculate deposit (50% of total, minimum $100) - matches Google Form
+    const calculatedDeposit = total > 0 ? Math.max(100, total * 0.5) : 0;
+    setDepositAmount(calculatedDeposit);
+    setRequiresDeposit(total > 0);
     }, [formData.barPackage, formData.guestCount, formData.duration, formData.addOnServices, formData.bundlePackage, formData.isWeekday]);
 
     // Validation functions
@@ -277,40 +413,103 @@ export default function EventBookingScreen({ navigation }) {
                 }
                 if (!formData.eventDate || formData.eventDate === '') {
                     newErrors.eventDate = 'Please select a date';
+                } else {
+                    // Validate date is not in the past
+                    try {
+                        const selectedDateObj = new Date(selectedDate);
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        if (selectedDateObj < today) {
+                            newErrors.eventDate = 'Event date cannot be in the past';
+                        }
+                    } catch (e) {
+                        newErrors.eventDate = 'Invalid date format';
+                    }
                 }
                 if (!formData.eventStartTime || formData.eventStartTime === '') {
                     newErrors.eventStartTime = 'Please select a time';
+                } else {
+                    // Validate time format
+                    const timePattern = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]\s?(AM|PM)?$/i;
+                    if (!timePattern.test(formData.eventStartTime.replace(/[AP]M/i, '').trim())) {
+                        newErrors.eventStartTime = 'Please enter a valid time';
+                    }
+                }
+                if (!formData.guestCount || formData.guestCount < 1) {
+                    newErrors.guestCount = 'Guest count must be at least 1';
+                } else if (formData.guestCount > 10000) {
+                    newErrors.guestCount = 'Guest count cannot exceed 10,000';
+                }
+                if (!formData.duration || formData.duration < 1) {
+                    newErrors.duration = 'Duration must be at least 1 hour';
+                } else if (formData.duration > 24) {
+                    newErrors.duration = 'Duration cannot exceed 24 hours';
                 }
                 break;
             case 2:
                 if (!formData.firstName || !formData.firstName.trim()) {
                     newErrors.firstName = 'First name is required';
+                } else if (formData.firstName.trim().length < 2) {
+                    newErrors.firstName = 'First name must be at least 2 characters';
+                } else if (formData.firstName.trim().length > 50) {
+                    newErrors.firstName = 'First name cannot exceed 50 characters';
+                } else if (!/^[a-zA-Z\s'-]+$/.test(formData.firstName.trim())) {
+                    newErrors.firstName = 'First name can only contain letters, spaces, hyphens, and apostrophes';
                 }
                 if (!formData.lastName || !formData.lastName.trim()) {
                     newErrors.lastName = 'Last name is required';
+                } else if (formData.lastName.trim().length < 2) {
+                    newErrors.lastName = 'Last name must be at least 2 characters';
+                } else if (formData.lastName.trim().length > 50) {
+                    newErrors.lastName = 'Last name cannot exceed 50 characters';
+                } else if (!/^[a-zA-Z\s'-]+$/.test(formData.lastName.trim())) {
+                    newErrors.lastName = 'Last name can only contain letters, spaces, hyphens, and apostrophes';
                 }
                 if (!formData.email || !formData.email.trim()) {
                     newErrors.email = 'Email is required';
-                } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-                    newErrors.email = 'Please enter a valid email';
+                } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+                    newErrors.email = 'Please enter a valid email address';
+                } else if (formData.email.trim().length > 100) {
+                    newErrors.email = 'Email cannot exceed 100 characters';
+                }
+                if (formData.phone && formData.phone.trim()) {
+                    // Validate phone format (US format: (123) 456-7890 or 123-456-7890 or 1234567890)
+                    const phonePattern = /^[\d\s\-\(\)\+]{10,15}$/;
+                    const digitsOnly = formData.phone.replace(/\D/g, '');
+                    if (digitsOnly.length < 10 || digitsOnly.length > 15) {
+                        newErrors.phone = 'Please enter a valid phone number (10-15 digits)';
+                    }
                 }
                 break;
             case 3:
                 // Step 3 is optional, no validation needed
                 break;
             case 4:
-                // Step 4 is optional, no validation needed
+                // Step 4 is optional, but validate if special requirements are provided
+                if (formData.specialRequirements && formData.specialRequirements.length > 1000) {
+                    newErrors.specialRequirements = 'Special requirements cannot exceed 1000 characters';
+                }
+                if (formData.notes && formData.notes.length > 2000) {
+                    newErrors.notes = 'Notes cannot exceed 2000 characters';
+                }
                 break;
             case 5:
                 if (!formData.agreeToTerms) {
-                    newErrors.agreeToTerms = 'You must agree to the terms';
+                    newErrors.agreeToTerms = 'You must agree to the terms and conditions to proceed';
+                }
+                // Validate total cost
+                if (totalCost <= 0) {
+                    newErrors.totalCost = 'Invalid total cost. Please review your selections.';
                 }
                 break;
         }
         
         console.log('Validation errors:', newErrors);
         setErrors(newErrors);
-        return Object.keys(newErrors).length === 0;
+        return {
+            isValid: Object.keys(newErrors).length === 0,
+            errors: newErrors
+        };
     };
 
     // Navigation functions
@@ -318,15 +517,29 @@ export default function EventBookingScreen({ navigation }) {
         console.log('Next button pressed, current step:', currentStep);
         console.log('Form data:', formData);
         
-        const isValid = validateStep(currentStep);
+        // Validate step and get errors immediately
+        const validationResult = validateStep(currentStep);
+        const isValid = validationResult.isValid;
+        const newErrors = validationResult.errors;
+        
         if (isValid) {
             console.log('Validation passed, moving to next step');
             if (currentStep < totalSteps) {
-      setCurrentStep(currentStep + 1);
+                setCurrentStep(currentStep + 1);
+                // Track funnel step
+                trackFunnelStep('event_booking', currentStep + 1, {
+                    step: currentStep + 1,
+                    totalSteps,
+                });
             }
         } else {
-            console.log('Validation failed, errors:', errors);
-    }
+            console.log('Validation failed, errors:', newErrors);
+            // Show alert with validation errors
+            const errorMessages = Object.values(newErrors).filter(msg => msg).join('\n');
+            if (errorMessages) {
+                Alert.alert('Please Complete Required Fields', errorMessages);
+            }
+        }
   };
 
   const prevStep = () => {
@@ -358,21 +571,411 @@ export default function EventBookingScreen({ navigation }) {
     };
 
     const handleSubmit = async () => {
-        if (!validateStep(5)) return;
+        const validationResult = validateStep(5);
+        if (!validationResult.isValid) {
+            const errorMessages = Object.values(validationResult.errors).filter(msg => msg).join('\n');
+            if (errorMessages) {
+                Alert.alert('Please Complete Required Fields', errorMessages);
+            }
+            return;
+        }
         
         setIsSubmitting(true);
         
-        // Simulate API call
-        setTimeout(() => {
+        try {
+            // Calculate start and end times
+            // Parse time string (format: "6:00 PM" or "18:00")
+            let startHour, startMinute;
+            if (formData.eventStartTime.includes('AM') || formData.eventStartTime.includes('PM')) {
+                const timeParts = formData.eventStartTime.replace(/[AP]M/i, '').trim().split(':');
+                startHour = parseInt(timeParts[0]);
+                startMinute = parseInt(timeParts[1] || 0);
+                if (formData.eventStartTime.toUpperCase().includes('PM') && startHour !== 12) {
+                    startHour += 12;
+                } else if (formData.eventStartTime.toUpperCase().includes('AM') && startHour === 12) {
+                    startHour = 0;
+                }
+            } else {
+                const timeParts = formData.eventStartTime.split(':');
+                startHour = parseInt(timeParts[0]);
+                startMinute = parseInt(timeParts[1] || 0);
+            }
+            
+            const startDate = new Date(selectedDate);
+            startDate.setHours(startHour, startMinute || 0, 0, 0);
+            
+            const endDate = new Date(startDate);
+            endDate.setHours(startDate.getHours() + formData.duration);
+
+            // Check final availability before submitting (if Google Calendar is connected)
+            let calendarResult = { success: false };
+            try {
+                const isConnected = await GoogleCalendarService.isConnected();
+                if (isConnected) {
+                    const availability = await GoogleCalendarService.checkAvailability(startDate, endDate);
+                    if (availability && !availability.available && !availability.warning) {
+                        // Only block if explicitly unavailable (not just a warning)
+                        Alert.alert(
+                            'Time Unavailable',
+                            availability.reason || 'This time slot is no longer available. Please select another time.',
+                            [{ text: 'OK' }]
+                        );
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    // Show warning if calendar check had issues but don't block booking
+                    if (availability && availability.warning) {
+                        console.warn('Calendar availability warning:', availability.reason);
+                        // Optionally show a non-blocking alert
+                        // Alert.alert('Availability Warning', availability.reason, [{ text: 'Continue Anyway' }]);
+                    }
+
+                    // Create event in Google Business Calendar
+                    const eventTitle = `${formData.eventType.charAt(0).toUpperCase() + formData.eventType.slice(1)} - ${formData.firstName} ${formData.lastName}`;
+                    const eventDescription = `Event Type: ${formData.eventType}\n` +
+                        `Guests: ${formData.guestCount}\n` +
+                        `Duration: ${formData.duration} hours\n` +
+                        `Bar Package: ${formData.barPackage}\n` +
+                        `Total Cost: $${totalCost.toFixed(2)}\n` +
+                        `Contact: ${formData.email} | ${formData.phone}\n` +
+                        (formData.specialRequirements ? `Special Requirements: ${formData.specialRequirements}\n` : '') +
+                        (formData.notes ? `Notes: ${formData.notes}` : '');
+
+                    calendarResult = await GoogleCalendarService.createEvent({
+                        title: eventTitle,
+                        description: eventDescription,
+                        startTime: startDate.toISOString(),
+                        endTime: endDate.toISOString(),
+                        location: 'Merkaba Venue',
+                        attendees: [{ email: formData.email }],
+                    });
+                    
+                    // Show error if calendar event creation failed
+                    if (!calendarResult.success) {
+                        console.error('Failed to create calendar event:', calendarResult.message);
+                        Alert.alert(
+                            'Calendar Sync Warning',
+                            calendarResult.message || 'Event booking will continue, but it may not appear in Google Calendar. Please contact support.',
+                            [{ text: 'Continue' }]
+                        );
+                    }
+                }
+            } catch (calendarError) {
+                console.error('Error with Google Calendar:', calendarError);
+                Alert.alert(
+                    'Calendar Sync Error',
+                    'Unable to sync with Google Calendar. Event booking will continue, but it may not appear in your calendar. Please contact support if needed.',
+                    [{ text: 'Continue' }]
+                );
+                // Continue with booking even if calendar sync fails
+            }
+
+            // Submit booking to backend API
+            // Use network IP for physical devices, localhost for web/simulator
+            const getApiBaseUrl = () => {
+                if (process.env.EXPO_PUBLIC_API_BASE_URL) {
+                    return process.env.EXPO_PUBLIC_API_BASE_URL;
+                }
+                // For physical devices, use network IP (same as Metro bundler)
+                // For web/simulator, use localhost
+                if (Platform.OS === 'web') {
+                    return 'http://localhost:8001';
+                }
+                // Use the same network IP as Metro bundler (172.20.10.3 from ipconfig)
+                // In production, this should be your actual backend URL
+                return 'http://172.20.10.3:8001';
+            };
+            const API_BASE_URL = getApiBaseUrl();
+            let backendResult = { success: false };
+            
+            try {
+                const bookingPayload = {
+                    userId: user?.uid || 'anonymous',
+                    eventType: formData.eventType,
+                    eventDate: formData.eventDate,
+                    eventStartTime: formData.eventStartTime,
+                    guestCount: formData.guestCount,
+                    duration: formData.duration,
+                    firstName: formData.firstName,
+                    lastName: formData.lastName,
+                    email: formData.email,
+                    phone: formData.phone || null,
+                    barPackage: formData.barPackage || null,
+                    bundlePackage: formData.bundlePackage || null,
+                    addOnServices: formData.addOnServices || [],
+                    specialRequirements: formData.specialRequirements || null,
+                    notes: formData.notes || null,
+                    totalCost: totalCost,
+                    isWeekday: formData.isWeekday || false,
+                };
+
+                const response = await fetch(`${API_BASE_URL}/api/event-booking`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(bookingPayload),
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    backendResult = result;
+                } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+            } catch (backendError) {
+                console.error('Error submitting booking to backend:', backendError);
+                trackError(
+                    backendError.message || 'Backend booking submission failed',
+                    'event_booking_backend_error',
+                    'EventBookingScreen',
+                    { userId: user?.uid, eventType: formData.eventType }
+                );
+                
+                // Enhanced error handling with detailed messages
+                let errorMessage = 'Booking could not be saved to server. ';
+                if (backendError.message) {
+                    if (backendError.message.includes('timeout')) {
+                        errorMessage += 'The request timed out. Please check your internet connection and try again.';
+                    } else if (backendError.message.includes('network')) {
+                        errorMessage += 'Network error. Please check your connection and try again.';
+                    } else if (backendError.message.includes('500')) {
+                        errorMessage += 'Server error. Please try again in a few moments or contact support.';
+                    } else if (backendError.message.includes('400')) {
+                        errorMessage += 'Invalid booking data. Please review your information and try again.';
+                    } else {
+                        errorMessage += backendError.message;
+                    }
+                } else {
+                    errorMessage += 'Please contact support with your booking details.';
+                }
+                
+                Alert.alert(
+                    'Warning',
+                    errorMessage,
+                    [
+                        { text: 'Cancel', style: 'cancel', onPress: () => setIsSubmitting(false) },
+                        { text: 'Continue Anyway', onPress: () => {
+                            // Continue with payment even if backend fails
+                        }}
+                    ]
+                );
+            }
+
+            // Process payment (deposit) if required
+            let paymentResult = { success: false, paymentIntentId: null };
+            if (requiresDeposit && depositAmount > 0) {
+                setPaymentStep('processing');
+                setPaymentError(null);
+                
+                try {
+                    // Check if Stripe is configured
+                    if (StripeService.isConfigured()) {
+                        // Create payment intent for deposit
+                        const paymentIntent = await StripeService.createPaymentIntent(
+                            depositAmount,
+                            'usd',
+                            {
+                                orderType: 'event_booking',
+                                bookingId: backendResult.bookingId || 'pending',
+                                eventType: formData.eventType,
+                                depositAmount: depositAmount,
+                                totalAmount: totalCost,
+                                userId: user?.uid || 'anonymous',
+                            },
+                            [{
+                                id: 'event_booking_deposit',
+                                name: `Event Booking Deposit - ${formData.eventType}`,
+                                price: depositAmount,
+                                quantity: 1,
+                            }]
+                        );
+                        
+                        paymentResult = {
+                            success: true,
+                            paymentIntentId: paymentIntent.id,
+                            clientSecret: paymentIntent.client_secret,
+                        };
+                        setPaymentIntentId(paymentIntent.id);
+                        setPaymentStep('success');
+                    } else {
+                        // Stripe not configured - use mock payment for demo
+                        console.log('Stripe not configured, using mock payment for deposit');
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+                        paymentResult = {
+                            success: true,
+                            paymentIntentId: `mock_${Date.now()}`,
+                            clientSecret: null,
+                        };
+                        setPaymentStep('success');
+                    }
+                } catch (paymentError) {
+                    console.error('Error processing payment:', paymentError);
+                    setPaymentStep('failed');
+                    setPaymentError(paymentError.message || 'Payment processing failed');
+                    
+                    // Enhanced payment error handling
+                    let paymentErrorMessage = 'Payment processing failed. ';
+                    if (paymentError.message) {
+                        if (paymentError.message.includes('timeout')) {
+                            paymentErrorMessage += 'The payment request timed out. Please check your connection and try again.';
+                        } else if (paymentError.message.includes('card')) {
+                            paymentErrorMessage += 'Card payment failed. Please check your card details and try again.';
+                        } else if (paymentError.message.includes('insufficient')) {
+                            paymentErrorMessage += 'Insufficient funds. Please use a different payment method.';
+                        } else if (paymentError.message.includes('declined')) {
+                            paymentErrorMessage += 'Payment was declined. Please contact your bank or use a different payment method.';
+                        } else {
+                            paymentErrorMessage += paymentError.message;
+                        }
+                    } else {
+                        paymentErrorMessage += 'Please try again or contact support.';
+                    }
+                    
+                    trackError(
+                        paymentError.message || 'Payment processing failed',
+                        'event_booking_payment_error',
+                        'EventBookingScreen',
+                        { 
+                            userId: user?.uid, 
+                            amount: depositAmount,
+                            bookingId: backendResult.bookingId 
+                        }
+                    );
+                    
+                    Alert.alert(
+                        'Payment Error',
+                        paymentErrorMessage,
+                        [
+                            { text: 'Cancel', style: 'cancel', onPress: () => {
+                                setIsSubmitting(false);
+                                setPaymentStep('none');
+                            }},
+                            { text: 'Retry Payment', onPress: () => {
+                                setPaymentStep('none');
+                                // Will retry on next submit
+                            }}
+                        ]
+                    );
+                    setIsSubmitting(false);
+                    return;
+                }
+            } else {
+                // No deposit required
+                paymentResult = { success: true, paymentIntentId: null };
+            }
+
+            // Track booking completion
+            trackEventBookingCompleted({
+                eventType: formData.eventType,
+                guestCount: formData.guestCount,
+                totalCost: totalCost,
+                depositAmount: depositAmount,
+                duration: formData.duration,
+                bookingId: backendResult.bookingId,
+                paymentIntentId: paymentResult.paymentIntentId,
+            });
+
+            // Record positive action for rating prompt
+            await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.EVENT_BOOKED, {
+                eventType: formData.eventType,
+                totalCost,
+                guestCount: formData.guestCount,
+            });
+
+            // Schedule notifications
+            await scheduleEventReminder(startDate, eventTitle);
+            await sendBookingReminder(formData.email, {
+                eventType: formData.eventType,
+                date: formData.eventDate,
+                time: formData.eventStartTime,
+                totalCost: totalCost,
+            });
+
             setIsSubmitting(false);
-    Alert.alert(
+            
+            // Build success message with detailed status
+            let successMessage = `Your event booking request has been submitted successfully!\n\n`;
+            successMessage += `Booking ID: ${backendResult.bookingId || 'Pending'}\n`;
+            successMessage += `Total Cost: $${totalCost.toFixed(2)}\n`;
+            if (requiresDeposit && depositAmount > 0) {
+                successMessage += `Deposit Paid: $${depositAmount.toFixed(2)}\n`;
+                successMessage += `Remaining Balance: $${(totalCost - depositAmount).toFixed(2)}\n`;
+            }
+            successMessage += `\n`;
+            
+            // Status indicators
+            const statusItems = [];
+            if (calendarResult.success) {
+                statusItems.push('✅ Event added to calendar');
+            } else {
+                statusItems.push('⚠️ Calendar sync pending');
+            }
+            if (backendResult.success) {
+                statusItems.push('✅ Booking saved to system');
+            } else {
+                statusItems.push('⚠️ Backend save pending');
+            }
+            if (paymentResult.success && requiresDeposit) {
+                statusItems.push('✅ Deposit payment processed');
+            } else if (requiresDeposit && !paymentResult.success) {
+                statusItems.push('❌ Deposit payment failed');
+            }
+            
+            successMessage += statusItems.join('\n');
+            successMessage += `\n\nWe'll send you a detailed agreement for review within 24 hours.`;
+            
+            Alert.alert(
                 'Booking Request Submitted! 🎉',
-                `Your event booking request has been submitted successfully!\n\nTotal Cost: $${totalCost.toFixed(2)}\n\nWe'll send you a detailed agreement for review within 24 hours.`,
-      [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]
-    );
-        }, 2000);
+                successMessage,
+                [
+                    { text: 'OK', onPress: () => navigation.goBack() }
+                ]
+            );
+        } catch (error) {
+            console.error('Error submitting booking:', error);
+            setIsSubmitting(false);
+            setPaymentStep('none');
+            
+            // Enhanced error handling with detailed messages
+            let errorMessage = 'There was an error submitting your booking. ';
+            if (error.message) {
+                if (error.message.includes('timeout')) {
+                    errorMessage += 'The request timed out. Please check your internet connection and try again.';
+                } else if (error.message.includes('network')) {
+                    errorMessage += 'Network error. Please check your connection and try again.';
+                } else if (error.message.includes('validation')) {
+                    errorMessage += 'Please check all required fields and try again.';
+                } else {
+                    errorMessage += error.message;
+                }
+            } else {
+                errorMessage += 'Please try again or contact support if the problem persists.';
+            }
+            
+            trackError(
+                error.message || 'Event booking submission failed',
+                'event_booking_submission_error',
+                'EventBookingScreen',
+                { 
+                    userId: user?.uid, 
+                    eventType: formData.eventType,
+                    step: currentStep 
+                }
+            );
+            
+            Alert.alert(
+                'Error',
+                errorMessage,
+                [
+                    { text: 'OK', onPress: () => {} },
+                    { text: 'Retry', onPress: () => {
+                        // User can retry by clicking submit again
+                    }}
+                ]
+            );
+        }
     };
 
     // Progress indicator
@@ -447,7 +1050,7 @@ export default function EventBookingScreen({ navigation }) {
                     <Text style={[styles.quickDetailLabel, { color: theme.text }]}>Date</Text>
                     <TouchableOpacity
                         style={[styles.modernPickerButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-                        onPress={() => setShowDatePicker(true)}
+                        onPress={() => setShowCalendar(true)}
                     >
                         <View style={styles.pickerContent}>
                             <View style={styles.pickerIconContainer}>
@@ -464,13 +1067,16 @@ export default function EventBookingScreen({ navigation }) {
                             <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
                         </View>
                     </TouchableOpacity>
+                    {availabilityError ? (
+                        <Text style={[styles.errorText, { color: '#FF3B30' }]}>{availabilityError}</Text>
+                    ) : null}
                 </View>
 
                 <View style={styles.quickDetailRow}>
                     <Text style={[styles.quickDetailLabel, { color: theme.text }]}>Time</Text>
                     <TouchableOpacity
                         style={[styles.modernPickerButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-                        onPress={() => setShowTimePicker(true)}
+                        onPress={openTimePicker}
                     >
                         <View style={styles.pickerContent}>
                             <View style={styles.pickerIconContainer}>
@@ -673,7 +1279,7 @@ export default function EventBookingScreen({ navigation }) {
                             Monday–Thursday Event
                     </Text>
                         <Text style={[styles.checkboxSubtext, { color: theme.subtext }]}>
-                            Get 10% off your total booking
+                            Lower venue rental rate ($250/hr vs $300/hr)
                         </Text>
                     </View>
                   </TouchableOpacity>
@@ -722,9 +1328,9 @@ export default function EventBookingScreen({ navigation }) {
         ))}
       </View>
 
-      {/* Add-On Services */}
+      {/* Add-On Services - Flat Fees */}
                 <View style={[styles.serviceSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-                    <Text style={[styles.serviceSectionTitle, { color: theme.primary }]}>Add-On Services</Text>
+                    <Text style={[styles.serviceSectionTitle, { color: theme.primary }]}>Add-On Services (Flat Fee)</Text>
         <View style={styles.servicesGrid}>
           {Object.keys(pricing.addOnServices).map((service) => (
             <TouchableOpacity
@@ -746,6 +1352,44 @@ export default function EventBookingScreen({ navigation }) {
                 <Text style={[styles.servicePrice, { color: theme.primary }]}>
                   ${pricing.addOnServices[service]}
                 </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Add-On Services - Hourly Rates */}
+                <View style={[styles.serviceSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                    <Text style={[styles.serviceSectionTitle, { color: theme.primary }]}>Add-On Services (Hourly Rate)</Text>
+                    <Text style={[styles.serviceSectionSubtitle, { color: theme.subtext }]}>
+                        These services are charged per hour based on event duration
+                    </Text>
+        <View style={styles.servicesGrid}>
+          {Object.keys(pricing.addOnServicesHourly).map((service) => (
+            <TouchableOpacity
+              key={service}
+              style={[
+                styles.serviceCard,
+                                    { backgroundColor: theme.background, borderColor: theme.border },
+                formData.addOnServices.includes(service) && { borderColor: theme.primary, borderWidth: 2 }
+              ]}
+              onPress={() => toggleAddOnService(service)}
+            >
+                                <View style={[styles.checkbox, { borderColor: theme.border }]}>
+                {formData.addOnServices.includes(service) && (
+                  <Ionicons name="checkmark" size={16} color={theme.primary} />
+                )}
+              </View>
+              <View style={styles.serviceContent}>
+                <Text style={[styles.serviceName, { color: theme.text }]}>{service}</Text>
+                <Text style={[styles.servicePrice, { color: theme.primary }]}>
+                  ${pricing.addOnServicesHourly[service]}/hr
+                </Text>
+                {formData.addOnServices.includes(service) && formData.duration > 0 && (
+                  <Text style={[styles.serviceSubPrice, { color: theme.subtext }]}>
+                    ${(pricing.addOnServicesHourly[service] * formData.duration).toFixed(2)} total
+                  </Text>
+                )}
               </View>
             </TouchableOpacity>
           ))}
@@ -790,9 +1434,14 @@ export default function EventBookingScreen({ navigation }) {
                 <Text style={[styles.quoteTotal, { color: theme.primary }]}>
                     ${totalCost.toFixed(2)}
                 </Text>
-                {breakdown.weekdayDiscount && (
+                {breakdown.venueRental && (
+                    <Text style={[styles.quoteSubtext, { color: theme.subtext }]}>
+                        Venue: ${breakdown.venueRental.total.toFixed(2)} ({breakdown.venueRental.duration} hrs @ ${breakdown.venueRental.hourlyRate}/hr)
+                    </Text>
+                )}
+                {formData.isWeekday && breakdown.venueRental && (
                     <Text style={[styles.quoteDiscount, { color: '#34C759' }]}>
-                        You're saving ${breakdown.weekdayDiscount.discount.toFixed(2)} with weekday discount!
+                        Weekday rate: Saves ${((pricing.venueRental.weekend - pricing.venueRental.weekday) * formData.duration).toFixed(2)} vs weekend
                     </Text>
                 )}
             </View>
@@ -884,6 +1533,16 @@ export default function EventBookingScreen({ navigation }) {
                 {/* Cost Breakdown */}
                 <View style={[styles.reviewSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
                     <Text style={[styles.reviewSectionTitle, { color: theme.primary }]}>Cost Breakdown</Text>
+                    {breakdown.venueRental && (
+                        <View style={styles.reviewRow}>
+                            <Text style={[styles.reviewLabel, { color: theme.subtext }]}>
+                                {breakdown.venueRental.label} ({breakdown.venueRental.duration} hrs @ ${breakdown.venueRental.hourlyRate}/hr):
+                            </Text>
+                            <Text style={[styles.reviewValue, { color: theme.text }]}>
+                                ${breakdown.venueRental.total.toFixed(2)}
+                            </Text>
+                        </View>
+                    )}
                     {breakdown.barPackage && breakdown.barPackage.total > 0 && (
                         <View style={styles.reviewRow}>
                             <Text style={[styles.reviewLabel, { color: theme.subtext }]}>Bar Package:</Text>
@@ -893,12 +1552,24 @@ export default function EventBookingScreen({ navigation }) {
                         </View>
                     )}
                     {breakdown.addOnServices && breakdown.addOnServices.total > 0 && (
-                        <View style={styles.reviewRow}>
-                            <Text style={[styles.reviewLabel, { color: theme.subtext }]}>Add-On Services:</Text>
-                            <Text style={[styles.reviewValue, { color: theme.text }]}>
-                                ${breakdown.addOnServices.total.toFixed(2)}
-                            </Text>
-                        </View>
+                        <>
+                            {breakdown.addOnServices.flatServices && breakdown.addOnServices.flatServices.length > 0 && (
+                                <View style={styles.reviewRow}>
+                                    <Text style={[styles.reviewLabel, { color: theme.subtext }]}>Add-On Services (Flat):</Text>
+                                    <Text style={[styles.reviewValue, { color: theme.text }]}>
+                                        ${breakdown.addOnServices.flatTotal.toFixed(2)}
+                                    </Text>
+                                </View>
+                            )}
+                            {breakdown.addOnServices.hourlyServices && breakdown.addOnServices.hourlyServices.length > 0 && (
+                                <View style={styles.reviewRow}>
+                                    <Text style={[styles.reviewLabel, { color: theme.subtext }]}>Add-On Services (Hourly):</Text>
+                                    <Text style={[styles.reviewValue, { color: theme.text }]}>
+                                        ${breakdown.addOnServices.hourlyTotal.toFixed(2)}
+                                    </Text>
+                                </View>
+                            )}
+                        </>
                     )}
                     {breakdown.bundlePackage && (
                         <View style={styles.reviewRow}>
@@ -908,20 +1579,31 @@ export default function EventBookingScreen({ navigation }) {
                             </Text>
                         </View>
                     )}
-                    {breakdown.weekdayDiscount && (
-                        <View style={styles.reviewRow}>
-                            <Text style={[styles.reviewLabel, { color: '#34C759' }]}>Weekday Discount:</Text>
-                            <Text style={[styles.reviewValue, { color: '#34C759' }]}>
-                                -${breakdown.weekdayDiscount.discount.toFixed(2)}
-                            </Text>
-                        </View>
-                    )}
                     <View style={[styles.reviewRow, styles.totalRow, { borderTopColor: theme.border }]}>
                         <Text style={[styles.totalLabel, { color: theme.text }]}>Total Cost:</Text>
                         <Text style={[styles.totalValue, { color: theme.primary }]}>
                             ${totalCost.toFixed(2)}
                         </Text>
                     </View>
+                    {requiresDeposit && depositAmount > 0 && (
+                        <>
+                            <View style={[styles.reviewRow, { borderTopColor: theme.border, borderTopWidth: 1, paddingTop: 8, marginTop: 8 }]}>
+                                <Text style={[styles.reviewLabel, { color: theme.text, fontWeight: '600' }]}>Deposit Required (50%):</Text>
+                                <Text style={[styles.reviewValue, { color: '#FF9500', fontWeight: '600' }]}>
+                                    ${depositAmount.toFixed(2)}
+                                </Text>
+                            </View>
+                            <View style={styles.reviewRow}>
+                                <Text style={[styles.reviewLabel, { color: theme.subtext }]}>Remaining Balance:</Text>
+                                <Text style={[styles.reviewValue, { color: theme.text }]}>
+                                    ${(totalCost - depositAmount).toFixed(2)}
+                                </Text>
+                            </View>
+                            <Text style={[styles.depositNote, { color: theme.subtext }]}>
+                                A deposit of ${depositAmount.toFixed(2)} is required to secure your booking. The remaining balance will be due before the event.
+                            </Text>
+                        </>
+                    )}
         </View>
 
                 {/* Terms and Conditions */}
@@ -945,6 +1627,13 @@ export default function EventBookingScreen({ navigation }) {
                         </View>
         </TouchableOpacity>
                     {errors.agreeToTerms && <Text style={styles.errorText}>{errors.agreeToTerms}</Text>}
+                    {errors.totalCost && <Text style={styles.errorText}>{errors.totalCost}</Text>}
+                    {paymentError && (
+                        <View style={[styles.paymentErrorContainer, { backgroundColor: '#FFE5E5', borderColor: '#FF3B30' }]}>
+                            <Ionicons name="alert-circle" size={20} color="#FF3B30" />
+                            <Text style={[styles.paymentErrorText, { color: '#FF3B30' }]}>{paymentError}</Text>
+                        </View>
+                    )}
       </View>
     </ScrollView>
         </View>
@@ -998,17 +1687,26 @@ export default function EventBookingScreen({ navigation }) {
                             styles.navButton,
                             styles.nextButton,
                             { backgroundColor: theme.primary },
-                            isSubmitting && { opacity: 0.7 }
+                            (isSubmitting || paymentStep === 'processing') && { opacity: 0.7 }
                         ]}
                         onPress={currentStep === totalSteps ? handleSubmit : nextStep}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || paymentStep === 'processing'}
                     >
-                        {isSubmitting ? (
-                            <Text style={[styles.navButtonText, { color: '#fff' }]}>Submitting...</Text>
+                        {isSubmitting || paymentStep === 'processing' ? (
+                            <>
+                                <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
+                                <Text style={[styles.navButtonText, { color: '#fff' }]}>
+                                    {paymentStep === 'processing' ? 'Processing Payment...' : 'Submitting...'}
+                                </Text>
+                            </>
                         ) : (
                             <>
                                 <Text style={[styles.navButtonText, { color: '#fff' }]}>
-                                    {currentStep === totalSteps ? 'Submit Booking' : 'Next'}
+                                    {currentStep === totalSteps 
+                                        ? (requiresDeposit && depositAmount > 0 
+                                            ? `Pay Deposit $${depositAmount.toFixed(2)} & Submit` 
+                                            : 'Submit Booking')
+                                        : 'Next'}
             </Text>
                                 <Ionicons name="arrow-forward" size={20} color="#fff" />
                             </>
@@ -1016,7 +1714,41 @@ export default function EventBookingScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-                {/* Modern Date Picker Modal */}
+                {/* Calendar Modal */}
+        <Modal
+            visible={showCalendar}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setShowCalendar(false)}
+        >
+            <SafeAreaView 
+                style={[styles.modalContainer, { backgroundColor: theme?.background || '#FFFFFF' }]}
+                edges={['bottom', 'left', 'right']}
+            >
+                <View style={[
+                    styles.modalHeader, 
+                    { 
+                        borderBottomColor: theme?.border || '#E5E5E7',
+                        paddingTop: Math.max(insets.top, Platform.OS === 'ios' ? 8 : 12),
+                    }
+                ]}>
+                    <TouchableOpacity onPress={() => setShowCalendar(false)}>
+                        <Ionicons name="close" size={24} color={theme?.text || '#000000'} />
+                    </TouchableOpacity>
+                    <Text style={[styles.modalTitle, { color: theme?.text || '#000000' }]}>Select Date</Text>
+                    <View style={{ width: 24 }} />
+                </View>
+                <ScrollView>
+                    <BookingCalendar
+                        onDateSelect={handleCalendarDateSelect}
+                        selectedDate={selectedDate}
+                        onAvailabilityCheck={handleAvailabilityCheck}
+                    />
+                </ScrollView>
+            </SafeAreaView>
+        </Modal>
+
+                {/* Modern Date Picker Modal (Fallback) */}
         {showDatePicker && (
                     <View style={styles.modalOverlay}>
                         <View style={styles.modernPickerModal}>
@@ -1043,22 +1775,38 @@ export default function EventBookingScreen({ navigation }) {
                 {/* Modern Time Picker Modal */}
         {showTimePicker && (
                     <View style={styles.modalOverlay}>
-                        <View style={styles.modernPickerModal}>
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Select Time</Text>
-                                <TouchableOpacity onPress={() => setShowTimePicker(false)} style={styles.closeButton}>
-                                    <Ionicons name="close" size={24} color="#666" />
+                        <View style={[styles.modernPickerModal, { backgroundColor: theme.background }]}>
+                            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+                                <Text style={[styles.modalTitle, { color: theme.text }]}>Select Time</Text>
+                                <TouchableOpacity onPress={handleTimeCancel} style={styles.closeButton}>
+                                    <Ionicons name="close" size={24} color={theme.text} />
                                 </TouchableOpacity>
                             </View>
                             <View style={styles.pickerWrapper}>
-          <DateTimePicker
-            value={selectedTime}
-            mode="time"
-                                    display="spinner"
-            onChange={onTimeChange}
+                                <DateTimePicker
+                                    value={tempTime}
+                                    mode="time"
+                                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                    onChange={onTimeChange}
                                     style={styles.modernDateTimePicker}
                                 />
                             </View>
+                            {Platform.OS === 'ios' && (
+                                <View style={[styles.pickerActions, { borderTopColor: theme.border }]}>
+                                    <TouchableOpacity
+                                        style={[styles.pickerCancelButton, { borderColor: theme.border }]}
+                                        onPress={handleTimeCancel}
+                                    >
+                                        <Text style={[styles.pickerCancelText, { color: theme.text }]}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.pickerConfirmButton, { backgroundColor: theme.primary }]}
+                                        onPress={() => handleTimeConfirm()}
+                                    >
+                                        <Text style={styles.pickerConfirmText}>Confirm</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
                         </View>
                     </View>
                 )}
@@ -1411,7 +2159,12 @@ const styles = StyleSheet.create({
     serviceSectionTitle: {
         fontSize: 18,
         fontWeight: 'bold',
-        marginBottom: 16,
+        marginBottom: 8,
+    },
+    serviceSectionSubtitle: {
+        fontSize: 12,
+        marginBottom: 12,
+        fontStyle: 'italic',
     },
   optionCard: {
     flexDirection: 'row',
@@ -1460,6 +2213,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
   },
+  serviceSubPrice: {
+    fontSize: 10,
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
   radioCircle: {
         width: 20,
         height: 20,
@@ -1493,6 +2251,10 @@ const styles = StyleSheet.create({
         fontSize: 32,
         fontWeight: 'bold',
         marginBottom: 8,
+    },
+    quoteSubtext: {
+        fontSize: 12,
+        marginTop: 4,
     },
     quoteDiscount: {
     fontSize: 14,
@@ -1664,14 +2426,18 @@ const styles = StyleSheet.create({
         paddingBottom: Platform.OS === 'ios' ? 34 : 20,
         maxHeight: '50%',
     },
+    modalContainer: {
+        flex: 1,
+    },
     modalHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 20,
-        paddingBottom: 16,
+        paddingBottom: 8,
         borderBottomWidth: 1,
         borderBottomColor: '#F0F0F0',
+        minHeight: Platform.OS === 'ios' ? 44 : 52,
     },
     modalTitle: {
         fontSize: 20,
@@ -1692,6 +2458,38 @@ const styles = StyleSheet.create({
     },
     modernDateTimePicker: {
         height: 200,
+    },
+    pickerActions: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        borderTopWidth: 1,
+        gap: 12,
+    },
+    pickerCancelButton: {
+        flex: 1,
+        paddingVertical: 14,
+        borderRadius: 12,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    pickerCancelText: {
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    pickerConfirmButton: {
+        flex: 1,
+        paddingVertical: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    pickerConfirmText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '600',
     },
     // Guest Picker Styles
     guestPickerWrapper: {
@@ -1735,5 +2533,27 @@ const styles = StyleSheet.create({
         color: '#FF3B30',
         fontSize: 14,
         marginTop: 4,
-  },
+        marginLeft: 4,
+    },
+    depositNote: {
+        fontSize: 12,
+        marginTop: 8,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        paddingHorizontal: 16,
+    },
+    paymentErrorContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        marginTop: 12,
+        gap: 8,
+    },
+    paymentErrorText: {
+        flex: 1,
+        fontSize: 14,
+        fontWeight: '500',
+    },
 });

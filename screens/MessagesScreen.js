@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
     ActivityIndicator,
     FlatList,
@@ -15,7 +15,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import { auth } from '../firebase';
+import { auth, db, isFirebaseReady } from '../firebase';
+import { collection, query, where, getDocs, orderBy, limit, arrayContains, doc, getDoc } from 'firebase/firestore';
+import { useAuth } from '../contexts/AuthContext';
+import EmptyState from '../components/EmptyState';
 
 // Mock data - moved outside component to prevent infinite re-renders
 const mockConversations = [
@@ -82,7 +85,8 @@ const mockUsers = [
 ];
 
 export default function MessagesScreen() {
-      const { theme } = useTheme();
+  const { theme } = useTheme();
+  const { user } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -95,13 +99,106 @@ export default function MessagesScreen() {
   const [availableUsers, setAvailableUsers] = useState([]);
   const listRef = useRef(null);
 
+  // Load real conversations from Firestore
+  const loadConversations = useCallback(async () => {
+    if (!user?.uid) {
+      setConversations([]);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        // Real Firestore - load conversations where user is a participant
+        const conversationsQuery = query(
+          collection(db, 'conversations'),
+          where('participants', 'array-contains', user.uid),
+          orderBy('lastMessageAt', 'desc'),
+          limit(50)
+        );
+        const conversationsSnapshot = await getDocs(conversationsQuery);
+        
+        const conversationsData = await Promise.all(
+          conversationsSnapshot.docs.map(async (docSnap) => {
+            const data = docSnap.data();
+            // Get other participant's info
+            const otherParticipantId = data.participants.find(id => id !== user.uid);
+            let otherUser = null;
+            if (otherParticipantId) {
+              const userRef = doc(db, 'users', otherParticipantId);
+              const userSnap = await getDoc(userRef);
+              if (userSnap.exists()) {
+                otherUser = { id: userSnap.id, ...userSnap.data() };
+              }
+            }
+            
+            return {
+              id: docSnap.id,
+              name: otherUser?.displayName || 'Unknown User',
+              lastMessage: data.lastMessage || '',
+              timestamp: data.lastMessageAt?.toDate() || new Date(),
+              unreadCount: data.unreadCount?.[user.uid] || 0,
+              avatar: otherUser?.avatarUrl || otherUser?.photoURL || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+              isOnline: otherUser?.isOnline || false,
+            };
+          })
+        );
+        
+        setConversations(conversationsData);
+      } else {
+        // Fallback to empty array if Firebase not ready
+        setConversations([]);
+      }
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+      setConversations([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.uid]);
+
+  // Load real available users from Firestore
+  const loadAvailableUsers = useCallback(async () => {
+    if (!user?.uid) {
+      setAvailableUsers([]);
+      return;
+    }
+
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        // Real Firestore - load users (excluding current user)
+        const usersQuery = query(
+          collection(db, 'users'),
+          where('private', '==', false),
+          limit(50)
+        );
+        const usersSnapshot = await getDocs(usersQuery);
+        
+        const usersData = usersSnapshot.docs
+          .filter(docSnap => docSnap.id !== user.uid)
+          .map(docSnap => ({
+            id: docSnap.id,
+            name: docSnap.data().displayName || 'Unknown User',
+            username: docSnap.data().username || '',
+            avatar: docSnap.data().avatarUrl || docSnap.data().photoURL || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+            isOnline: docSnap.data().isOnline || false,
+          }));
+        
+        setAvailableUsers(usersData);
+      } else {
+        // Fallback to empty array if Firebase not ready
+        setAvailableUsers([]);
+      }
+    } catch (error) {
+      console.error('Error loading available users:', error);
+      setAvailableUsers([]);
+    }
+  }, [user?.uid]);
 
   useEffect(() => {
-    // Load conversations
-    setConversations(mockConversations);
-    setAvailableUsers(mockUsers);
-    setLoading(false);
-  }, []); // Empty dependency array - mock data is static
+    loadConversations();
+    loadAvailableUsers();
+  }, [loadConversations, loadAvailableUsers]);
 
   const formatTime = (timestamp) => {
     const now = new Date();
@@ -189,11 +286,14 @@ export default function MessagesScreen() {
   if (selectedConversation) {
     return (
       <KeyboardAvoidingView
-        behavior={Platform.select({ ios: 'padding', android: undefined })}
+        behavior={Platform.select({ ios: 'padding', android: 'height' })}
         style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+        <SafeAreaView 
+          style={[styles.safe, { backgroundColor: theme.background }]}
+          edges={['bottom', 'left', 'right']}
+        >
           {/* Chat Header */}
           <View style={[styles.chatHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
             <TouchableOpacity 
@@ -373,15 +473,15 @@ export default function MessagesScreen() {
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="chatbubbles-outline" size={64} color={theme.subtext} />
-            <Text style={[styles.emptyText, { color: theme.text }]}>
-              {searchText ? 'No conversations found' : 'No messages yet'}
-            </Text>
-            <Text style={[styles.emptySubtext, { color: theme.subtext }]}>
-              {searchText ? 'Try a different search term' : 'Start a conversation to get started'}
-            </Text>
-          </View>
+          <EmptyState
+            icon="chatbubbles-outline"
+            title={searchText ? 'No conversations found' : 'No messages yet'}
+            message={searchText 
+              ? `No conversations match "${searchText}". Try a different search term.`
+              : 'Start a conversation with someone to get started. Tap the + button to find users.'}
+            actionLabel={searchText ? "Clear Search" : "Start New Chat"}
+            onAction={searchText ? () => setSearchText('') : () => setShowNewChat(true)}
+          />
         }
       />
 
@@ -555,8 +655,11 @@ const styles = StyleSheet.create({
   chatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingTop: Platform.OS === 'ios' ? 8 : 16,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
+    minHeight: Platform.OS === 'ios' ? 56 : 64,
   },
   backButton: {
     marginRight: 16,
@@ -623,7 +726,9 @@ const styles = StyleSheet.create({
   composer: { 
     flexDirection: 'row', 
     alignItems: 'flex-end',
-    padding: 16, 
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 16,
+    paddingHorizontal: 16, 
     borderTopWidth: 1, 
   },
   attachButton: {

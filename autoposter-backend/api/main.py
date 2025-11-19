@@ -14,6 +14,25 @@ import json
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# Import models and functions from robust_api for booking endpoints
+try:
+    import sys
+    from pathlib import Path
+    robust_api_path = Path(__file__).parent.parent / "robust_api.py"
+    if robust_api_path.exists():
+        # Import the entire module to access its models and functions
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("robust_api", robust_api_path)
+        robust_api = importlib.util.module_from_spec(spec)
+        sys.modules["robust_api"] = robust_api
+        spec.loader.exec_module(robust_api)
+        ROBUST_API_AVAILABLE = True
+    else:
+        ROBUST_API_AVAILABLE = False
+except Exception as e:
+    print(f"[WARN] robust_api not available: {e}")
+    ROBUST_API_AVAILABLE = False
+
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -319,6 +338,53 @@ async def cancel_job(job_id: int, user: dict = Depends(verify_token)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
+
+# Include payment routes
+try:
+    from api.payments import router as payments_router
+    app.include_router(payments_router)
+except ImportError:
+    # Payments module not available, skip
+    pass
+
+# Include booking and dashboard endpoints from robust_api
+if ROBUST_API_AVAILABLE:
+    try:
+        # Add service booking endpoint
+        @app.post("/api/service-booking")
+        async def create_service_booking(booking: robust_api.ServiceBookingRequest):
+            return await robust_api.create_service_booking(booking)
+        
+        @app.get("/api/service-bookings")
+        async def get_service_bookings(userId: Optional[str] = None):
+            return await robust_api.get_service_bookings(userId)
+        
+        # Add bar order endpoint
+        @app.post("/api/bar-order")
+        async def create_bar_order(order: robust_api.BarOrderRequest):
+            return await robust_api.create_bar_order(order)
+        
+        @app.get("/api/bar-orders")
+        async def get_bar_orders(userId: Optional[str] = None):
+            return await robust_api.get_bar_orders(userId)
+        
+        # Add dashboard stats endpoint
+        @app.get("/api/dashboard/stats")
+        async def get_dashboard_stats(userId: Optional[str] = None, persona: Optional[str] = None):
+            return await robust_api.get_dashboard_stats(userId, persona)
+        
+        # Add event booking endpoint (if not already present)
+        @app.post("/api/event-booking")
+        async def create_event_booking(booking: robust_api.EventBookingRequest):
+            return await robust_api.create_event_booking(booking)
+        
+        @app.get("/api/event-bookings")
+        async def get_event_bookings(userId: Optional[str] = None):
+            return await robust_api.get_event_bookings(userId)
+        
+        print("[OK] Booking and dashboard endpoints loaded from robust_api")
+    except Exception as e:
+        print(f"[WARN] Failed to load booking endpoints: {e}")
 
 if __name__ == "__main__":
     import uvicorn

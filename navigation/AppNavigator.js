@@ -6,6 +6,7 @@ import { useTheme } from '../contexts/ThemeContext';
 
 // Screens
 import AutoPosterScreen from '../screens/AutoPosterScreen';
+import BarMenuScreen from '../screens/BarMenuScreen';
 import EventBookingScreen from '../screens/EventBookingScreen';
 import ExploreScreen from '../screens/ExploreScreen';
 import HomeScreen from '../screens/HomeScreen';
@@ -15,7 +16,14 @@ import M1ASettingsScreen from '../screens/M1ASettingsScreen';
 import MessagesScreen from '../screens/MessagesScreen';
 import ProfileEditScreen from '../screens/ProfileEditScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import ServiceBookingScreen from '../screens/ServiceBookingScreen';
 import WalletScreen from '../screens/WalletScreen';
+import HelpScreen from '../screens/HelpScreen';
+import FeedbackScreen from '../screens/FeedbackScreen';
+import CalendarScreen from '../screens/CalendarScreen';
+import UserProfileViewScreen from '../screens/UserProfileViewScreen';
+import BarCategoryScreen from '../screens/BarCategoryScreen';
+import BarMenuCategoryScreen from '../screens/BarMenuCategoryScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -39,6 +47,11 @@ function HomeStackNavigator() {
         component={AutoPosterScreen}
         options={{ headerShown: false }}
       />
+      <Stack.Screen
+        name="BarMenu"
+        component={BarMenuScreen}
+        options={{ headerShown: false }}
+      />
              <Stack.Screen
                name="M1APersonalization"
                component={M1APersonalizationScreen}
@@ -49,11 +62,46 @@ function HomeStackNavigator() {
                component={M1ADashboardScreen}
                options={{ headerShown: false }}
              />
-             <Stack.Screen
-               name="M1ASettings"
-               component={M1ASettingsScreen}
-               options={{ headerShown: false }}
-             />
+      <Stack.Screen
+        name="M1ASettings"
+        component={M1ASettingsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ServiceBooking"
+        component={ServiceBookingScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Help"
+        component={HelpScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Feedback"
+        component={FeedbackScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Calendar"
+        component={CalendarScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="UserProfileView"
+        component={UserProfileViewScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="BarCategory"
+        component={BarCategoryScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="BarMenuCategory"
+        component={BarMenuCategoryScreen}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }

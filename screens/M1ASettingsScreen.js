@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Alert,
     ScrollView,
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
+import TipTrackingService from '../services/TipTrackingService';
 
 export default function M1ASettingsScreen({ navigation }) {
   const { theme } = useTheme();
@@ -26,6 +27,12 @@ export default function M1ASettingsScreen({ navigation }) {
 
   const [localPreferences, setLocalPreferences] = useState(preferences);
   const [saving, setSaving] = useState(false);
+  const [tipsEnabled, setTipsEnabled] = useState(true);
+
+  useEffect(() => {
+    // Load tips enabled state
+    TipTrackingService.areTipsEnabled().then(setTipsEnabled);
+  }, []);
 
   const handlePreferenceChange = (key, value) => {
     setLocalPreferences(prev => ({
@@ -200,6 +207,29 @@ export default function M1ASettingsScreen({ navigation }) {
   const renderFeatureSettings = () => (
     <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
       <Text style={[styles.sectionTitle, { color: theme.text }]}>Feature Preferences</Text>
+      
+      <View style={styles.settingRow}>
+        <View style={styles.settingInfo}>
+          <Text style={[styles.settingTitle, { color: theme.text }]}>Show Helpful Tips</Text>
+          <Text style={[styles.settingDescription, { color: theme.subtext }]}>
+            Display contextual tips and hints from M1A assistant
+          </Text>
+        </View>
+        <Switch
+          trackColor={{ false: theme.border, true: theme.primary }}
+          thumbColor={tipsEnabled ? theme.primary : theme.subtext}
+          ios_backgroundColor={theme.border}
+          onValueChange={async (value) => {
+            setTipsEnabled(value);
+            await TipTrackingService.setTipsEnabled(value);
+            // If enabling tips, also clear the disabled flag
+            if (value) {
+              await TipTrackingService.setTipsDisabled(false);
+            }
+          }}
+          value={tipsEnabled}
+        />
+      </View>
       
       <View style={styles.settingRow}>
         <View style={styles.settingInfo}>

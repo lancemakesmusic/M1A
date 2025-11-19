@@ -57,5 +57,15 @@ export function ThemeProvider({ children }) {
 }
 
 export function useTheme() {
-  return useContext(ThemeContext);
+  const context = useContext(ThemeContext);
+  
+  // If context is not available, return default light theme
+  if (!context) {
+    return {
+      theme: lightTheme,
+      toggleTheme: () => {},
+    };
+  }
+  
+  return context;
 }

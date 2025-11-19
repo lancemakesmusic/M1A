@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
+import { trackSignup, trackButtonClick } from '../services/AnalyticsService';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
@@ -23,8 +24,10 @@ export default function SignupScreen({ navigation }) {
     }
 
     try {
+      trackButtonClick('signup_button', 'SignupScreen');
       // Mock signup - always succeeds for development
       console.log('Mock signup:', email, password);
+      await trackSignup('email');
       Alert.alert('Signup Successful', 'Mock signup completed');
     } catch (error) {
       Alert.alert('Signup Failed', error.message);

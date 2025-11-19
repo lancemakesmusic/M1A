@@ -13,13 +13,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import FeatureRecommendations from '../components/FeatureRecommendations';
 import TutorialOverlay from '../components/TutorialOverlay';
+import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { db, isFirebaseReady } from '../firebase';
 
 const { width } = Dimensions.get('window');
 
 export default function M1ADashboardScreen({ navigation }) {
   const { theme } = useTheme();
+  const { user } = useAuth();
   const { 
     userPersona, 
     getPersonalizedFeatures, 
@@ -56,47 +59,94 @@ export default function M1ADashboardScreen({ navigation }) {
   }, []);
 
   const loadDashboardData = async () => {
-    // Mock data - in real app, this would fetch from backend based on persona
-    const mockStats = {
-      promoter: {
-        totalEvents: 12,
-        upcomingEvents: 3,
-        completedTasks: 8,
-        revenue: 24500,
-      },
-      coordinator: {
-        totalEvents: 8,
-        upcomingEvents: 2,
-        completedTasks: 15,
-        revenue: 18000,
-      },
-      wedding_planner: {
-        totalEvents: 6,
-        upcomingEvents: 1,
-        completedTasks: 12,
-        revenue: 32000,
-      },
-      venue_owner: {
-        totalEvents: 24,
-        upcomingEvents: 5,
-        completedTasks: 20,
-        revenue: 45000,
-      },
-      performer: {
-        totalEvents: 18,
-        upcomingEvents: 4,
-        completedTasks: 6,
-        revenue: 12000,
-      },
-      vendor: {
-        totalEvents: 15,
-        upcomingEvents: 2,
-        completedTasks: 25,
-        revenue: 8500,
-      },
-    };
+    try {
+      if (!user?.uid) {
+        setStats({ totalEvents: 0, upcomingEvents: 0, completedTasks: 0, revenue: 0 });
+        return;
+      }
 
-    setStats(mockStats[userPersona?.id] || mockStats.promoter);
+      // Use network IP for physical devices, localhost for web/simulator
+      const getApiBaseUrl = () => {
+        if (process.env.EXPO_PUBLIC_API_BASE_URL) {
+          return process.env.EXPO_PUBLIC_API_BASE_URL;
+        }
+        if (Platform.OS === 'web') {
+          return 'http://localhost:8001';
+        }
+        return 'http://172.20.10.3:8001';
+      };
+      const API_BASE_URL = getApiBaseUrl();
+
+      // Try to load from backend API first
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const response = await fetch(`${API_BASE_URL}/api/dashboard/stats?userId=${user.uid}&persona=${userPersona?.id || 'promoter'}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.stats) {
+            setStats(data.stats);
+            return;
+          }
+        }
+      } catch (apiError) {
+        console.log('Backend API not available, using Firestore aggregations:', apiError.message);
+      }
+
+      // Fallback to Firestore aggregations
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        const { collection, query, where, getDocs, getCountFromServer, Timestamp } = await import('firebase/firestore');
+        const now = Timestamp.now();
+        
+        // Get total events
+        const totalEventsQuery = query(collection(db, 'eventBookings'), where('userId', '==', user.uid));
+        const totalEventsSnapshot = await getCountFromServer(totalEventsQuery);
+        const totalEvents = totalEventsSnapshot.data().count;
+
+        // Get upcoming events (eventDate >= today)
+        const upcomingEventsQuery = query(
+          collection(db, 'eventBookings'),
+          where('userId', '==', user.uid),
+          where('eventDate', '>=', now)
+        );
+        const upcomingEventsSnapshot = await getCountFromServer(upcomingEventsQuery);
+        const upcomingEvents = upcomingEventsSnapshot.data().count;
+
+        // Get completed tasks (from tasks collection if it exists)
+        const completedTasks = 0; // TODO: Implement tasks collection
+
+        // Calculate revenue from completed bookings
+        const bookingsSnapshot = await getDocs(query(collection(db, 'eventBookings'), where('userId', '==', user.uid)));
+        let revenue = 0;
+        bookingsSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          if (data.status === 'completed' && data.totalCost) {
+            revenue += data.totalCost;
+          }
+        });
+
+        setStats({
+          totalEvents,
+          upcomingEvents,
+          completedTasks,
+          revenue,
+        });
+      } else {
+        // Fallback to zero stats if Firebase not ready
+        setStats({ totalEvents: 0, upcomingEvents: 0, completedTasks: 0, revenue: 0 });
+      }
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+      setStats({ totalEvents: 0, upcomingEvents: 0, completedTasks: 0, revenue: 0 });
+    }
   };
 
   const onRefresh = async () => {
