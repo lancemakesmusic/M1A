@@ -124,18 +124,40 @@ export default function ExploreScreen() {
         const now = Timestamp.now();
         
         // Load services from Firestore
-        const servicesQuery = firestoreQuery(
-          firestoreCollection(db, 'services'),
-          where('available', '==', true),
-          firestoreOrderBy('popularity', 'desc'),
-          firestoreLimit(50)
-        );
-        const servicesSnapshot = await getDocs(servicesQuery);
-        const servicesData = servicesSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          category: 'Services',
-        }));
+        let servicesData = [];
+        try {
+          const servicesQuery = firestoreQuery(
+            firestoreCollection(db, 'services'),
+            where('available', '==', true),
+            firestoreOrderBy('popularity', 'desc'),
+            firestoreLimit(50)
+          );
+          const servicesSnapshot = await getDocs(servicesQuery);
+          servicesData = servicesSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            category: 'Services',
+          }));
+        } catch (serviceError) {
+          console.warn('Services query failed, trying simple query:', serviceError);
+          // Fallback: try without orderBy if index not ready
+          try {
+            const simpleServicesQuery = firestoreQuery(
+              firestoreCollection(db, 'services'),
+              where('available', '==', true),
+              firestoreLimit(50)
+            );
+            const simpleServicesSnapshot = await getDocs(simpleServicesQuery);
+            servicesData = simpleServicesSnapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data(),
+              category: 'Services',
+            }));
+          } catch (simpleError) {
+            console.error('Services query failed completely:', simpleError);
+            servicesData = [];
+          }
+        }
 
         // Load events from Firestore (future events only)
         // Try with index first, fallback to simple query if index not ready
@@ -156,12 +178,26 @@ export default function ExploreScreen() {
             firestoreLimit(20)
           );
         }
-        const eventsSnapshot = await getDocs(eventsQuery);
-        const eventsData = eventsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          category: 'Events',
-        }));
+        let eventsData = [];
+        try {
+          const eventsSnapshot = await getDocs(eventsQuery);
+          eventsData = eventsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            // Ensure eventDate exists and is valid
+            if (!data.eventDate) {
+              console.warn(`Event ${doc.id} missing eventDate, skipping`);
+              return null;
+            }
+            return {
+              id: doc.id,
+              ...data,
+              category: 'Events',
+            };
+          }).filter(item => item !== null); // Remove null items
+        } catch (eventsError) {
+          console.error('Events query failed:', eventsError);
+          eventsData = [];
+        }
 
         // Combine all items
         const allItems = [...servicesData, ...eventsData];

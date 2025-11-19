@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { addDoc, collection, doc, getDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -19,7 +20,6 @@ import ScrollIndicator from '../components/ScrollIndicator';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, functions, httpsCallable } from '../firebase';
-import { collection, doc, getDoc, updateDoc, addDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
 
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImageManipulator from 'expo-image-manipulator';
