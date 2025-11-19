@@ -60,6 +60,13 @@ service cloud.firestore {
       allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
     }
     
+    // Event bookings (for dashboard stats)
+    match /eventBookings/{bookingId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
     // Wallets
     match /wallets/{walletId} {
       allow read, write: if request.auth != null && request.auth.uid == walletId;

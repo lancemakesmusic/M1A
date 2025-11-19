@@ -18,7 +18,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ScrollIndicator from '../components/ScrollIndicator';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { db as firestore, functions, httpsCallable } from '../firebase';
+import { db, functions, httpsCallable } from '../firebase';
+import { collection, doc, getDoc, updateDoc, addDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
 
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -198,8 +199,9 @@ export default function AutoPosterScreen({ navigation }) {
 
   const checkAutoPosterStatus = async () => {
     try {
-      const userDoc = await firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      if (userDoc.exists()) {
         const userData = userDoc.data();
         setIsAutoPosterActive(userData.plans?.autoPoster === 'active');
       }
@@ -325,7 +327,8 @@ export default function AutoPosterScreen({ navigation }) {
 
   const toggleAutoPoster = async () => {
     try {
-      await firestore.collection('users').doc(user.uid).update({
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, {
         'plans.autoPoster': isAutoPosterActive ? 'inactive' : 'active'
       });
       setIsAutoPosterActive(!isAutoPosterActive);
@@ -360,7 +363,8 @@ export default function AutoPosterScreen({ navigation }) {
               }));
               
               // Update user's social connections in Firestore
-              await firestore.collection('users').doc(user.uid).update({
+              const userDocRef = doc(db, 'users', user.uid);
+              await updateDoc(userDocRef, {
                 [`socials.${platformId}`]: `connected_${Date.now()}`
               });
               
@@ -483,8 +487,9 @@ export default function AutoPosterScreen({ navigation }) {
       
       // Test 2: Firestore read access
       console.log('2️⃣ Testing Firestore read access...');
-      const userDoc = await firestore.collection('users').doc(user.uid).get();
-      if (!userDoc.exists) {
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      if (!userDoc.exists()) {
         throw new Error('User document does not exist');
       }
       console.log('✅ User document read successfully');
@@ -509,7 +514,8 @@ export default function AutoPosterScreen({ navigation }) {
         createdAt: firestore.FieldValue.serverTimestamp()
       };
       
-      const docRef = await firestore.collection('scheduledPosts').add(testPost);
+      const postsCollectionRef = collection(db, 'scheduledPosts');
+      const docRef = await addDoc(postsCollectionRef, testPost);
       console.log('✅ Test scheduled post created:', docRef.id);
       
       // Test 4: Firestore read access (read the test post)

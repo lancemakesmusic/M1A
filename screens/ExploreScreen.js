@@ -138,12 +138,24 @@ export default function ExploreScreen() {
         }));
 
         // Load events from Firestore (future events only)
-        const eventsQuery = firestoreQuery(
-          firestoreCollection(db, 'events'),
-          where('eventDate', '>=', now),
-          firestoreOrderBy('eventDate', 'asc'),
-          firestoreLimit(20)
-        );
+        // Try with index first, fallback to simple query if index not ready
+        let eventsQuery;
+        try {
+          eventsQuery = firestoreQuery(
+            firestoreCollection(db, 'events'),
+            where('eventDate', '>=', now),
+            firestoreOrderBy('eventDate', 'asc'),
+            firestoreLimit(20)
+          );
+        } catch (indexError) {
+          // If index not ready, use simple query without orderBy
+          console.warn('Events index not ready, using simple query:', indexError);
+          eventsQuery = firestoreQuery(
+            firestoreCollection(db, 'events'),
+            where('eventDate', '>=', now),
+            firestoreLimit(20)
+          );
+        }
         const eventsSnapshot = await getDocs(eventsQuery);
         const eventsData = eventsSnapshot.docs.map(doc => ({
           id: doc.id,
