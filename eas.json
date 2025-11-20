@@ -29,7 +29,13 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_ENV": "production"
+        "EXPO_PUBLIC_ENV": "production",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "m1alive.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "m1alive",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "m1alive.appspot.com",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": ""
       },
       "node": "20.18.0"
     }
