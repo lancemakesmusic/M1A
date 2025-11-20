@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.merkabaent.m1a",
-      "buildNumber": "1",
+      "buildNumber": "10",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "M1A needs access to your photo library to upload profile photos and cover images.",
         "NSCameraUsageDescription": "M1A needs access to your camera to take photos for your profile.",
