@@ -18,7 +18,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
-import { auth, updateProfile, updateUserProfileInDB, uploadImageAsync } from '../firebase';
+import { 
+  auth, 
+  updateProfile, 
+  updateUserProfileInDB, 
+  uploadImageAsync,
+  checkUsernameAvailability,
+  sanitizeText,
+  validateAndSanitizeUrl,
+  validateUsername
+} from '../firebase';
+import { PROFILE_ERRORS } from '../constants/errorMessages';
 
 export default function ProfileEditScreen({ navigation }) {
   const { user, updateUserProfile, refreshUserProfile } = useContext(UserContext);
@@ -42,6 +52,11 @@ export default function ProfileEditScreen({ navigation }) {
   const [allowMessages, setAllowMessages] = useState(user?.allowMessages ?? true);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('basic');
+  const [usernameError, setUsernameError] = useState('');
+  const [checkingUsername, setCheckingUsername] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Cache-busting to force <Image> refresh after upload
   const [cacheBust, setCacheBust] = useState(Date.now());
@@ -89,9 +104,6 @@ export default function ProfileEditScreen({ navigation }) {
     return true;
   };
 
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [uploadingCover, setUploadingCover] = useState(false);
-
   const onPickAvatar = async () => {
     try {
       const ok = await ensureLibraryPermission();
@@ -113,6 +125,7 @@ export default function ProfileEditScreen({ navigation }) {
       setCacheBust(Date.now());
       
       setUploadingAvatar(true);
+      setIsUploading(true);
       
       console.log('[Avatar Upload] Starting upload...', localUri);
       
@@ -204,10 +217,16 @@ export default function ProfileEditScreen({ navigation }) {
       Alert.alert('Upload failed', e?.message || 'Please try again. The image is still visible but may not persist.');
     } finally {
       setUploadingAvatar(false);
+      setIsUploading(false);
     }
   };
 
   const onPickCover = async () => {
+    // Prevent multiple simultaneous uploads
+    if (uploadingAvatar || uploadingCover || isUploading) {
+      Alert.alert('Upload in Progress', 'Please wait for the current upload to complete.');
+      return;
+    }
     try {
       const ok = await ensureLibraryPermission();
       if (!ok) return;
@@ -228,6 +247,7 @@ export default function ProfileEditScreen({ navigation }) {
       setCacheBust(Date.now());
       
       setUploadingCover(true);
+      setIsUploading(true);
       
       console.log('[Cover Upload] Starting upload...', localUri);
       
@@ -309,34 +329,97 @@ export default function ProfileEditScreen({ navigation }) {
       Alert.alert('Upload failed', e?.message || 'Please try again. The image is still visible but may not persist.');
     } finally {
       setUploadingCover(false);
+      setIsUploading(false);
+    }
+  };
+
+  // Check username availability with debouncing
+  const checkUsername = async (uname) => {
+    if (!uname || uname.trim().length < 3) {
+      setUsernameError('');
+      return;
+    }
+    
+    // Validate username format first
+    const formatValidation = validateUsername(uname);
+    if (!formatValidation.valid) {
+      setUsernameError(formatValidation.error);
+      return;
+    }
+    
+    setCheckingUsername(true);
+    setUsernameError('');
+    
+    try {
+      const normalizedUsername = uname.trim().toLowerCase();
+      const isAvailable = await checkUsernameAvailability(normalizedUsername, user?.id);
+      
+      if (!isAvailable) {
+        setUsernameError(PROFILE_ERRORS.USERNAME_TAKEN);
+      } else {
+        setUsernameError('');
+      }
+    } catch (error) {
+      console.error('Error checking username:', error);
+      setUsernameError('Unable to verify username availability');
+    } finally {
+      setCheckingUsername(false);
     }
   };
 
   const onSave = async () => {
     const name = displayName.trim();
-    const uname = username.trim();
+    const uname = username.trim().toLowerCase();
+    
+    // Validation
     if (!name || !uname) {
       Alert.alert('Missing info', 'Display name and username are required.');
       return;
     }
+    
+    // Validate username format
+    const usernameValidation = validateUsername(uname);
+    if (!usernameValidation.valid) {
+      Alert.alert('Invalid Username', usernameValidation.error);
+      return;
+    }
+    
     setSaving(true);
+    setCheckingUsername(true);
+    
     try {
+      // Check username availability
+      const isAvailable = await checkUsernameAvailability(uname, user?.id);
+      if (!isAvailable) {
+        Alert.alert('Username Taken', 'This username is already taken. Please choose another.');
+        setSaving(false);
+        setCheckingUsername(false);
+        return;
+      }
+      // Sanitize inputs
+      const sanitizedBio = sanitizeText(bio);
+      const sanitizedLocation = sanitizeText(location);
+      const sanitizedWebsite = validateAndSanitizeUrl(website);
+      
+      // Sanitize social links
+      const sanitizedSocials = {
+        instagram: validateAndSanitizeUrl(socials?.instagram) || '',
+        twitter: validateAndSanitizeUrl(socials?.twitter) || '',
+        facebook: validateAndSanitizeUrl(socials?.facebook) || '',
+        youtube: validateAndSanitizeUrl(socials?.youtube) || '',
+        linkedin: validateAndSanitizeUrl(socials?.linkedin) || '',
+        tiktok: validateAndSanitizeUrl(socials?.tiktok) || '',
+      };
+      
       await updateUserProfile({
         displayName: name,
         username: uname,
-        bio: bio?.trim?.() ?? '',
-        location: location?.trim?.() ?? '',
-        website: website?.trim?.() ?? '',
+        bio: sanitizedBio,
+        location: sanitizedLocation,
+        website: sanitizedWebsite || '',
         avatarUrl: avatarUrl ?? '',
         coverUrl: coverUrl ?? '',
-        socials: {
-          instagram: socials?.instagram?.trim?.() ?? '',
-          twitter: socials?.twitter?.trim?.() ?? '',
-          facebook: socials?.facebook?.trim?.() ?? '',
-          youtube: socials?.youtube?.trim?.() ?? '',
-          linkedin: socials?.linkedin?.trim?.() ?? '',
-          tiktok: socials?.tiktok?.trim?.() ?? '',
-        },
+        socials: sanitizedSocials,
         private: !!privateProfile,
         showOnlineStatus: !!showOnlineStatus,
         allowMessages: !!allowMessages,
@@ -344,9 +427,16 @@ export default function ProfileEditScreen({ navigation }) {
       navigation.goBack();
     } catch (e) {
       console.error('[Profile Save Error]', e);
-      Alert.alert('Update failed', e?.code || e?.message || 'Please try again.');
+      let errorMessage = 'Update failed. Please try again.';
+      if (e?.code === 'permission-denied') {
+        errorMessage = 'You do not have permission to update this profile.';
+      } else if (e?.message) {
+        errorMessage = e.message;
+      }
+      Alert.alert('Update failed', errorMessage);
     } finally {
       setSaving(false);
+      setCheckingUsername(false);
     }
   };
 
@@ -372,7 +462,11 @@ export default function ProfileEditScreen({ navigation }) {
       
       {/* Avatar */}
       <View style={styles.avatarSection}>
-        <TouchableOpacity onPress={onPickAvatar} activeOpacity={0.8} disabled={uploadingAvatar || saving}>
+        <TouchableOpacity 
+          onPress={onPickAvatar} 
+          activeOpacity={0.8} 
+          disabled={uploadingAvatar || uploadingCover || saving || isUploading}
+        >
           {uploadingAvatar ? (
             <View style={[styles.avatarPlaceholder, { backgroundColor: theme.cardBackground }]}>
               <ActivityIndicator size="large" color={theme.primary} />
@@ -407,7 +501,11 @@ export default function ProfileEditScreen({ navigation }) {
       {/* Cover Photo */}
       <View style={styles.coverSection}>
         <Text style={[styles.fieldLabel, { color: theme.text }]}>Cover Photo</Text>
-        <TouchableOpacity onPress={onPickCover} activeOpacity={0.8} disabled={uploadingCover || saving}>
+        <TouchableOpacity 
+          onPress={onPickCover} 
+          activeOpacity={0.8} 
+          disabled={uploadingAvatar || uploadingCover || saving || isUploading}
+        >
           {uploadingCover ? (
             <View style={[styles.coverPlaceholder, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
               <ActivityIndicator size="large" color={theme.primary} />
@@ -453,14 +551,45 @@ export default function ProfileEditScreen({ navigation }) {
 
       <View style={styles.inputGroup}>
         <Text style={[styles.fieldLabel, { color: theme.text }]}>Username *</Text>
-        <TextInput
-          style={[styles.input, { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border }]}
-          placeholder="username"
-          placeholderTextColor={theme.subtext}
-          autoCapitalize="none"
-          value={username}
-          onChangeText={setUsername}
-        />
+        <View style={styles.usernameContainer}>
+          <TextInput
+            style={[
+              styles.input, 
+              { 
+                backgroundColor: theme.cardBackground, 
+                color: theme.text, 
+                borderColor: usernameError ? theme.error : theme.border
+              }
+            ]}
+            placeholder="username"
+            placeholderTextColor={theme.subtext}
+            autoCapitalize="none"
+            value={username}
+            onChangeText={(text) => {
+              // Only allow alphanumeric, underscore, and hyphen
+              const sanitized = text.replace(/[^a-zA-Z0-9_-]/g, '');
+              setUsername(sanitized);
+              setUsernameError('');
+              // Debounce username check
+              if (sanitized.length >= 3) {
+                setTimeout(() => checkUsername(sanitized), 500);
+              }
+            }}
+          />
+          {checkingUsername && (
+            <ActivityIndicator 
+              size="small" 
+              color={theme.primary} 
+              style={styles.usernameCheckIndicator}
+            />
+          )}
+        </View>
+        {usernameError && (
+          <Text style={[styles.fieldError, { color: theme.error }]}>{usernameError}</Text>
+        )}
+        <Text style={[styles.helperText, { color: theme.subtext }]}>
+          3-30 characters, letters, numbers, underscores, and hyphens only
+        </Text>
       </View>
 
       <View style={styles.inputGroup}>
@@ -790,6 +919,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
+  },
+  usernameContainer: {
+    position: 'relative',
+  },
+  usernameCheckIndicator: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
+  },
+  fieldError: {
+    fontSize: 14,
+    marginTop: 4,
+    color: '#ff4444',
+  },
+  helperText: {
+    fontSize: 12,
+    marginTop: 4,
   },
   input: {
     padding: 16,

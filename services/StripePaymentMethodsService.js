@@ -4,18 +4,29 @@
  */
 
 import { Platform } from 'react-native';
+import { auth } from '../firebase';
 
 const STRIPE_SECRET_KEY = process.env.EXPO_PUBLIC_STRIPE_SECRET_KEY || '';
 // Use network IP for physical devices, localhost for web/simulator
 const getApiBaseUrl = () => {
+    // Always use environment variable in production
     if (process.env.EXPO_PUBLIC_API_BASE_URL) {
         return process.env.EXPO_PUBLIC_API_BASE_URL;
     }
+    
+    // Development fallbacks
     if (Platform.OS === 'web') {
         return 'http://localhost:8001';
     }
-    // Use the same network IP as Metro bundler
-    return 'http://172.20.10.3:8001';
+    
+    // In development, try to detect local IP or use localhost
+    if (__DEV__) {
+        console.warn('⚠️ EXPO_PUBLIC_API_BASE_URL not set. Using localhost. Set this in .env for production.');
+        return 'http://localhost:8001';
+    }
+    
+    // Production must have environment variable
+    throw new Error('EXPO_PUBLIC_API_BASE_URL must be set in production environment');
 };
 const API_BASE_URL = getApiBaseUrl();
 const API_TIMEOUT = 30000;
@@ -32,6 +43,13 @@ class StripePaymentMethodsService {
         throw new Error('Customer ID is required');
       }
 
+      // Get Firebase auth token for authentication
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        throw new Error('User must be authenticated to get payment methods');
+      }
+      const idToken = await currentUser.getIdToken();
+
       // Create abort controller for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
@@ -40,6 +58,7 @@ class StripePaymentMethodsService {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
         },
         signal: controller.signal,
       });
@@ -78,6 +97,13 @@ class StripePaymentMethodsService {
         throw new Error('Payment method ID is required');
       }
 
+      // Get Firebase auth token for authentication
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        throw new Error('User must be authenticated to add payment methods');
+      }
+      const idToken = await currentUser.getIdToken();
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
 
@@ -85,6 +111,7 @@ class StripePaymentMethodsService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           customerId,
@@ -127,6 +154,13 @@ class StripePaymentMethodsService {
         throw new Error('Payment method ID is required');
       }
 
+      // Get Firebase auth token for authentication
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        throw new Error('User must be authenticated to set default payment method');
+      }
+      const idToken = await currentUser.getIdToken();
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
 
@@ -134,6 +168,7 @@ class StripePaymentMethodsService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           customerId,
@@ -172,6 +207,13 @@ class StripePaymentMethodsService {
         throw new Error('Payment method ID is required');
       }
 
+      // Get Firebase auth token for authentication
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        throw new Error('User must be authenticated to delete payment methods');
+      }
+      const idToken = await currentUser.getIdToken();
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
 
@@ -179,6 +221,7 @@ class StripePaymentMethodsService {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
         },
         signal: controller.signal,
       });

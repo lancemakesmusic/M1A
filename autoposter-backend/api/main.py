@@ -14,6 +14,17 @@ import json
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    env_path = PROJECT_ROOT / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass  # python-dotenv not available
+except Exception:
+    pass  # Error loading .env, continue anyway
+
 # Import models and functions from robust_api for booking endpoints
 try:
     import sys
@@ -33,7 +44,7 @@ except Exception as e:
     print(f"[WARN] robust_api not available: {e}")
     ROBUST_API_AVAILABLE = False
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -51,11 +62,26 @@ app = FastAPI(
 )
 
 # CORS middleware for M1A integration
+# Get allowed origins from environment variable (comma-separated)
+ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if os.getenv("CORS_ALLOWED_ORIGINS") else []
+# Remove empty strings from list
+ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
+
+# If no origins specified, use development defaults (NOT for production!)
+if not ALLOWED_ORIGINS:
+    if os.getenv("ENVIRONMENT", "development").lower() == "production":
+        # Production: fail if no CORS origins configured
+        raise ValueError("CORS_ALLOWED_ORIGINS must be set in production. Configure allowed origins in environment variables.")
+    else:
+        # Development: allow all origins (with warning)
+        print("⚠️ WARNING: CORS_ALLOWED_ORIGINS not set. Allowing all origins (development only).")
+        ALLOWED_ORIGINS = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -343,8 +369,38 @@ async def cancel_job(job_id: int, user: dict = Depends(verify_token)):
 try:
     from api.payments import router as payments_router
     app.include_router(payments_router)
-except ImportError:
+    print("[OK] Payment routes loaded successfully")
+except ImportError as e:
     # Payments module not available, skip
+    print(f"[WARN] Payment routes not available: {e}")
+    pass
+except Exception as e:
+    print(f"[ERROR] Failed to load payment routes: {e}")
+    import traceback
+    traceback.print_exc()
+    pass
+
+# Include App Store notification routes
+try:
+    from api.app_store_notifications import router as app_store_router
+    app.include_router(app_store_router)
+    print("[OK] App Store notification routes loaded successfully")
+except ImportError as e:
+    print(f"[WARN] App Store notification routes not available: {e}")
+
+# Google Drive routes
+try:
+    from api.google_drive import router as google_drive_router
+    app.include_router(google_drive_router)
+    print("[OK] Google Drive routes loaded successfully")
+except ImportError as e:
+    print(f"[WARN] Google Drive routes not available: {e}")
+    print(f"[WARN] App Store notification routes not available: {e}")
+    pass
+except Exception as e:
+    print(f"[ERROR] Failed to load App Store notification routes: {e}")
+    import traceback
+    traceback.print_exc()
     pass
 
 # Include booking and dashboard endpoints from robust_api
@@ -385,6 +441,393 @@ if ROBUST_API_AVAILABLE:
         print("[OK] Booking and dashboard endpoints loaded from robust_api")
     except Exception as e:
         print(f"[WARN] Failed to load booking endpoints: {e}")
+
+# AutoPoster endpoints (for M1A app integration)
+import uuid
+import base64
+
+# In-memory storage for AutoPoster (backed by persistent storage)
+scheduled_posts = []
+media_library = []
+auto_poster_status = {"enabled": False}
+
+# Initialize post scheduler
+scheduler = None
+try:
+    from services.post_scheduler import get_scheduler
+    scheduler = get_scheduler()
+    # Load existing posts into memory
+    existing_posts = scheduler.get_all_posts()
+    scheduled_posts.extend(existing_posts)
+    print(f"[OK] Loaded {len(existing_posts)} posts from persistent storage")
+    
+    # Start background worker
+    import threading
+    def run_scheduler():
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(scheduler.run_loop(interval_seconds=60))
+    
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
+    print("[OK] Post scheduler background worker started")
+    
+except ImportError as e:
+    print(f"[WARN] Post scheduler not available: {e}")
+    scheduler = None
+except Exception as e:
+    print(f"[WARN] Error initializing scheduler: {e}")
+    import traceback
+    traceback.print_exc()
+    scheduler = None
+
+# AutoPoster Models
+class ContentGenerationRequest(BaseModel):
+    prompt: str
+    content_type: str
+    platform: str
+    brand_voice: str = "professional"
+    target_audience: str = "general"
+
+class ContentGenerationResponse(BaseModel):
+    success: bool
+    content: Optional[str] = None
+    message: Optional[str] = None
+
+class PostData(BaseModel):
+    uid: str
+    content: str
+    imageUrl: Optional[str] = None
+    platforms: Dict[str, bool]
+    scheduledTime: str
+    status: str
+    autoGenerated: bool
+    createdAt: str
+
+# AutoPoster Endpoints
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat(),
+        "server": "operational",
+        "posts_count": len(scheduled_posts),
+        "auto_poster_enabled": auto_poster_status["enabled"]
+    }
+
+@app.post("/api/generate-content", response_model=ContentGenerationResponse)
+async def generate_content(request: ContentGenerationRequest):
+    """Generate content using AI"""
+    try:
+        # Import AI generator
+        try:
+            # Ensure .env is loaded before importing AI module
+            from dotenv import load_dotenv
+            env_path = PROJECT_ROOT / ".env"
+            if env_path.exists():
+                load_dotenv(env_path)
+            
+            # Try to import AI generator
+            import importlib.util
+            ai_generator_path = PROJECT_ROOT / "services" / "ai_content_generator.py"
+            
+            if ai_generator_path.exists():
+                print(f"[AI] Loading AI module from {ai_generator_path}")
+                spec = importlib.util.spec_from_file_location("ai_content_generator", ai_generator_path)
+                ai_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(ai_module)
+                print("[AI] AI module loaded successfully")
+                
+                ai_generator = ai_module.get_ai_generator()
+                print(f"[AI] AI generator created, available: {ai_generator.is_available()}")
+                
+                # Check if AI is available
+                if ai_generator.is_available():
+                    print(f"[AI] Calling AI generate_content...")
+                    # Generate content with AI
+                    result = await ai_generator.generate_content(
+                        prompt=request.prompt,
+                        content_type=request.content_type,
+                        platform=request.platform,
+                        brand_voice=request.brand_voice,
+                        target_audience=request.target_audience
+                    )
+                    print(f"[AI] AI generation result: success={result.get('success')}, model={result.get('model')}")
+                    
+                    if result.get("success"):
+                        print(f"[AI] SUCCESS! Returning AI-generated content")
+                        return ContentGenerationResponse(
+                            success=True,
+                            content=result["content"],
+                            message=result.get("message", "Content generated successfully")
+                        )
+                    else:
+                        # AI generation failed, fallback to template
+                        print(f"[AI] Generation failed: {result.get('message', 'Unknown error')}")
+                        raise Exception("AI generation returned failure")
+                else:
+                    print("[AI] AI service not available (no API key)")
+                    raise Exception("AI not configured")
+            else:
+                # AI module not found, use template
+                print("[AI] ❌ AI module file not found")
+                raise ImportError("AI module not found")
+                
+        except ImportError as ie:
+            # AI module not available, use template
+            print(f"[AI] ❌ Import error: {ie}")
+            import traceback
+            traceback.print_exc()
+        except Exception as ai_error:
+            print(f"[AI] ❌ Generation error: {ai_error}")
+            import traceback
+            traceback.print_exc()
+            # Continue to fallback template
+        
+        # Fallback template (if AI not available or fails)
+        print("[AI] ⚠️ Using template fallback")
+        hashtags = {
+            "instagram": "#content #socialmedia #automation #m1a #creative",
+            "facebook": "#content #socialmedia #community",
+            "twitter": "#content #socialmedia",
+            "linkedin": "#content #professional #networking",
+            "tiktok": "#content #viral #trending #fyp"
+        }
+        
+        platform_hashtags = hashtags.get(request.platform.lower(), "#content #socialmedia")
+        
+        generated_content = f"""🎯 {request.content_type.title()} for {request.platform.title()}
+
+{request.prompt}
+
+✨ Tailored for {request.target_audience} with a {request.brand_voice} tone
+
+{platform_hashtags}
+
+💡 Tip: Add your OpenAI API key to enable AI-powered content generation!"""
+        
+        return ContentGenerationResponse(
+            success=True,
+            content=generated_content,
+            message="Template content generated. Add OPENAI_API_KEY to enable AI generation."
+        )
+        
+    except Exception as e:
+        return ContentGenerationResponse(
+            success=False,
+            message=f"Error generating content: {str(e)}"
+        )
+
+@app.post("/api/schedule-post")
+async def schedule_post(post_data: PostData):
+    """Schedule a new post"""
+    try:
+        post_id = str(uuid.uuid4())
+        post = {
+            "id": post_id,
+            "uid": post_data.uid,
+            "content": post_data.content,
+            "imageUrl": post_data.imageUrl,
+            "platforms": post_data.platforms,
+            "scheduledTime": post_data.scheduledTime,
+            "status": post_data.status,
+            "autoGenerated": post_data.autoGenerated,
+            "createdAt": post_data.createdAt
+        }
+        scheduled_posts.append(post)
+        
+        # Also save to persistent storage
+        if scheduler:
+            scheduler.add_post(post)
+        
+        return {"success": True, "postId": post_id, "message": "Post scheduled successfully"}
+    except Exception as e:
+        return {"success": False, "message": f"Error scheduling post: {str(e)}"}
+
+@app.get("/api/scheduled-posts")
+async def get_scheduled_posts():
+    """Get all scheduled posts"""
+    try:
+        # Refresh from persistent storage
+        if scheduler:
+            scheduled_posts.clear()
+            scheduled_posts.extend(scheduler.get_all_posts())
+        
+        return {
+            "success": True,
+            "posts": scheduled_posts,
+            "message": "Scheduled posts retrieved successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error retrieving scheduled posts: {str(e)}"
+        }
+
+@app.post("/api/post-now/{post_id}")
+async def post_now(post_id: str):
+    """Execute a post immediately (bypasses scheduling)"""
+    try:
+        # Find the post
+        post = None
+        for p in scheduled_posts:
+            if p.get("id") == post_id:
+                post = p
+                break
+        
+        if not post:
+            # Try loading from scheduler
+            if scheduler:
+                all_posts = scheduler.get_all_posts()
+                for p in all_posts:
+                    if p.get("id") == post_id:
+                        post = p
+                        break
+        
+        if not post:
+            return {"success": False, "message": f"Post {post_id} not found"}
+        
+        # Import executor
+        try:
+            from services.post_executor import get_post_executor
+            executor = get_post_executor()
+        except ImportError:
+            return {"success": False, "message": "Post executor not available"}
+        
+        # Update status to "posting"
+        if scheduler:
+            scheduler.update_post(post_id, {"status": "posting", "postingAt": datetime.now().isoformat()})
+        
+        # Execute the post
+        results = await executor.execute_post(post)
+        
+        if results.get("success"):
+            # Update status
+            if scheduler:
+                scheduler.update_post(post_id, {
+                    "status": "posted",
+                    "postedAt": datetime.now().isoformat(),
+                    "postResults": results
+                })
+            
+            # Update in-memory copy
+            for p in scheduled_posts:
+                if p.get("id") == post_id:
+                    p["status"] = "posted"
+                    p["postedAt"] = datetime.now().isoformat()
+                    p["postResults"] = results
+                    break
+            
+            return {
+                "success": True,
+                "message": "Post executed successfully",
+                "results": results
+            }
+        else:
+            # Update status to failed
+            if scheduler:
+                scheduler.update_post(post_id, {
+                    "status": "failed",
+                    "failedAt": datetime.now().isoformat(),
+                    "error": results.get("errors", ["Unknown error"])
+                })
+            
+            return {
+                "success": False,
+                "message": "Post execution failed",
+                "errors": results.get("errors", ["Unknown error"])
+            }
+            
+    except Exception as e:
+        return {"success": False, "message": f"Error executing post: {str(e)}"}
+
+@app.get("/api/media-library")
+async def get_media_library():
+    """Get media library"""
+    try:
+        return {
+            "success": True,
+            "media": media_library,
+            "message": "Media library retrieved successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error retrieving media library: {str(e)}"
+        }
+
+@app.post("/api/upload-media")
+async def upload_media(
+    media: UploadFile = File(...),
+    userId: str = Form(...),
+    title: str = Form("Untitled Media")
+):
+    """Upload media to the library"""
+    try:
+        # Read file content
+        contents = await media.read()
+        
+        # Create media entry
+        media_id = str(uuid.uuid4())
+        media_entry = {
+            "id": media_id,
+            "name": title,
+            "uri": f"data:{media.content_type};base64,{base64.b64encode(contents).decode()}",
+            "type": media.content_type.split('/')[0] if '/' in media.content_type else "image",
+            "createdAt": datetime.now().isoformat(),
+            "userId": userId
+        }
+        
+        media_library.append(media_entry)
+        
+        return {
+            "success": True,
+            "status": "success",
+            "media": media_entry,
+            "message": "Media uploaded successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "status": "error",
+            "message": f"Error uploading media: {str(e)}"
+        }
+
+@app.get("/api/auto-poster-status")
+async def get_auto_poster_status():
+    """Get auto poster status"""
+    try:
+        return {
+            "success": True,
+            "enabled": auto_poster_status["enabled"],
+            "message": "Auto poster status retrieved successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error retrieving auto poster status: {str(e)}"
+        }
+
+@app.post("/api/toggle-auto-poster")
+async def toggle_auto_poster(request: Dict[str, Any]):
+    """Toggle auto poster on/off"""
+    try:
+        enabled = request.get('enabled', False)
+        auto_poster_status["enabled"] = enabled
+        return {
+            "success": True,
+            "enabled": enabled,
+            "message": f"Auto poster {'enabled' if enabled else 'disabled'} successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error toggling auto poster: {str(e)}"
+        }
+
+print("[OK] AutoPoster endpoints loaded")
 
 if __name__ == "__main__":
     import uvicorn

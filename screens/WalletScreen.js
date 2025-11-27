@@ -1,10 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as Linking from 'expo-linking';
+import { collection, limit as firestoreLimit, getDocs, orderBy, query, where } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -18,10 +21,19 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
+import {
+  ENABLE_ADD_FUNDS,
+  ENABLE_CASH_OUT,
+  ENABLE_SEND_MONEY,
+  ENABLE_WALLET_BALANCE,
+  ENABLE_WALLET_QR_CODE
+} from '../constants/featureFlags';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { db } from '../firebase';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackWalletTransaction } from '../services/AnalyticsService';
+import GoogleDriveService from '../services/GoogleDriveService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import StripePaymentMethodsService from '../services/StripePaymentMethodsService';
 import WalletService from '../services/WalletService';
@@ -43,8 +55,11 @@ export default function WalletScreen() {
   const [showPaymentMethods, setShowPaymentMethods] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
+  const [showCashOut, setShowCashOut] = useState(false);
   const [amount, setAmount] = useState('');
   const [recipient, setRecipient] = useState('');
+  const [recipientUser, setRecipientUser] = useState(null);
+  const [searchingRecipient, setSearchingRecipient] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
@@ -53,6 +68,16 @@ export default function WalletScreen() {
   const [showAddPaymentMethod, setShowAddPaymentMethod] = useState(false);
   const [deletingPaymentMethod, setDeletingPaymentMethod] = useState(null);
   const [qrCodeData, setQrCodeData] = useState('');
+  const [error, setError] = useState(null);
+  const [transactionFilter, setTransactionFilter] = useState('all'); // all, sent, received, withdrawals
+  const [activeTab, setActiveTab] = useState('transactions'); // 'transactions' or 'content'
+  const [contentLibrary, setContentLibrary] = useState([]);
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [googleDriveConnected, setGoogleDriveConnected] = useState(false);
+  const [contentSource, setContentSource] = useState('firestore'); // 'firestore' or 'googledrive'
+  const [showFolderIdModal, setShowFolderIdModal] = useState(false);
+  const [folderIdInput, setFolderIdInput] = useState('');
+  const [currentFolderId, setCurrentFolderId] = useState(null);
 
   useEffect(() => {
     if (user?.uid) {
@@ -68,6 +93,32 @@ export default function WalletScreen() {
     }
   }, [user?.uid]);
 
+  useEffect(() => {
+    if (user?.uid && activeTab === 'content') {
+      checkGoogleDriveConnection();
+      loadContentLibrary();
+    }
+  }, [user?.uid, activeTab]);
+
+  const checkGoogleDriveConnection = useCallback(async () => {
+    try {
+      const connected = await GoogleDriveService.isConnected();
+      setGoogleDriveConnected(connected);
+      
+      // Also get current folder ID if connected
+      if (connected && user?.uid) {
+        const folderId = await GoogleDriveService.getClientFolderId(user.uid);
+        setCurrentFolderId(folderId);
+        if (folderId) {
+          setFolderIdInput(folderId);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking Google Drive connection:', error);
+      setGoogleDriveConnected(false);
+    }
+  }, [user?.uid]);
+
   const loadWalletData = useCallback(async () => {
     if (!user?.uid) {
       setLoading(false);
@@ -77,14 +128,20 @@ export default function WalletScreen() {
     try {
       setLoading(true);
       
-      // Load balance, transactions, and payment methods in parallel
-      const [walletBalance, walletTransactions, walletPaymentMethods] = await Promise.all([
-        WalletService.getBalance(user.uid),
+      // Load balance (only if wallet features enabled), transactions, and payment methods in parallel
+      const loadPromises = [
+        ENABLE_WALLET_BALANCE ? WalletService.getBalance(user.uid) : Promise.resolve(0),
         WalletService.getTransactions(user.uid),
         WalletService.getPaymentMethods(user.uid),
-      ]);
+      ];
+      
+      const [walletBalance, walletTransactions, walletPaymentMethods] = await Promise.all(loadPromises);
 
-      setBalance(walletBalance);
+      if (ENABLE_WALLET_BALANCE) {
+        setBalance(walletBalance);
+      } else {
+        setBalance(0);
+      }
       // Use real transactions from WalletService (no mock fallback)
       setTransactions(walletTransactions || []);
       // Use real payment methods from WalletService (no mock fallback)
@@ -130,6 +187,121 @@ export default function WalletScreen() {
       });
     }
   }, [user?.uid]);
+
+  const loadContentLibrary = useCallback(async () => {
+    if (!user?.uid) {
+      setLoadingContent(false);
+      return;
+    }
+
+    try {
+      setLoadingContent(true);
+      const contentItems = [];
+
+      // Try to load from Google Drive first if connected
+      if (googleDriveConnected) {
+        try {
+          const folderId = await GoogleDriveService.getClientFolderId(user.uid);
+          if (folderId) {
+            const driveFiles = await GoogleDriveService.listFiles(user.uid, folderId);
+            
+            driveFiles.forEach((file) => {
+              contentItems.push({
+                id: file.id,
+                type: file.type,
+                url: file.downloadUrl || file.webViewLink,
+                thumbnail: file.thumbnailUrl,
+                title: file.name,
+                createdAt: file.modifiedTime ? new Date(file.modifiedTime) : new Date(),
+                clientId: user.uid,
+                clientName: user.displayName || user.email,
+                source: 'googledrive',
+                fileId: file.id,
+                mimeType: file.mimeType,
+                size: file.size,
+              });
+            });
+            
+            setContentSource('googledrive');
+          }
+        } catch (driveError) {
+          console.error('Error loading from Google Drive:', driveError);
+          // Fall back to Firestore
+        }
+      }
+
+      // Also load from Firestore posts (merge with Google Drive content)
+      try {
+        const postsQuery = query(
+          collection(db, 'posts'),
+          where('userId', '==', user.uid),
+          orderBy('createdAt', 'desc'),
+          firestoreLimit(50)
+        );
+
+        const postsSnapshot = await getDocs(postsQuery);
+
+        postsSnapshot.docs.forEach((doc) => {
+          const postData = doc.data();
+          
+          // Extract media from posts
+          if (postData.videoUrl) {
+            contentItems.push({
+              id: doc.id,
+              type: 'video',
+              url: postData.videoUrl,
+              thumbnail: postData.thumbnailUrl,
+              title: postData.caption || 'Video',
+              createdAt: postData.createdAt?.toDate?.() || new Date(postData.createdAt?.seconds * 1000) || new Date(),
+              clientId: postData.userId,
+              clientName: postData.userDisplayName || user.displayName || user.email,
+              source: 'firestore',
+            });
+          }
+          
+          if (postData.audioUrl) {
+            contentItems.push({
+              id: `${doc.id}_audio`,
+              type: 'audio',
+              url: postData.audioUrl,
+              thumbnail: postData.thumbnailUrl,
+              title: postData.caption || 'Audio',
+              createdAt: postData.createdAt?.toDate?.() || new Date(postData.createdAt?.seconds * 1000) || new Date(),
+              clientId: postData.userId,
+              clientName: postData.userDisplayName || user.displayName || user.email,
+              source: 'firestore',
+            });
+          }
+          
+          if (postData.imageUrl) {
+            contentItems.push({
+              id: `${doc.id}_image`,
+              type: 'image',
+              url: postData.imageUrl,
+              thumbnail: postData.imageUrl,
+              title: postData.caption || 'Image',
+              createdAt: postData.createdAt?.toDate?.() || new Date(postData.createdAt?.seconds * 1000) || new Date(),
+              clientId: postData.userId,
+              clientName: postData.userDisplayName || user.displayName || user.email,
+              source: 'firestore',
+            });
+          }
+        });
+      } catch (firestoreError) {
+        console.error('Error loading from Firestore:', firestoreError);
+      }
+
+      // Sort by creation date (newest first)
+      contentItems.sort((a, b) => b.createdAt - a.createdAt);
+      
+      setContentLibrary(contentItems);
+    } catch (error) {
+      console.error('Error loading content library:', error);
+      setContentLibrary([]);
+    } finally {
+      setLoadingContent(false);
+    }
+  }, [user?.uid, user?.displayName, user?.email, googleDriveConnected]);
 
   const handleSetDefaultPaymentMethod = async (paymentMethod) => {
     if (!user?.uid) {
@@ -292,26 +464,139 @@ export default function WalletScreen() {
     );
   };
 
+  const handleRecipientSearch = useCallback(async (searchText) => {
+    setRecipient(searchText);
+    setError(null);
+    
+    if (!searchText || searchText.length < 3) {
+      setRecipientUser(null);
+      return;
+    }
+    
+    try {
+      setSearchingRecipient(true);
+      const foundUser = await WalletService.lookupUser(searchText);
+      
+      if (foundUser) {
+        setRecipientUser(foundUser);
+        setError(null);
+      } else {
+        setRecipientUser(null);
+        if (searchText.length >= 3) {
+          setError('User not found. Please check the email, phone, or username.');
+        }
+      }
+    } catch (error) {
+      console.error('Error searching recipient:', error);
+      setRecipientUser(null);
+      setError('Error searching for user. Please try again.');
+    } finally {
+      setSearchingRecipient(false);
+    }
+  }, []);
+
   const handleSendMoney = async () => {
     if (!user?.uid) {
       Alert.alert('Error', 'Please log in to send money');
       return;
     }
 
-    if (!amount || !recipient || parseFloat(amount) <= 0) {
-      Alert.alert('Invalid Details', 'Please enter valid amount and recipient');
+    if (!amount || parseFloat(amount) <= 0) {
+      setError('Please enter a valid amount');
+      return;
+    }
+    
+    if (!recipientUser) {
+      setError('Please select a valid recipient');
       return;
     }
     
     const sendAmount = parseFloat(amount);
     if (sendAmount > balance) {
-      Alert.alert('Insufficient Funds', 'You don\'t have enough balance');
+      setError('Insufficient funds');
+      return;
+    }
+    
+    if (sendAmount < 0.01) {
+      setError('Minimum amount is $0.01');
+      return;
+    }
+    
+    try {
+      setProcessing(true);
+      setError(null);
+      
+      // Send money via WalletService
+      const result = await WalletService.sendMoney(
+        user.uid,
+        recipientUser.uid,
+        sendAmount,
+        `Sent to ${recipientUser.displayName || recipientUser.email || recipient}`
+      );
+
+      if (result.success) {
+        // Track analytics
+        await trackWalletTransaction({
+          type: 'sent',
+          amount: -sendAmount,
+        });
+        trackButtonClick('send_money', 'WalletScreen');
+        
+        // Record positive action for rating prompt
+        await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.PAYMENT_SUCCESS, {
+          type: 'send_money',
+          amount: sendAmount,
+        });
+        
+        // Reload wallet data
+        await loadWalletData();
+        setAmount('');
+        setRecipient('');
+        setRecipientUser(null);
+        setError(null);
+        setShowSendMoney(false);
+        Alert.alert('Success', `$${sendAmount.toFixed(2)} sent to ${recipientUser.displayName || recipientUser.email || recipient}!`);
+      } else {
+        throw new Error('Failed to send money');
+      }
+    } catch (error) {
+      console.error('Error sending money:', error);
+      setError(error.message || 'Failed to send money. Please try again.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleCashOut = async () => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'Please log in to cash out');
+      return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      setError('Please enter a valid amount');
+      return;
+    }
+    
+    if (!selectedPaymentMethod) {
+      setError('Please select a bank account');
+      return;
+    }
+    
+    const cashOutAmount = parseFloat(amount);
+    if (cashOutAmount > balance) {
+      setError('Insufficient funds');
+      return;
+    }
+    
+    if (cashOutAmount < 10) {
+      setError('Minimum withdrawal amount is $10');
       return;
     }
     
     Alert.alert(
-      'Send Money',
-      `Send $${amount} to ${recipient}?`,
+      'Cash Out',
+      `Withdraw $${cashOutAmount.toFixed(2)} to your bank account? Processing may take 1-3 business days.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { 
@@ -319,45 +604,39 @@ export default function WalletScreen() {
           onPress: async () => {
             try {
               setProcessing(true);
+              setError(null);
               
-              // For now, we'll use recipient as email/UID
-              // In production, you'd look up the user by email/phone
-              const recipientUserId = recipient; // This should be resolved from email/phone
-              
-              // Send money via WalletService
-              const result = await WalletService.sendMoney(
+              const result = await WalletService.cashOut(
                 user.uid,
-                recipientUserId,
-                sendAmount,
-                `Sent to ${recipient}`
+                cashOutAmount,
+                selectedPaymentMethod.id,
+                {
+                  paymentMethod: selectedPaymentMethod.name,
+                }
               );
 
               if (result.success) {
                 // Track analytics
                 await trackWalletTransaction({
-                  type: 'sent',
-                  amount: -sendAmount,
+                  type: 'withdrawal',
+                  amount: -cashOutAmount,
                 });
-                trackButtonClick('send_money', 'WalletScreen');
-                
-                // Record positive action for rating prompt
-                await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.PAYMENT_SUCCESS, {
-                  type: 'send_money',
-                  amount: sendAmount,
-                });
+                trackButtonClick('cash_out', 'WalletScreen');
                 
                 // Reload wallet data
                 await loadWalletData();
                 setAmount('');
-                setRecipient('');
-                setShowSendMoney(false);
-                Alert.alert('Success', 'Money sent successfully!');
+                setShowCashOut(false);
+                Alert.alert(
+                  'Withdrawal Submitted',
+                  result.message || 'Your withdrawal request has been submitted. Funds will be transferred within 1-3 business days.'
+                );
               } else {
-                throw new Error('Failed to send money');
+                throw new Error('Failed to process withdrawal');
               }
             } catch (error) {
-              console.error('Error sending money:', error);
-              Alert.alert('Error', error.message || 'Failed to send money. Please try again.');
+              console.error('Error cashing out:', error);
+              setError(error.message || 'Failed to process withdrawal. Please try again.');
             } finally {
               setProcessing(false);
             }
@@ -367,34 +646,50 @@ export default function WalletScreen() {
     );
   };
 
-  const renderTransaction = ({ item }) => (
-    <View style={[styles.transactionItem, { backgroundColor: theme.cardBackground, borderBottomColor: theme.border }]}>
-      <View style={[styles.transactionIcon, { backgroundColor: item.type === 'received' ? theme.success + '20' : theme.error + '20' }]}>
-        <Ionicons 
-          name={item.icon} 
-          size={20} 
-          color={item.type === 'received' ? theme.success : theme.error} 
-        />
+  const renderTransaction = ({ item }) => {
+    // Determine icon based on transaction type
+    let iconName = item.icon || 'card';
+    if (item.type === 'withdrawal') iconName = 'arrow-down';
+    if (item.type === 'received') iconName = item.icon || 'arrow-down';
+    if (item.type === 'sent') iconName = item.icon || 'arrow-up';
+    
+    // Determine color based on status
+    let statusColor = theme.subtext;
+    if (item.status === 'completed') statusColor = theme.success;
+    if (item.status === 'pending' || item.status === 'processing') statusColor = theme.warning;
+    if (item.status === 'failed') statusColor = theme.error;
+    
+    return (
+      <View style={[styles.transactionItem, { backgroundColor: theme.cardBackground, borderBottomColor: theme.border }]}>
+        <View style={[styles.transactionIcon, { backgroundColor: item.type === 'received' ? theme.success + '20' : item.type === 'withdrawal' ? theme.warning + '20' : theme.error + '20' }]}>
+          <Ionicons 
+            name={iconName} 
+            size={20} 
+            color={item.type === 'received' ? theme.success : item.type === 'withdrawal' ? theme.warning : theme.error} 
+          />
+        </View>
+        
+        <View style={styles.transactionContent}>
+          <Text style={[styles.transactionDescription, { color: theme.text }]}>{item.description}</Text>
+          <Text style={[styles.transactionTime, { color: theme.subtext }]}>{formatTime(item.timestamp)}</Text>
+          {item.status && item.status !== 'completed' && (
+            <Text style={[styles.transactionStatus, { color: statusColor }]}>
+              {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+            </Text>
+          )}
+        </View>
+        
+        <View style={styles.transactionAmount}>
+          <Text style={[
+            styles.transactionAmountText, 
+            { color: item.type === 'received' ? theme.success : item.type === 'withdrawal' ? theme.warning : theme.error }
+          ]}>
+            {item.type === 'received' ? '+' : ''}${Math.abs(item.amount).toFixed(2)}
+          </Text>
+        </View>
       </View>
-      
-      <View style={styles.transactionContent}>
-        <Text style={[styles.transactionDescription, { color: theme.text }]}>{item.description}</Text>
-        <Text style={[styles.transactionTime, { color: theme.subtext }]}>{formatTime(item.timestamp)}</Text>
-      </View>
-      
-      <View style={styles.transactionAmount}>
-        <Text style={[
-          styles.transactionAmountText, 
-          { color: item.type === 'received' ? theme.success : theme.error }
-        ]}>
-          {item.type === 'received' ? '+' : ''}${Math.abs(item.amount).toFixed(2)}
-        </Text>
-        {item.status === 'pending' && (
-          <Text style={[styles.pendingText, { color: theme.warning }]}>Pending</Text>
-        )}
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderPaymentMethod = ({ item }) => (
     <View style={[styles.paymentMethodItem, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
@@ -438,58 +733,82 @@ export default function WalletScreen() {
           >
             <Ionicons name="arrow-back" size={24} color={theme.text} />
           </TouchableOpacity>
-          <Text style={[styles.topHeaderTitle, { color: theme.text }]}>Wallet</Text>
+          <Text style={[styles.topHeaderTitle, { color: theme.text }]}>
+            {ENABLE_WALLET_BALANCE ? 'Wallet' : 'Payments'}
+          </Text>
           <View style={styles.headerRight} />
         </View>
       )}
 
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
-        {!canGoBack && <Text style={[styles.headerTitle, { color: theme.text }]}>Wallet</Text>}
+        {!canGoBack && <Text style={[styles.headerTitle, { color: theme.text }]}>
+          {ENABLE_WALLET_BALANCE ? 'Wallet' : 'Payments'}
+        </Text>}
         {canGoBack && <View style={{ flex: 1 }} />}
         <TouchableOpacity style={styles.headerActionButton}>
           <Ionicons name="settings-outline" size={24} color={theme.text} />
         </TouchableOpacity>
       </View>
 
-      {/* Balance Card */}
-      <View style={[styles.balanceCard, { backgroundColor: theme.isDark ? '#1a1a1a' : theme.primary }]}>
-        <Text style={[styles.balanceLabel, { color: theme.isDark ? theme.primary : '#fff' }]}>Total Balance</Text>
-        <Text style={[styles.balanceAmount, { color: theme.isDark ? theme.primary : '#fff' }]}>${balance.toFixed(2)}</Text>
-        <View style={styles.balanceActions}>
-          <TouchableOpacity 
-            style={[styles.balanceActionButton, { backgroundColor: theme.isDark ? theme.primary + '20' : 'rgba(255,255,255,0.2)' }]}
-            onPress={() => setShowAddFunds(true)}
-          >
-            <Ionicons name="add" size={20} color={theme.isDark ? theme.primary : '#fff'} />
-            <Text style={[styles.balanceActionText, { color: theme.isDark ? theme.primary : '#fff' }]}>Add</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.balanceActionButton, { backgroundColor: theme.isDark ? theme.primary + '20' : 'rgba(255,255,255,0.2)' }]}
-            onPress={() => setShowSendMoney(true)}
-          >
-            <Ionicons name="arrow-up" size={20} color={theme.isDark ? theme.primary : '#fff'} />
-            <Text style={[styles.balanceActionText, { color: theme.isDark ? theme.primary : '#fff' }]}>Send</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.balanceActionButton, { backgroundColor: theme.isDark ? theme.primary + '20' : 'rgba(255,255,255,0.2)' }]}
-            onPress={() => setShowTransactionHistory(true)}
-          >
-            <Ionicons name="list" size={20} color={theme.isDark ? theme.primary : '#fff'} />
-            <Text style={[styles.balanceActionText, { color: theme.isDark ? theme.primary : '#fff' }]}>History</Text>
-          </TouchableOpacity>
+      {/* Balance Card - Only show if wallet features are enabled */}
+      {ENABLE_WALLET_BALANCE && (
+        <View style={[styles.balanceCard, { backgroundColor: theme.isDark ? '#1a1a1a' : theme.primary }]}>
+          <Text style={[styles.balanceLabel, { color: theme.isDark ? theme.primary : '#fff' }]}>Total Balance</Text>
+          <Text style={[styles.balanceAmount, { color: theme.isDark ? theme.primary : '#fff' }]}>${balance.toFixed(2)}</Text>
+          <View style={styles.balanceActions}>
+            {ENABLE_ADD_FUNDS && (
+              <TouchableOpacity 
+                style={[styles.balanceActionButton, { backgroundColor: theme.isDark ? theme.primary + '20' : 'rgba(255,255,255,0.2)' }]}
+                onPress={() => {
+                  setError(null);
+                  setShowAddFunds(true);
+                }}
+              >
+                <Ionicons name="add" size={20} color={theme.isDark ? theme.primary : '#fff'} />
+                <Text style={[styles.balanceActionText, { color: theme.isDark ? theme.primary : '#fff' }]}>Add</Text>
+              </TouchableOpacity>
+            )}
+            {ENABLE_SEND_MONEY && (
+              <TouchableOpacity 
+                style={[styles.balanceActionButton, { backgroundColor: theme.isDark ? theme.primary + '20' : 'rgba(255,255,255,0.2)' }]}
+                onPress={() => {
+                  setError(null);
+                  setRecipientUser(null);
+                  setShowSendMoney(true);
+                }}
+              >
+                <Ionicons name="arrow-up" size={20} color={theme.isDark ? theme.primary : '#fff'} />
+                <Text style={[styles.balanceActionText, { color: theme.isDark ? theme.primary : '#fff' }]}>Send</Text>
+              </TouchableOpacity>
+            )}
+            {ENABLE_CASH_OUT && (
+              <TouchableOpacity 
+                style={[styles.balanceActionButton, { backgroundColor: theme.isDark ? theme.primary + '20' : 'rgba(255,255,255,0.2)' }]}
+                onPress={() => {
+                  setError(null);
+                  setShowCashOut(true);
+                }}
+              >
+                <Ionicons name="arrow-down" size={20} color={theme.isDark ? theme.primary : '#fff'} />
+                <Text style={[styles.balanceActionText, { color: theme.isDark ? theme.primary : '#fff' }]}>Cash Out</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Quick Actions */}
       <View style={styles.quickActions}>
-        <TouchableOpacity 
-          style={[styles.quickActionButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-          onPress={() => setShowQRCode(true)}
-        >
-          <Ionicons name="qr-code" size={24} color={theme.primary} />
-          <Text style={[styles.quickActionText, { color: theme.text }]}>QR Code</Text>
-        </TouchableOpacity>
+        {ENABLE_WALLET_QR_CODE && (
+          <TouchableOpacity 
+            style={[styles.quickActionButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+            onPress={() => setShowQRCode(true)}
+          >
+            <Ionicons name="qr-code" size={24} color={theme.primary} />
+            <Text style={[styles.quickActionText, { color: theme.text }]}>QR Code</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity 
           style={[styles.quickActionButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
           onPress={() => setShowPaymentMethods(true)}
@@ -497,13 +816,15 @@ export default function WalletScreen() {
           <Ionicons name="card" size={24} color={theme.primary} />
           <Text style={[styles.quickActionText, { color: theme.text }]}>Cards</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.quickActionButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-          onPress={() => setShowInsights(true)}
-        >
-          <Ionicons name="analytics" size={24} color={theme.primary} />
-          <Text style={[styles.quickActionText, { color: theme.text }]}>Insights</Text>
-        </TouchableOpacity>
+        {ENABLE_WALLET_BALANCE && (
+          <TouchableOpacity 
+            style={[styles.quickActionButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+            onPress={() => setShowInsights(true)}
+          >
+            <Ionicons name="analytics" size={24} color={theme.primary} />
+            <Text style={[styles.quickActionText, { color: theme.text }]}>Insights</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity 
           style={[styles.quickActionButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
           onPress={() => Alert.alert('Help', 'Contact support at help@m1a.com or call 1-800-M1A-HELP')}
@@ -513,59 +834,353 @@ export default function WalletScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Recent Transactions */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent Transactions</Text>
-          <TouchableOpacity onPress={() => setShowTransactionHistory(true)}>
-            <Text style={[styles.sectionAction, { color: theme.primary }]}>View All</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <FlatList
-          data={transactions.slice(0, 3)}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTransaction}
-          scrollEnabled={false}
-          ListEmptyComponent={
-            <EmptyState
-              icon="receipt-outline"
-              title="No transactions yet"
-              message="Your transaction history will appear here once you make your first payment or receive funds."
-              actionLabel="Add Funds"
-              onAction={() => setShowAddFunds(true)}
-            />
-          }
-        />
+      {/* Tab Navigation */}
+      <View style={[styles.tabContainer, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity
+          style={[
+            styles.tab,
+            activeTab === 'transactions' && [styles.activeTab, { borderBottomColor: theme.primary }]
+          ]}
+          onPress={() => setActiveTab('transactions')}
+        >
+          <Text style={[
+            styles.tabText,
+            { color: activeTab === 'transactions' ? theme.primary : theme.subtext }
+          ]}>
+            Transactions
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.tab,
+            activeTab === 'content' && [styles.activeTab, { borderBottomColor: theme.primary }]
+          ]}
+          onPress={() => setActiveTab('content')}
+        >
+          <Text style={[
+            styles.tabText,
+            { color: activeTab === 'content' ? theme.primary : theme.subtext }
+          ]}>
+            Content Library
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Payment Methods */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Payment Methods</Text>
-          <TouchableOpacity>
-            <Text style={[styles.sectionAction, { color: theme.primary }]}>Manage</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <FlatList
-          data={paymentMethods}
-          keyExtractor={(item) => item.id}
-          renderItem={renderPaymentMethod}
-          scrollEnabled={false}
-          ListEmptyComponent={
-            <EmptyState
-              icon="card-outline"
-              title="No payment methods"
-              message="Add a payment method to make purchases and add funds to your wallet."
-              actionLabel="Add Payment Method"
-              onAction={() => setShowPaymentMethods(true)}
-            />
-          }
-        />
-      </View>
+      {/* Scrollable Content */}
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={styles.scrollContentContainer}
+        showsVerticalScrollIndicator={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing || loadingContent}
+            onRefresh={() => {
+              if (activeTab === 'transactions') {
+                onRefresh();
+              } else {
+                loadContentLibrary();
+              }
+            }}
+            tintColor={theme.primary}
+          />
+        }
+      >
+        {activeTab === 'transactions' ? (
+          <>
+            {/* Recent Transactions */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent Transactions</Text>
+                <TouchableOpacity onPress={() => setShowTransactionHistory(true)}>
+                  <Text style={[styles.sectionAction, { color: theme.primary }]}>View All</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <FlatList
+                data={transactions.slice(0, 3)}
+                keyExtractor={(item) => item.id}
+                renderItem={renderTransaction}
+                scrollEnabled={false}
+                ListEmptyComponent={
+                  <EmptyState
+                    icon="receipt-outline"
+                    title="No transactions yet"
+                    message={ENABLE_WALLET_BALANCE 
+                      ? "Your transaction history will appear here once you make your first payment or receive funds."
+                      : "Your transaction history will appear here once you make your first payment."}
+                    actionLabel={ENABLE_ADD_FUNDS ? "Add Funds" : undefined}
+                    onAction={ENABLE_ADD_FUNDS ? () => setShowAddFunds(true) : undefined}
+                  />
+                }
+              />
+            </View>
 
-      {/* Add Funds Modal */}
+            {/* Payment Methods */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Payment Methods</Text>
+                <TouchableOpacity>
+                  <Text style={[styles.sectionAction, { color: theme.primary }]}>Manage</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <FlatList
+                data={paymentMethods}
+                keyExtractor={(item) => item.id}
+                renderItem={renderPaymentMethod}
+                scrollEnabled={false}
+                ListEmptyComponent={
+                  <EmptyState
+                    icon="card-outline"
+                    title="No payment methods"
+                    message={ENABLE_WALLET_BALANCE 
+                      ? "Add a payment method to make purchases and add funds to your wallet."
+                      : "Add a payment method to make purchases."}
+                    actionLabel="Add Payment Method"
+                    onAction={() => setShowPaymentMethods(true)}
+                  />
+                }
+              />
+            </View>
+          </>
+        ) : (
+          /* Content Library */
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Your Content</Text>
+              <View style={styles.sectionHeaderRight}>
+                {!googleDriveConnected ? (
+                  <TouchableOpacity
+                    style={[styles.connectButton, { backgroundColor: theme.primary }]}
+                    onPress={async () => {
+                      try {
+                        const oauthUrl = GoogleDriveService.getOAuthUrl();
+                        await Linking.openURL(oauthUrl);
+                      } catch (error) {
+                        Alert.alert('Error', 'Failed to connect Google Drive. Please check your configuration.');
+                      }
+                    }}
+                  >
+                    <Ionicons name="cloud-upload" size={16} color="#fff" />
+                    <Text style={styles.connectButtonText}>Connect Drive</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.settingsButton, { borderColor: theme.border }]}
+                    onPress={() => setShowFolderIdModal(true)}
+                  >
+                    <Ionicons name="folder-outline" size={16} color={theme.primary} />
+                    <Text style={[styles.settingsButtonText, { color: theme.primary }]}>
+                      {currentFolderId ? 'Change Folder' : 'Set Folder'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+                  {contentLibrary.length} items
+                </Text>
+              </View>
+            </View>
+            
+            {loadingContent ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.primary} />
+                <Text style={[styles.loadingText, { color: theme.text }]}>Loading content...</Text>
+              </View>
+            ) : contentLibrary.length === 0 ? (
+              <EmptyState
+                icon="library-outline"
+                title="No content yet"
+                message="Your videos, audio, and images from Merkaba will appear here."
+              />
+            ) : (
+              <View style={styles.contentGrid}>
+                {contentLibrary.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.contentItem, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                    onPress={() => {
+                      if (item.source === 'googledrive') {
+                        // Download Google Drive file
+                        Alert.alert(
+                          item.title,
+                          `Download this file from Google Drive?`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Download',
+                              onPress: async () => {
+                                try {
+                                  await GoogleDriveService.downloadFile(item.fileId, item.title);
+                                } catch (error) {
+                                  Alert.alert('Error', `Failed to download: ${error.message}`);
+                                }
+                              },
+                            },
+                          ]
+                        );
+                      } else {
+                        // Open media viewer or play media
+                        Alert.alert(item.title, `Type: ${item.type}\nClient: ${item.clientName}`);
+                      }
+                    }}
+                  >
+                    {item.type === 'video' ? (
+                      <View style={styles.mediaContainer}>
+                        {item.thumbnail ? (
+                          <Image source={{ uri: item.thumbnail }} style={styles.mediaThumbnail} />
+                        ) : (
+                          <View style={[styles.mediaPlaceholder, { backgroundColor: theme.border }]}>
+                            <Ionicons name="videocam" size={32} color={theme.subtext} />
+                          </View>
+                        )}
+                        <View style={styles.playOverlay}>
+                          <Ionicons name="play-circle" size={40} color="#fff" />
+                        </View>
+                      </View>
+                    ) : item.type === 'audio' ? (
+                      <View style={[styles.mediaContainer, styles.audioContainer]}>
+                        <View style={[styles.mediaPlaceholder, { backgroundColor: theme.primary + '20' }]}>
+                          <Ionicons name="musical-notes" size={32} color={theme.primary} />
+                        </View>
+                      </View>
+                    ) : item.type === 'image' ? (
+                      item.thumbnail ? (
+                        <Image source={{ uri: item.thumbnail }} style={styles.mediaThumbnail} />
+                      ) : (
+                        <View style={[styles.mediaPlaceholder, { backgroundColor: theme.border }]}>
+                          <Ionicons name="image" size={32} color={theme.subtext} />
+                        </View>
+                      )
+                    ) : (
+                      <View style={[styles.mediaContainer, styles.audioContainer]}>
+                        <View style={[styles.mediaPlaceholder, { backgroundColor: theme.primary + '20' }]}>
+                          <Ionicons 
+                            name={GoogleDriveService.getFileTypeIcon(item.mimeType)} 
+                            size={32} 
+                            color={theme.primary} 
+                          />
+                        </View>
+                      </View>
+                    )}
+                    {item.source === 'googledrive' && (
+                      <View style={styles.driveBadge}>
+                        <Ionicons name="cloud" size={12} color="#fff" />
+                      </View>
+                    )}
+                    <View style={styles.contentInfo}>
+                      <Text style={[styles.contentTitle, { color: theme.text }]} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text style={[styles.contentMeta, { color: theme.subtext }]} numberOfLines={1}>
+                        {item.clientName}
+                      </Text>
+                      <View style={styles.contentFooter}>
+                        <Text style={[styles.contentDate, { color: theme.subtext }]}>
+                          {item.createdAt.toLocaleDateString()}
+                        </Text>
+                        {item.size && (
+                          <Text style={[styles.contentSize, { color: theme.subtext }]}>
+                            {GoogleDriveService.formatFileSize(item.size)}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Google Drive Folder ID Modal */}
+      <Modal
+        visible={showFolderIdModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <TouchableOpacity onPress={() => setShowFolderIdModal(false)}>
+              <Text style={[styles.modalCancel, { color: theme.primary }]}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Google Drive Folder</Text>
+            <View style={{ width: 60 }} />
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            <View style={styles.modalSection}>
+              <Text style={[styles.modalSectionTitle, { color: theme.text }]}>
+                How to Get Your Folder ID
+              </Text>
+              <Text style={[styles.modalSectionText, { color: theme.subtext }]}>
+                1. Open Google Drive in your browser{'\n'}
+                2. Navigate to your folder{'\n'}
+                3. Copy the URL from your browser{'\n'}
+                4. The folder ID is the long string after /folders/{'\n\n'}
+                Example:{'\n'}
+                https://drive.google.com/drive/folders/
+                <Text style={{ fontWeight: 'bold', color: theme.primary }}>
+                  1h1boe5vSWXWUHVWj2BS9hDqe2qPxmSNc
+                </Text>
+                {'\n\n'}
+                The folder ID is: <Text style={{ fontWeight: 'bold' }}>1h1boe5vSWXWUHVWj2BS9hDqe2qPxmSNc</Text>
+              </Text>
+            </View>
+
+            <View style={[styles.inputContainer, { borderColor: theme.border }]}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Folder ID</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border }]}
+                value={folderIdInput}
+                onChangeText={setFolderIdInput}
+                placeholder="Paste folder ID here"
+                placeholderTextColor={theme.subtext}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {currentFolderId && (
+                <Text style={[styles.helperText, { color: theme.subtext }]}>
+                  Current folder ID: {currentFolderId}
+                </Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.modalButton, { backgroundColor: theme.primary }]}
+              onPress={async () => {
+                if (!folderIdInput.trim()) {
+                  Alert.alert('Error', 'Please enter a folder ID');
+                  return;
+                }
+
+                try {
+                  setProcessing(true);
+                  await GoogleDriveService.setClientFolderId(user.uid, folderIdInput.trim());
+                  setCurrentFolderId(folderIdInput.trim());
+                  setShowFolderIdModal(false);
+                  Alert.alert('Success', 'Folder ID set successfully! Pull to refresh to see files.');
+                  loadContentLibrary();
+                } catch (error) {
+                  Alert.alert('Error', `Failed to set folder ID: ${error.message}`);
+                } finally {
+                  setProcessing(false);
+                }
+              }}
+              disabled={processing}
+            >
+              {processing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.modalButtonText}>Set Folder ID</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Add Funds Modal - Only accessible if feature is enabled */}
+      {ENABLE_ADD_FUNDS && (
       <Modal
         visible={showAddFunds}
         animationType="slide"
@@ -653,8 +1268,10 @@ export default function WalletScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+      )}
 
-      {/* Send Money Modal */}
+      {/* Send Money Modal - Only accessible if feature is enabled */}
+      {ENABLE_SEND_MONEY && (
       <Modal
         visible={showSendMoney}
         animationType="slide"
@@ -672,13 +1289,47 @@ export default function WalletScreen() {
           <ScrollView style={styles.modalContent}>
             <View style={[styles.inputContainer, { borderColor: theme.border }]}>
               <Text style={[styles.inputLabel, { color: theme.text }]}>Recipient</Text>
-              <TextInput
-                style={[styles.textInput, { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border }]}
-                placeholder="Enter email or phone"
-                placeholderTextColor={theme.subtext}
-                value={recipient}
-                onChangeText={setRecipient}
-              />
+              <View style={styles.recipientSearchContainer}>
+                <TextInput
+                  style={[
+                    styles.textInput, 
+                    { 
+                      backgroundColor: theme.cardBackground, 
+                      color: theme.text, 
+                      borderColor: recipientUser ? theme.success : error ? theme.error : theme.border,
+                      flex: 1,
+                    }
+                  ]}
+                  placeholder="Enter email, phone, or username"
+                  placeholderTextColor={theme.subtext}
+                  value={recipient}
+                  onChangeText={handleRecipientSearch}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {searchingRecipient && (
+                  <ActivityIndicator size="small" color={theme.primary} style={styles.searchIndicator} />
+                )}
+                {recipientUser && !searchingRecipient && (
+                  <Ionicons name="checkmark-circle" size={24} color={theme.success} style={styles.searchIndicator} />
+                )}
+              </View>
+              {recipientUser && (
+                <View style={[styles.recipientCard, { backgroundColor: theme.cardBackground, borderColor: theme.success }]}>
+                  <Ionicons name="person-circle" size={40} color={theme.primary} />
+                  <View style={styles.recipientInfo}>
+                    <Text style={[styles.recipientName, { color: theme.text }]}>
+                      {recipientUser.displayName || recipientUser.username || 'User'}
+                    </Text>
+                    <Text style={[styles.recipientEmail, { color: theme.subtext }]}>
+                      {recipientUser.email || recipientUser.phoneNumber || ''}
+                    </Text>
+                  </View>
+                </View>
+              )}
+              {error && !recipientUser && recipient.length >= 3 && (
+                <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
+              )}
             </View>
 
             <View style={[styles.inputContainer, { borderColor: theme.border }]}>
@@ -697,12 +1348,16 @@ export default function WalletScreen() {
               style={[
                 styles.confirmButton, 
                 { 
-                  backgroundColor: processing ? theme.subtext : theme.primary,
-                  opacity: processing ? 0.6 : 1,
+                  backgroundColor: (processing || !recipientUser || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > balance) 
+                    ? theme.subtext 
+                    : theme.primary,
+                  opacity: (processing || !recipientUser || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > balance) 
+                    ? 0.6 
+                    : 1,
                 }
               ]}
               onPress={handleSendMoney}
-              disabled={processing}
+              disabled={processing || !recipientUser || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > balance}
             >
               {processing ? (
                 <ActivityIndicator color="#fff" />
@@ -713,6 +1368,7 @@ export default function WalletScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+      )}
 
       {/* Transaction History Modal */}
       <Modal
@@ -729,8 +1385,41 @@ export default function WalletScreen() {
             <View style={{ width: 60 }} />
           </View>
 
+          <View style={[styles.filterContainer, { borderBottomColor: theme.border }]}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+              {['all', 'received', 'sent', 'withdrawals'].map((filter) => (
+                <TouchableOpacity
+                  key={filter}
+                  style={[
+                    styles.filterButton,
+                    {
+                      backgroundColor: transactionFilter === filter ? theme.primary : theme.cardBackground,
+                      borderColor: theme.border,
+                    }
+                  ]}
+                  onPress={() => setTransactionFilter(filter)}
+                >
+                  <Text
+                    style={[
+                      styles.filterButtonText,
+                      { color: transactionFilter === filter ? '#fff' : theme.text }
+                    ]}
+                  >
+                    {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
           <FlatList
-            data={transactions}
+            data={transactions.filter(t => {
+              if (transactionFilter === 'all') return true;
+              if (transactionFilter === 'received') return t.type === 'received';
+              if (transactionFilter === 'sent') return t.type === 'sent';
+              if (transactionFilter === 'withdrawals') return t.type === 'withdrawal';
+              return true;
+            })}
             keyExtractor={(item) => item.id}
             renderItem={renderTransaction}
             contentContainerStyle={styles.transactionList}
@@ -753,7 +1442,8 @@ export default function WalletScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* QR Code Modal */}
+      {/* QR Code Modal - Only accessible if feature is enabled */}
+      {ENABLE_WALLET_QR_CODE && (
       <Modal
         visible={showQRCode}
         animationType="slide"
@@ -807,6 +1497,7 @@ export default function WalletScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+      )}
 
       {/* Payment Methods Modal */}
       <Modal
@@ -842,6 +1533,10 @@ export default function WalletScreen() {
                   onPress={() => {
                     setSelectedPaymentMethod(item);
                     setShowPaymentMethods(false);
+                    // If we came from cash out modal, return to it
+                    if (showCashOut) {
+                      setTimeout(() => setShowCashOut(true), 100);
+                    }
                   }}
                 >
                   <View style={styles.paymentMethodIcon}>
@@ -910,7 +1605,148 @@ export default function WalletScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* Insights Modal */}
+      {/* Cash Out Modal - Only accessible if feature is enabled */}
+      {ENABLE_CASH_OUT && (
+      <Modal
+        visible={showCashOut}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <TouchableOpacity onPress={() => {
+              setShowCashOut(false);
+              setError(null);
+              setAmount('');
+            }}>
+              <Text style={[styles.modalCancel, { color: theme.primary }]}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Cash Out</Text>
+            <View style={{ width: 60 }} />
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            <View style={[styles.infoCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+              <Ionicons name="information-circle" size={24} color={theme.primary} />
+              <Text style={[styles.infoText, { color: theme.text }]}>
+                Withdraw funds to your bank account. Processing typically takes 1-3 business days.
+              </Text>
+            </View>
+
+            <View style={[styles.inputContainer, { borderColor: theme.border }]}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Bank Account</Text>
+              <TouchableOpacity 
+                style={[styles.paymentMethodSelector, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => {
+                  setShowPaymentMethods(true);
+                  setShowCashOut(false);
+                }}
+              >
+                <Text style={[styles.paymentMethodText, { color: selectedPaymentMethod ? theme.text : theme.subtext }]}>
+                  {selectedPaymentMethod ? selectedPaymentMethod.name : 'Select Bank Account'}
+                </Text>
+                <Ionicons name="chevron-down" size={20} color={theme.subtext} />
+              </TouchableOpacity>
+              {!selectedPaymentMethod && (
+                <Text style={[styles.helperText, { color: theme.subtext }]}>
+                  Add a bank account in Payment Methods to cash out
+                </Text>
+              )}
+            </View>
+
+            <View style={[styles.inputContainer, { borderColor: theme.border }]}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Amount</Text>
+              <TextInput
+                style={[
+                  styles.amountInput, 
+                  { 
+                    backgroundColor: theme.cardBackground, 
+                    color: theme.text, 
+                    borderColor: error && amount ? theme.error : theme.border 
+                  }
+                ]}
+                placeholder="0.00"
+                placeholderTextColor={theme.subtext}
+                value={amount}
+                onChangeText={(text) => {
+                  setAmount(text);
+                  setError(null);
+                }}
+                keyboardType="decimal-pad"
+              />
+              <Text style={[styles.helperText, { color: theme.subtext }]}>
+                Minimum: $10.00 | Available: ${balance.toFixed(2)}
+              </Text>
+              {amount && parseFloat(amount) > balance && (
+                <Text style={[styles.errorText, { color: theme.error }]}>
+                  Insufficient funds. Available: ${balance.toFixed(2)}
+                </Text>
+              )}
+              {amount && parseFloat(amount) < 10 && (
+                <Text style={[styles.errorText, { color: theme.error }]}>
+                  Minimum withdrawal amount is $10.00
+                </Text>
+              )}
+              {error && amount && (
+                <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
+              )}
+            </View>
+
+            <View style={styles.quickAmounts}>
+              <TouchableOpacity 
+                style={[styles.quickAmountButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => setAmount('50')}
+              >
+                <Text style={[styles.quickAmountText, { color: theme.text }]}>$50</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.quickAmountButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => setAmount('100')}
+              >
+                <Text style={[styles.quickAmountText, { color: theme.text }]}>$100</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.quickAmountButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => setAmount('250')}
+              >
+                <Text style={[styles.quickAmountText, { color: theme.text }]}>$250</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.quickAmountButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => setAmount(balance >= 500 ? '500' : balance.toFixed(2))}
+              >
+                <Text style={[styles.quickAmountText, { color: theme.text }]}>Max</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity 
+              style={[
+                styles.confirmButton, 
+                { 
+                  backgroundColor: (processing || !selectedPaymentMethod || !amount || parseFloat(amount) < 10 || parseFloat(amount) > balance) 
+                    ? theme.subtext 
+                    : theme.primary,
+                  opacity: (processing || !selectedPaymentMethod || !amount || parseFloat(amount) < 10 || parseFloat(amount) > balance) 
+                    ? 0.6 
+                    : 1,
+                }
+              ]}
+              onPress={handleCashOut}
+              disabled={processing || !selectedPaymentMethod || !amount || parseFloat(amount) < 10 || parseFloat(amount) > balance}
+            >
+              {processing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.confirmButtonText}>Cash Out</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+      )}
+
+      {/* Insights Modal - Only accessible if wallet features are enabled */}
+      {ENABLE_WALLET_BALANCE && (
       <Modal
         visible={showInsights}
         animationType="slide"
@@ -998,6 +1834,7 @@ export default function WalletScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -1161,6 +1998,11 @@ const styles = StyleSheet.create({
   pendingText: {
     fontSize: 12,
     marginTop: 2,
+  },
+  transactionStatus: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '500',
   },
   
   // Payment method styles
@@ -1460,5 +2302,233 @@ const styles = StyleSheet.create({
     padding: 40,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  recipientSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchIndicator: {
+    marginLeft: 8,
+  },
+  recipientCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 8,
+    gap: 12,
+  },
+  recipientInfo: {
+    flex: 1,
+  },
+  recipientName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  recipientEmail: {
+    fontSize: 14,
+  },
+  errorText: {
+    fontSize: 14,
+    marginTop: 4,
+  },
+  helperText: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 20,
+    gap: 12,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 14,
+  },
+  // Tab styles
+  tabContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Scroll content styles
+  scrollContent: {
+    flex: 1,
+  },
+  scrollContentContainer: {
+    paddingBottom: 20,
+  },
+  // Content library styles
+  sectionSubtitle: {
+    fontSize: 14,
+    marginTop: 4,
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  connectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 6,
+  },
+  connectButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  settingsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+  },
+  settingsButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  driveBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    padding: 4,
+    zIndex: 1,
+  },
+  contentFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  contentSize: {
+    fontSize: 10,
+  },
+  modalSection: {
+    marginBottom: 24,
+  },
+  modalSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  modalSectionText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  modalButton: {
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  contentGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingTop: 8,
+  },
+  contentItem: {
+    width: '48%',
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  mediaContainer: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    position: 'relative',
+    backgroundColor: '#000',
+  },
+  audioContainer: {
+    aspectRatio: 1,
+  },
+  mediaThumbnail: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  mediaPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  contentInfo: {
+    padding: 12,
+  },
+  contentTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  contentMeta: {
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  contentDate: {
+    fontSize: 11,
+  },
+  filterContainer: {
+    borderBottomWidth: 1,
+    paddingVertical: 12,
+  },
+  filterScroll: {
+    paddingHorizontal: 20,
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginRight: 8,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

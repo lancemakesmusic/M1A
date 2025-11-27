@@ -6,25 +6,28 @@ import { useTheme } from '../contexts/ThemeContext';
 
 // Screens
 import AutoPosterScreen from '../screens/AutoPosterScreen';
+import BarCategoryScreen from '../screens/BarCategoryScreen';
+import BarMenuCategoryScreen from '../screens/BarMenuCategoryScreen';
 import BarMenuScreen from '../screens/BarMenuScreen';
+import CalendarScreen from '../screens/CalendarScreen';
+import CreatePostScreen from '../screens/CreatePostScreen';
 import EventBookingScreen from '../screens/EventBookingScreen';
 import ExploreScreen from '../screens/ExploreScreen';
+import FeedbackScreen from '../screens/FeedbackScreen';
+import FollowersListScreen from '../screens/FollowersListScreen';
+import HelpScreen from '../screens/HelpScreen';
 import HomeScreen from '../screens/HomeScreen';
 import M1ADashboardScreen from '../screens/M1ADashboardScreen';
 import M1APersonalizationScreen from '../screens/M1APersonalizationScreen';
 import M1ASettingsScreen from '../screens/M1ASettingsScreen';
 import MessagesScreen from '../screens/MessagesScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
 import ProfileEditScreen from '../screens/ProfileEditScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import ProfileViewsScreen from '../screens/ProfileViewsScreen';
 import ServiceBookingScreen from '../screens/ServiceBookingScreen';
-import WalletScreen from '../screens/WalletScreen';
-import HelpScreen from '../screens/HelpScreen';
-import FeedbackScreen from '../screens/FeedbackScreen';
-import CalendarScreen from '../screens/CalendarScreen';
 import UserProfileViewScreen from '../screens/UserProfileViewScreen';
-import BarCategoryScreen from '../screens/BarCategoryScreen';
-import BarMenuCategoryScreen from '../screens/BarMenuCategoryScreen';
-import CreatePostScreen from '../screens/CreatePostScreen';
+import WalletScreen from '../screens/WalletScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -137,6 +140,21 @@ function ProfileStackNavigator() {
         name="ProfileEdit"
         component={ProfileEditScreen}
         options={{ title: 'Edit Profile' }}
+      />
+      <Stack.Screen
+        name="FollowersList"
+        component={FollowersListScreen}
+        options={{ title: 'Followers' }}
+      />
+      <Stack.Screen
+        name="ProfileViews"
+        component={ProfileViewsScreen}
+        options={{ title: 'Profile Views' }}
+      />
+      <Stack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{ title: 'Notifications' }}
       />
     </Stack.Navigator>
   );

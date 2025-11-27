@@ -20,22 +20,34 @@ import ScrollIndicator from '../components/ScrollIndicator';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, functions, httpsCallable } from '../firebase';
+import { AccessibilityLabels, getButtonAccessibilityProps } from '../utils/accessibility';
+import { createRetryableFunction, handleApiError, handleError, withErrorHandling } from '../utils/errorHandler';
 
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Platform } from 'react-native';
 import { v4 as uuidv4 } from 'uuid';
 
-// Backend Configuration - Use network IP for physical devices
+// Backend Configuration - Use environment variable or fallback
 const getApiBaseUrl = () => {
+  // Always check environment variable first (required for production)
   if (process.env.EXPO_PUBLIC_API_BASE_URL) {
     return process.env.EXPO_PUBLIC_API_BASE_URL;
   }
+  
+  // Development fallbacks
   if (Platform.OS === 'web') {
     return 'http://localhost:8001';
   }
-  // Use the same network IP as Metro bundler
-  return 'http://172.20.10.3:8001';
+  
+  // Development only - should never reach here in production
+  if (__DEV__) {
+    console.warn('⚠️ EXPO_PUBLIC_API_BASE_URL not set. Using localhost fallback (development only).');
+    return 'http://localhost:8001';
+  }
+  
+  // Production: fail if no URL configured
+  throw new Error('EXPO_PUBLIC_API_BASE_URL must be set in production. Please configure your environment variables.');
 };
 const BACKEND_BASE_URL = getApiBaseUrl();
 
@@ -137,25 +149,26 @@ export default function AutoPosterScreen({ navigation }) {
     loadData();
   }, []);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      console.log('🔄 Loading AutoPoster data...');
-      
-      await Promise.all([
-        loadScheduledPosts(),
-        loadMediaLibrary(),
-        checkAutoPosterStatus()
-      ]);
-      
-      console.log('✅ AutoPoster data loaded successfully');
-    } catch (error) {
-      console.error('❌ Error loading data:', error);
-      Alert.alert('Error', `Failed to load data: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loadData = withErrorHandling(async () => {
+    setLoading(true);
+    console.log('🔄 Loading AutoPoster data...');
+    
+    await Promise.all([
+      loadScheduledPosts(),
+      loadMediaLibrary(),
+      checkAutoPosterStatus()
+    ]);
+    
+    console.log('✅ AutoPoster data loaded successfully');
+    setLoading(false);
+  }, (error) => {
+    setLoading(false);
+    handleError(error, {
+      customTitle: 'Failed to Load Data',
+      customMessage: 'Unable to load Auto-Poster data. Please check your connection and try again.',
+      onRetry: loadData,
+    });
+  });
 
   const loadScheduledPosts = async () => {
     try {
@@ -216,48 +229,68 @@ export default function AutoPosterScreen({ navigation }) {
     setRefreshing(false);
   };
 
-  const generateContent = async () => {
+  const generateContent = createRetryableFunction(async () => {
     if (!contentPrompt.trim()) {
       Alert.alert('Error', 'Please enter a content prompt');
       return;
     }
 
+    setGeneratingContent(true);
+    console.log('🤖 Generating content with backend...');
+    console.log('Prompt:', contentPrompt);
+    console.log('Content Type:', contentType);
+    console.log('Platform:', platform);
+    
+    // Call the backend API
+    const response = await fetch(`${BACKEND_BASE_URL}/api/generate-content`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt: contentPrompt,
+        content_type: contentType,
+        platform: platform,
+        brand_voice: brandVoice,
+        target_audience: targetAudience
+      })
+    });
+
+    const apiError = await handleApiError(response);
+    if (apiError.shouldRetry) {
+      throw apiError.error;
+    }
+    if (apiError.error) {
+      throw apiError.error;
+    }
+
+    const result = await response.json();
+    console.log('📝 Backend Response:', result);
+
+    if (result.success || result.status === 'success') {
+      const content = result.content || 'Content generated successfully!';
+      setGeneratedContent(content);
+      console.log('✅ Content generated successfully');
+      console.log('📝 Generated content:', content);
+    } else {
+      throw new Error(result.message || 'Failed to generate content');
+    }
+  }, {
+    maxRetries: 2,
+    onRetry: (attempt, maxRetries) => {
+      console.log(`Retrying content generation (${attempt}/${maxRetries})...`);
+    }
+  });
+
+  const generateContentWithErrorHandling = async () => {
     try {
-      setGeneratingContent(true);
-      console.log('🤖 Generating content with backend...');
-      console.log('Prompt:', contentPrompt);
-      console.log('Content Type:', contentType);
-      console.log('Platform:', platform);
-      
-      // Call the backend API
-      const response = await fetch(`${BACKEND_BASE_URL}/api/generate-content`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt: contentPrompt,
-          content_type: contentType,
-          platform: platform,
-          brand_voice: brandVoice,
-          target_audience: targetAudience
-        })
-      });
-
-      const result = await response.json();
-      console.log('📝 Backend Response:', result);
-
-      if (result.success || result.status === 'success') {
-        setGeneratedContent(result.content || 'Content generated successfully!');
-        console.log('✅ Content generated successfully');
-        Alert.alert('Success', 'Content generated successfully!');
-      } else {
-        console.log('❌ Content generation failed:', result.message);
-        Alert.alert('Error', result.message || 'Failed to generate content');
-      }
+      await generateContent();
     } catch (error) {
-      console.error('❌ Error generating content:', error);
-      Alert.alert('Error', `Failed to generate content: ${error.message}`);
+      handleError(error, {
+        customTitle: 'Content Generation Failed',
+        customMessage: 'Unable to generate content. Please try again.',
+        onRetry: generateContentWithErrorHandling,
+      });
     } finally {
       setGeneratingContent(false);
     }
@@ -307,6 +340,14 @@ export default function AutoPosterScreen({ navigation }) {
         })
       });
 
+      const apiError = await handleApiError(response);
+      if (apiError.shouldRetry) {
+        throw apiError.error;
+      }
+      if (apiError.error) {
+        throw apiError.error;
+      }
+
       const result = await response.json();
       console.log('📝 Schedule Response:', result);
 
@@ -317,11 +358,14 @@ export default function AutoPosterScreen({ navigation }) {
         setSelectedMedia(null);
         loadScheduledPosts();
       } else {
-        Alert.alert('Error', result.message || 'Failed to schedule post');
+        throw new Error(result.message || 'Failed to schedule post');
       }
     } catch (error) {
-      console.error('Error scheduling post:', error);
-      Alert.alert('Error', `Failed to schedule post: ${error.message}`);
+      handleError(error, {
+        customTitle: 'Failed to Schedule Post',
+        customMessage: 'Unable to schedule your post. Please try again.',
+        onRetry: () => schedulePost(content, imageUrl),
+      });
     }
   };
 
@@ -445,9 +489,7 @@ export default function AutoPosterScreen({ navigation }) {
         const response = await fetch(`${BACKEND_BASE_URL}/api/upload-media`, {
           method: 'POST',
           body: formData,
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
+          // Don't set Content-Type header - let fetch set it automatically with boundary
         });
         
         const uploadResult = await response.json();
@@ -561,59 +603,144 @@ export default function AutoPosterScreen({ navigation }) {
     }
   };
 
-  const renderScheduledPost = ({ item }) => (
-    <View style={[styles.postCard, { backgroundColor: theme.cardBackground }]}>
-      <View style={styles.postHeader}>
-        <Text style={[styles.postStatus, { color: theme.primary }]}>
-          {item.status.toUpperCase()}
+  const postNow = async (postId) => {
+    try {
+      console.log(`🚀 Posting now: ${postId}`);
+      Alert.alert(
+        'Post Now',
+        'Are you sure you want to post this immediately?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Post Now',
+            onPress: async () => {
+              try {
+                const response = await fetch(`${BACKEND_BASE_URL}/api/post-now/${postId}`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                });
+
+                const result = await response.json();
+                console.log('📝 Post Now Response:', result);
+
+                if (result.success) {
+                  Alert.alert('Success', 'Post published successfully!');
+                  // Reload scheduled posts to show updated status
+                  loadScheduledPosts();
+                } else {
+                  Alert.alert('Error', result.message || 'Failed to post');
+                }
+              } catch (error) {
+                console.error('Error posting now:', error);
+                Alert.alert('Error', `Failed to post: ${error.message}`);
+              }
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error in postNow:', error);
+      Alert.alert('Error', `Failed to post: ${error.message}`);
+    }
+  };
+
+  const renderScheduledPost = ({ item }) => {
+    // Handle both Firestore timestamp format and ISO string format
+    const scheduledTime = item.scheduledTime?.seconds 
+      ? new Date(item.scheduledTime.seconds * 1000)
+      : new Date(item.scheduledTime || item.createdAt);
+    
+    const isScheduled = item.status === 'scheduled' || item.status === 'SCHEDULED';
+    
+    return (
+      <View style={[styles.postCard, { backgroundColor: theme.cardBackground }]}>
+        <View style={styles.postHeader}>
+          <Text style={[
+            styles.postStatus, 
+            { 
+              color: item.status === 'posted' ? '#34C759' : 
+                     item.status === 'failed' ? '#FF3B30' : 
+                     theme.primary 
+            }
+          ]}>
+            {item.status?.toUpperCase() || 'SCHEDULED'}
+          </Text>
+          <Text style={[styles.postTime, { color: theme.subtext }]}>
+            {scheduledTime.toLocaleString()}
+          </Text>
+        </View>
+        <Text style={[styles.postContent, { color: theme.text }]} numberOfLines={3}>
+          {item.content}
         </Text>
-        <Text style={[styles.postTime, { color: theme.subtext }]}>
-          {new Date(item.scheduledTime.seconds * 1000).toLocaleString()}
-        </Text>
+        <View style={styles.postPlatforms}>
+          {item.platforms?.instagram && (
+            <View style={[styles.platformTag, { backgroundColor: '#E4405F' }]}>
+              <Ionicons name="logo-instagram" size={12} color="white" />
+              <Text style={styles.platformText}>Instagram</Text>
+            </View>
+          )}
+          {item.platforms?.facebook && (
+            <View style={[styles.platformTag, { backgroundColor: '#1877F2' }]}>
+              <Ionicons name="logo-facebook" size={12} color="white" />
+              <Text style={styles.platformText}>Facebook</Text>
+            </View>
+          )}
+          {item.platforms?.twitter && (
+            <View style={[styles.platformTag, { backgroundColor: '#1DA1F2' }]}>
+              <Ionicons name="logo-twitter" size={12} color="white" />
+              <Text style={styles.platformText}>Twitter</Text>
+            </View>
+          )}
+          {item.platforms?.linkedin && (
+            <View style={[styles.platformTag, { backgroundColor: '#0077B5' }]}>
+              <Ionicons name="logo-linkedin" size={12} color="white" />
+              <Text style={styles.platformText}>LinkedIn</Text>
+            </View>
+          )}
+          {item.platforms?.tiktok && (
+            <View style={[styles.platformTag, { backgroundColor: '#000000' }]}>
+              <Ionicons name="logo-tiktok" size={12} color="white" />
+              <Text style={styles.platformText}>TikTok</Text>
+            </View>
+          )}
+          {item.platforms?.youtube && (
+            <View style={[styles.platformTag, { backgroundColor: '#FF0000' }]}>
+              <Ionicons name="logo-youtube" size={12} color="white" />
+              <Text style={styles.platformText}>YouTube</Text>
+            </View>
+          )}
+        </View>
+        {/* Post Now Button - Only show for scheduled posts */}
+        {isScheduled && (
+          <TouchableOpacity
+            style={[styles.postNowButton, { backgroundColor: theme.primary }]}
+            onPress={() => postNow(item.id)}
+          >
+            <Ionicons name="rocket" size={16} color="white" />
+            <Text style={styles.postNowButtonText}>Post Now</Text>
+          </TouchableOpacity>
+        )}
+        {/* Show results if posted */}
+        {item.status === 'posted' && item.postResults && (
+          <View style={styles.postResults}>
+            <Text style={[styles.postResultsText, { color: '#34C759' }]}>
+              ✓ Posted successfully
+            </Text>
+          </View>
+        )}
+        {/* Show error if failed */}
+        {item.status === 'failed' && item.error && (
+          <View style={styles.postResults}>
+            <Text style={[styles.postResultsText, { color: '#FF3B30' }]}>
+              ✗ Failed: {Array.isArray(item.error) ? item.error.join(', ') : item.error}
+            </Text>
+          </View>
+        )}
       </View>
-      <Text style={[styles.postContent, { color: theme.text }]} numberOfLines={3}>
-        {item.content}
-      </Text>
-      <View style={styles.postPlatforms}>
-        {item.platforms.instagram && (
-          <View style={[styles.platformTag, { backgroundColor: '#E4405F' }]}>
-            <Ionicons name="logo-instagram" size={12} color="white" />
-            <Text style={styles.platformText}>Instagram</Text>
-          </View>
-        )}
-        {item.platforms.facebook && (
-          <View style={[styles.platformTag, { backgroundColor: '#1877F2' }]}>
-            <Ionicons name="logo-facebook" size={12} color="white" />
-            <Text style={styles.platformText}>Facebook</Text>
-          </View>
-        )}
-        {item.platforms.twitter && (
-          <View style={[styles.platformTag, { backgroundColor: '#1DA1F2' }]}>
-            <Ionicons name="logo-twitter" size={12} color="white" />
-            <Text style={styles.platformText}>Twitter</Text>
-          </View>
-        )}
-        {item.platforms.linkedin && (
-          <View style={[styles.platformTag, { backgroundColor: '#0077B5' }]}>
-            <Ionicons name="logo-linkedin" size={12} color="white" />
-            <Text style={styles.platformText}>LinkedIn</Text>
-          </View>
-        )}
-        {item.platforms.tiktok && (
-          <View style={[styles.platformTag, { backgroundColor: '#000000' }]}>
-            <Ionicons name="logo-tiktok" size={12} color="white" />
-            <Text style={styles.platformText}>TikTok</Text>
-          </View>
-        )}
-        {item.platforms.youtube && (
-          <View style={[styles.platformTag, { backgroundColor: '#FF0000' }]}>
-            <Ionicons name="logo-youtube" size={12} color="white" />
-            <Text style={styles.platformText}>YouTube</Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderMediaItem = ({ item }) => (
     <TouchableOpacity
@@ -894,19 +1021,41 @@ export default function AutoPosterScreen({ navigation }) {
                 ))}
               </View>
 
-              {generatedContent ? (
-                <View style={styles.generatedContent}>
-                  <Text style={[styles.generatedContentTitle, { color: theme.text }]}>Generated Content:</Text>
-                  <Text style={[styles.generatedContentText, { color: theme.text }]}>{generatedContent}</Text>
-                </View>
-              ) : null}
-
               <TouchableOpacity
                 style={[styles.generateButton, { backgroundColor: theme.primary }]}
-                onPress={generateContent}
+                onPress={generateContentWithErrorHandling}
+                disabled={generatingContent}
               >
-                <Text style={styles.generateButtonText}>Generate Content</Text>
+                <Text style={styles.generateButtonText}>
+                  {generatingContent ? 'Generating...' : 'Generate Content'}
+                </Text>
               </TouchableOpacity>
+
+              {generatingContent && (
+                <View style={styles.loadingContainer}>
+                  <Text style={[styles.loadingText, { color: theme.text }]}>Generating AI content...</Text>
+                </View>
+              )}
+
+              {generatedContent ? (
+                <View style={[styles.generatedContent, { backgroundColor: theme.background, borderColor: theme.primary, borderWidth: 2 }]}>
+                  <View style={styles.generatedContentHeader}>
+                    <Text style={[styles.generatedContentTitle, { color: theme.text }]}>✨ Generated Content:</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setShowContentModal(false);
+                        setShowScheduleModal(true);
+                      }}
+                      style={styles.useContentButton}
+                    >
+                      <Text style={styles.useContentButtonText}>Use This →</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView style={styles.generatedContentScroll}>
+                    <Text style={[styles.generatedContentText, { color: theme.text }]}>{generatedContent}</Text>
+                  </ScrollView>
+                </View>
+              ) : null}
             </ScrollView>
           </View>
         </View>
@@ -1048,6 +1197,7 @@ export default function AutoPosterScreen({ navigation }) {
               <TouchableOpacity
                 style={[styles.scheduleButton, { backgroundColor: theme.primary }]}
                 onPress={() => schedulePost(generatedContent, selectedMedia?.uri)}
+                {...getButtonAccessibilityProps(AccessibilityLabels.SCHEDULE_POST, 'Schedules your post for the selected date and time')}
               >
                 <Text style={styles.scheduleButtonText}>Schedule Post</Text>
               </TouchableOpacity>
@@ -1244,6 +1394,30 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
+  postNowButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 12,
+    gap: 6,
+  },
+  postNowButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  postResults: {
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+  },
+  postResultsText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
   mediaList: {
     paddingHorizontal: 20,
   },
@@ -1331,19 +1505,48 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   generatedContent: {
-    marginTop: 16,
+    marginTop: 20,
     padding: 16,
-    backgroundColor: '#f8f9fa',
     borderRadius: 8,
+    maxHeight: 300,
+  },
+  generatedContentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   generatedContentTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 8,
+    flex: 1,
+  },
+  generatedContentScroll: {
+    maxHeight: 250,
   },
   generatedContentText: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  useContentButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#007AFF',
+  },
+  useContentButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    marginTop: 16,
+    padding: 12,
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 14,
+    fontStyle: 'italic',
   },
   generateButton: {
     flexDirection: 'row',

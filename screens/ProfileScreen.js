@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { collection, getCountFromServer, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
+import { collection, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where } from 'firebase/firestore';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,8 +19,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ScrollIndicator from '../components/ScrollIndicator';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
-import { db, isFirebaseReady } from '../firebase';
+import { db, getPinnedPosts, isFirebaseReady, unpinPost, validateAndSanitizeUrl } from '../firebase';
+import { logError } from '../utils/logger';
 import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
+import { statsCache } from '../utils/statsCache';
 
 export default function ProfileScreen() {
   const { user, loading, refreshUserProfile } = useContext(UserContext);
@@ -35,39 +37,63 @@ export default function ProfileScreen() {
   const [posts, setPosts] = useState([]);
   const [loadingStats, setLoadingStats] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+  const [lastPostDoc, setLastPostDoc] = useState(null);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
   const [imageRefreshKey, setImageRefreshKey] = useState(0);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
+  const [pinnedPosts, setPinnedPosts] = useState([]);
+  const [loadingPinnedPosts, setLoadingPinnedPosts] = useState(false);
 
-  // Load real stats from Firestore
-  const loadStats = useCallback(async () => {
+  // Load pinned posts
+  const loadPinnedPosts = useCallback(async () => {
     if (!user?.id) return;
+    
+    setLoadingPinnedPosts(true);
+    try {
+      const pinned = await getPinnedPosts(user.id);
+      setPinnedPosts(pinned);
+    } catch (error) {
+      logError('Error loading pinned posts:', error);
+    } finally {
+      setLoadingPinnedPosts(false);
+    }
+  }, [user?.id]);
+
+  // Load real stats from Firestore with caching
+  const loadStats = useCallback(async (forceRefresh = false) => {
+    if (!user?.id) return;
+    
+    const userId = user.id;
+    
+    // Check cache first (unless forcing refresh)
+    if (!forceRefresh) {
+      const cached = statsCache.get(userId);
+      if (cached) {
+        setStats(cached);
+        return;
+      }
+    }
     
     setLoadingStats(true);
     try {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-        // Real Firestore
-        const userId = user.id;
+        // Real Firestore - use Promise.all for parallel queries
+        const [followersSnapshot, followingSnapshot, postsSnapshot] = await Promise.all([
+          getCountFromServer(query(collection(db, 'followers'), where('followingId', '==', userId))),
+          getCountFromServer(query(collection(db, 'followers'), where('followerId', '==', userId))),
+          getCountFromServer(query(collection(db, 'posts'), where('userId', '==', userId))),
+        ]);
         
-        // Get followers count
-        const followersQuery = query(collection(db, 'followers'), where('followingId', '==', userId));
-        const followersSnapshot = await getCountFromServer(followersQuery);
-        const followersCount = followersSnapshot.data().count;
+        const statsData = {
+          followers: followersSnapshot.data().count,
+          following: followingSnapshot.data().count,
+          posts: postsSnapshot.data().count,
+        };
         
-        // Get following count
-        const followingQuery = query(collection(db, 'followers'), where('followerId', '==', userId));
-        const followingSnapshot = await getCountFromServer(followingQuery);
-        const followingCount = followingSnapshot.data().count;
-        
-        // Get posts count
-        const postsQuery = query(collection(db, 'posts'), where('userId', '==', userId));
-        const postsSnapshot = await getCountFromServer(postsQuery);
-        const postsCount = postsSnapshot.data().count;
-        
-        setStats({
-          followers: followersCount,
-          following: followingCount,
-          posts: postsCount,
-        });
+        // Cache the results
+        statsCache.set(userId, statsData);
+        setStats(statsData);
       } else {
         // Fallback to mock if Firebase not ready
         setStats({ followers: 0, following: 0, posts: 0 });
@@ -80,40 +106,8 @@ export default function ProfileScreen() {
     }
   }, [user?.id]);
 
-  // Load real posts from Firestore
-  const loadPosts = useCallback(async () => {
-    if (!user?.id) return;
-    
-    setLoadingPosts(true);
-    try {
-      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-        // Real Firestore
-        const postsQuery = query(
-          collection(db, 'posts'),
-          where('userId', '==', user.id),
-          orderBy('createdAt', 'desc'),
-          limit(20)
-        );
-        const postsSnapshot = await getDocs(postsQuery);
-        const postsData = postsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          timestamp: doc.data().createdAt?.toDate ? formatTimestamp(doc.data().createdAt.toDate()) : 'Unknown',
-        }));
-        setPosts(postsData);
-      } else {
-        // Fallback to empty array if Firebase not ready
-        setPosts([]);
-      }
-    } catch (error) {
-      console.error('Error loading posts:', error);
-      setPosts([]);
-    } finally {
-      setLoadingPosts(false);
-    }
-  }, [user?.id]);
-
-  const formatTimestamp = (date) => {
+  // Memoized formatTimestamp function
+  const formatTimestamp = useCallback((date) => {
     if (!date) return 'Unknown';
     const now = new Date();
     const diff = now - date;
@@ -126,7 +120,108 @@ export default function ProfileScreen() {
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
     return date.toLocaleDateString();
-  };
+  }, []);
+
+  // Load real posts from Firestore (initial load)
+  const loadPosts = useCallback(async (reset = false) => {
+    if (!user?.id) return;
+    
+    if (reset) {
+      setPosts([]);
+      setLastPostDoc(null);
+      setHasMorePosts(true);
+    }
+    
+    setLoadingPosts(true);
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        // Real Firestore
+        let postsQuery = query(
+          collection(db, 'posts'),
+          where('userId', '==', user.id),
+          orderBy('createdAt', 'desc'),
+          limit(20)
+        );
+        
+        const postsSnapshot = await getDocs(postsQuery);
+        const postsData = postsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          timestamp: doc.data().createdAt?.toDate ? formatTimestamp(doc.data().createdAt.toDate()) : 'Unknown',
+        }));
+        
+        if (reset) {
+          setPosts(postsData);
+        } else {
+          setPosts(prev => [...prev, ...postsData]);
+        }
+        
+        // Update pagination state
+        if (postsSnapshot.docs.length > 0) {
+          setLastPostDoc(postsSnapshot.docs[postsSnapshot.docs.length - 1]);
+          setHasMorePosts(postsSnapshot.docs.length === 20); // If we got 20, there might be more
+        } else {
+          setHasMorePosts(false);
+        }
+      } else {
+        // Fallback to empty array if Firebase not ready
+        setPosts([]);
+        setHasMorePosts(false);
+      }
+    } catch (error) {
+      console.error('Error loading posts:', error);
+      setHasMorePosts(false);
+    } finally {
+      setLoadingPosts(false);
+    }
+  }, [user?.id, formatTimestamp]);
+
+  // Load more posts (pagination)
+  const loadMorePosts = useCallback(async () => {
+    if (!user?.id || !hasMorePosts || loadingMorePosts || loadingPosts) return;
+    
+    if (!lastPostDoc) {
+      // If no last doc, do initial load
+      await loadPosts(false);
+      return;
+    }
+    
+    setLoadingMorePosts(true);
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        const postsQuery = query(
+          collection(db, 'posts'),
+          where('userId', '==', user.id),
+          orderBy('createdAt', 'desc'),
+          startAfter(lastPostDoc),
+          limit(20)
+        );
+        
+        const postsSnapshot = await getDocs(postsQuery);
+        const postsData = postsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          timestamp: doc.data().createdAt?.toDate ? formatTimestamp(doc.data().createdAt.toDate()) : 'Unknown',
+        }));
+        
+        setPosts(prev => [...prev, ...postsData]);
+        
+        // Update pagination state
+        if (postsSnapshot.docs.length > 0) {
+          setLastPostDoc(postsSnapshot.docs[postsSnapshot.docs.length - 1]);
+          setHasMorePosts(postsSnapshot.docs.length === 20);
+        } else {
+          setHasMorePosts(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading more posts:', error);
+      setHasMorePosts(false);
+    } finally {
+      setLoadingMorePosts(false);
+    }
+  }, [user?.id, lastPostDoc, hasMorePosts, loadingMorePosts, loadingPosts, formatTimestamp]);
+
 
   // Refresh when screen comes into focus (e.g., after editing)
   useFocusEffect(
@@ -168,7 +263,8 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (user?.id) {
       loadStats();
-      loadPosts();
+      loadPosts(true); // Reset posts on user change
+      loadPinnedPosts();
     }
   }, [user?.id]); // Only depend on user?.id, not the callbacks
 
@@ -176,12 +272,17 @@ export default function ProfileScreen() {
     setRefreshing(true);
     try { 
       await refreshUserProfile();
-      await loadStats();
-      await loadPosts();
+      // Invalidate cache and force refresh stats
+      if (user?.id) {
+        statsCache.invalidate(user.id);
+      }
+      await loadStats(true); // Force refresh stats
+      await loadPosts(true); // Reset posts on refresh
+      await loadPinnedPosts(); // Refresh pinned posts
     } finally { 
       setRefreshing(false); 
     }
-  }, [refreshUserProfile, loadStats, loadPosts]);
+  }, [refreshUserProfile, loadStats, loadPosts, loadPinnedPosts, user?.id]);
 
   const normalizedSocials = useMemo(() => {
     if (!user?.socials || typeof user.socials !== 'object') return [];
@@ -191,10 +292,24 @@ export default function ProfileScreen() {
   }, [user]);
 
   const openSocial = async (url) => {
-    const safeUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    const canOpen = await Linking.canOpenURL(safeUrl);
-    if (!canOpen) return Alert.alert('Invalid link', 'This link cannot be opened.');
-    await Linking.openURL(safeUrl);
+    // Validate and sanitize URL
+    const safeUrl = validateAndSanitizeUrl(url);
+    if (!safeUrl) {
+      Alert.alert('Invalid link', 'This link is not valid and cannot be opened.');
+      return;
+    }
+    
+    try {
+      const canOpen = await Linking.canOpenURL(safeUrl);
+      if (!canOpen) {
+        Alert.alert('Invalid link', 'This link cannot be opened.');
+        return;
+      }
+      await Linking.openURL(safeUrl);
+    } catch (error) {
+      console.error('Error opening URL:', error);
+      Alert.alert('Error', 'Unable to open this link.');
+    }
   };
 
   const formatNumber = (num) => {
@@ -364,12 +479,26 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.profileDetails}>
-              <Text style={[styles.displayName, { color: theme.text }]}>
-                {user.displayName || 'No Name Set'}
-              </Text>
+              <View style={styles.nameRow}>
+                <Text style={[styles.displayName, { color: theme.text }]}>
+                  {user.displayName || 'No Name Set'}
+                </Text>
+                {user.verified && (
+                  <View style={styles.verifiedBadge}>
+                    <Ionicons name="checkmark-circle" size={20} color="#1DA1F2" />
+                  </View>
+                )}
+              </View>
               <Text style={[styles.username, { color: theme.subtext }]}>
                 @{user.username || 'username'}
               </Text>
+              {(user.categoryTitle || user.personaTitle) && (
+                <View style={[styles.categoryBadge, { backgroundColor: theme.primary + '20' }]}>
+                  <Text style={[styles.categoryText, { color: theme.primary }]}>
+                    {user.categoryTitle || user.personaTitle}
+                  </Text>
+                </View>
+              )}
               {user.bio && (
                 <Text style={[styles.bio, { color: theme.text }]}>{user.bio}</Text>
               )}
@@ -405,7 +534,14 @@ export default function ProfileScreen() {
                 </>
               )}
             </TouchableOpacity>
-            <TouchableOpacity style={styles.statItem}>
+            <TouchableOpacity 
+              style={styles.statItem}
+              onPress={() => {
+                if (stats.followers > 0) {
+                  navigation.navigate('FollowersList', { userId: user.id, type: 'followers' });
+                }
+              }}
+            >
               {loadingStats ? (
                 <ActivityIndicator size="small" color={theme.primary} />
               ) : (
@@ -415,7 +551,14 @@ export default function ProfileScreen() {
                 </>
               )}
             </TouchableOpacity>
-            <TouchableOpacity style={styles.statItem}>
+            <TouchableOpacity 
+              style={styles.statItem}
+              onPress={() => {
+                if (stats.following > 0) {
+                  navigation.navigate('FollowersList', { userId: user.id, type: 'following' });
+                }
+              }}
+            >
               {loadingStats ? (
                 <ActivityIndicator size="small" color={theme.primary} />
               ) : (
@@ -443,8 +586,15 @@ export default function ProfileScreen() {
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.secondaryButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+              onPress={() => navigation.navigate('ProfileViews')}
             >
-              <Ionicons name="share-outline" size={20} color={theme.text} />
+              <Ionicons name="eye-outline" size={20} color={theme.text} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.secondaryButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+              onPress={() => navigation.navigate('Notifications')}
+            >
+              <Ionicons name="notifications-outline" size={20} color={theme.text} />
             </TouchableOpacity>
           </View>
         </View>
@@ -480,19 +630,78 @@ export default function ProfileScreen() {
         {/* Content */}
         {activeTab === 'posts' && (
           <>
+            {/* Pinned Posts Section */}
+            {pinnedPosts.length > 0 && (
+              <View style={[styles.pinnedSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <View style={styles.pinnedHeader}>
+                  <Ionicons name="pin" size={20} color={theme.primary} />
+                  <Text style={[styles.pinnedTitle, { color: theme.text }]}>Pinned Posts</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pinnedScroll}>
+                  {pinnedPosts.map((post) => (
+                    <TouchableOpacity
+                      key={post.id}
+                      style={[styles.pinnedPostCard, { backgroundColor: theme.background, borderColor: theme.border }]}
+                    >
+                      {post.imageUrl && (
+                        <Image source={{ uri: post.imageUrl }} style={styles.pinnedPostImage} />
+                      )}
+                      <View style={styles.pinnedPostContent}>
+                        <Text style={[styles.pinnedPostText, { color: theme.text }]} numberOfLines={2}>
+                          {post.content || post.text || ''}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.unpinButton}
+                          onPress={async () => {
+                            try {
+                              await unpinPost(post.id);
+                              await loadPinnedPosts();
+                            } catch (error) {
+                              logError('Error unpinning post:', error);
+                              Alert.alert('Error', 'Failed to unpin post');
+                            }
+                          }}
+                        >
+                          <Ionicons name="close-circle" size={16} color={theme.subtext} />
+                        </TouchableOpacity>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
             {loadingPosts ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={theme.primary} />
                 <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading posts...</Text>
               </View>
             ) : posts.length > 0 ? (
-              <FlatList
-                data={posts}
-                renderItem={renderPost}
-                keyExtractor={(item) => item.id}
-                scrollEnabled={false}
-                showsVerticalScrollIndicator={false}
-              />
+              <>
+                <FlatList
+                  data={posts}
+                  renderItem={renderPost}
+                  keyExtractor={(item) => item.id}
+                  scrollEnabled={false}
+                  showsVerticalScrollIndicator={false}
+                  onEndReached={loadMorePosts}
+                  onEndReachedThreshold={0.5}
+                  ListFooterComponent={
+                    loadingMorePosts ? (
+                      <View style={styles.loadMoreContainer}>
+                        <ActivityIndicator size="small" color={theme.primary} />
+                      </View>
+                    ) : hasMorePosts ? (
+                      <TouchableOpacity
+                        style={[styles.loadMoreButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                        onPress={loadMorePosts}
+                      >
+                        <Text style={[styles.loadMoreText, { color: theme.primary }]}>Load More Posts</Text>
+                      </TouchableOpacity>
+                    ) : null
+                  }
+                />
+              </>
             ) : (
               <View style={styles.emptyState}>
                 <Ionicons name="document-text-outline" size={48} color={theme.subtext} />
@@ -837,6 +1046,73 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  verifiedBadge: {
+    marginLeft: 4,
+  },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  categoryText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  pinnedSection: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  pinnedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  pinnedTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  pinnedScroll: {
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+  },
+  pinnedPostCard: {
+    width: 200,
+    marginRight: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  pinnedPostImage: {
+    width: '100%',
+    height: 120,
+    resizeMode: 'cover',
+  },
+  pinnedPostContent: {
+    padding: 12,
+    position: 'relative',
+  },
+  pinnedPostText: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  unpinButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    padding: 4,
   },
   editButton: {
     marginTop: 24,

@@ -5,8 +5,8 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc, collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
-import React, { useState, useEffect, useMemo } from 'react';
+import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,11 +21,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import { db, isFirebaseReady } from '../firebase';
+import { useTheme } from '../contexts/ThemeContext';
+import { blockUser, db, getFollowers, getFollowing, isBlocked, isFirebaseReady, isFollowing, isMuted, muteUser, reportUser, trackProfileView, unmuteUser } from '../firebase';
 import useScreenTracking from '../hooks/useScreenTracking';
-import { trackButtonClick, trackFeatureUsage } from '../services/AnalyticsService';
+import { trackButtonClick } from '../services/AnalyticsService';
+import { logError } from '../utils/logger';
 import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
 
 export default function UserProfileViewScreen({ route, navigation }) {
@@ -45,12 +46,65 @@ export default function UserProfileViewScreen({ route, navigation }) {
     timeline: '',
   });
   const [messageText, setMessageText] = useState('');
+  const [isFollowingUser, setIsFollowingUser] = useState(false);
+  const [isBlockedUser, setIsBlockedUser] = useState(false);
+  const [isMutedUser, setIsMutedUser] = useState(false);
+  const [updatingFollow, setUpdatingFollow] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [stats, setStats] = useState({ followers: 0, following: 0, posts: 0 });
 
   useEffect(() => {
     if (userId && !userData) {
       loadUserProfile();
     }
   }, [userId]);
+
+  // Track profile view when profile loads
+  useEffect(() => {
+    if (user?.id && currentUser?.uid && user.id !== currentUser.uid) {
+      trackProfileView(user.id).catch(error => {
+        logError('Error tracking profile view:', error);
+      });
+    }
+  }, [user?.id, currentUser?.uid]);
+
+  useEffect(() => {
+    if (user?.id && currentUser?.uid) {
+      checkUserStatus();
+      loadStats();
+    }
+  }, [user?.id, currentUser?.uid]);
+
+  const checkUserStatus = async () => {
+    if (!user?.id || !currentUser?.uid || user.id === currentUser.uid) return;
+    
+    try {
+      const [following, blocked, muted] = await Promise.all([
+        isFollowing(user.id),
+        isBlocked(user.id),
+        isMuted(user.id),
+      ]);
+      setIsFollowingUser(following);
+      setIsBlockedUser(blocked);
+      setIsMutedUser(muted);
+    } catch (error) {
+      logError('Error checking user status:', error);
+    }
+  };
+
+  const loadStats = async () => {
+    if (!user?.id) return;
+    try {
+      const [followers, following] = await Promise.all([
+        getFollowers(user.id, 1).then(list => list.length),
+        getFollowing(user.id, 1).then(list => list.length),
+      ]);
+      // Get posts count would require a query, but for now we'll skip it
+      setStats({ followers, following, posts: 0 });
+    } catch (error) {
+      logError('Error loading stats:', error);
+    }
+  };
 
   const loadUserProfile = async () => {
     try {
@@ -472,6 +526,126 @@ export default function UserProfileViewScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* More Menu Modal */}
+      <Modal
+        visible={showMoreMenu}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowMoreMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowMoreMenu(false)}
+        >
+          <View style={[styles.moreMenuContent, { backgroundColor: theme.cardBackground }]}>
+            <TouchableOpacity
+              style={[styles.moreMenuItem, { borderBottomColor: theme.border }]}
+              onPress={async () => {
+                setShowMoreMenu(false);
+                try {
+                  if (isMutedUser) {
+                    await unmuteUser(user.id);
+                    setIsMutedUser(false);
+                    Alert.alert('Success', 'User unmuted');
+                  } else {
+                    await muteUser(user.id);
+                    setIsMutedUser(true);
+                    Alert.alert('Success', 'User muted. Their posts will be hidden from your feed.');
+                  }
+                } catch (error) {
+                  logError('Error toggling mute:', error);
+                  Alert.alert('Error', 'Failed to update mute status');
+                }
+              }}
+            >
+              <Ionicons 
+                name={isMutedUser ? "volume-high" : "volume-mute"} 
+                size={24} 
+                color={theme.text} 
+              />
+              <Text style={[styles.moreMenuText, { color: theme.text }]}>
+                {isMutedUser ? 'Unmute User' : 'Mute User'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.moreMenuItem, { borderBottomColor: theme.border }]}
+              onPress={async () => {
+                setShowMoreMenu(false);
+                Alert.alert(
+                  'Block User',
+                  `Are you sure you want to block ${user.displayName || user.username}? You won't be able to see their posts or send them messages.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Block',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await blockUser(user.id);
+                          setIsBlockedUser(true);
+                          setIsFollowingUser(false);
+                          Alert.alert('Success', 'User blocked');
+                        } catch (error) {
+                          logError('Error blocking user:', error);
+                          Alert.alert('Error', 'Failed to block user');
+                        }
+                      }
+                    }
+                  ]
+                );
+              }}
+            >
+              <Ionicons name="ban" size={24} color="#ff4444" />
+              <Text style={[styles.moreMenuText, { color: '#ff4444' }]}>Block User</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.moreMenuItem}
+              onPress={() => {
+                setShowMoreMenu(false);
+                Alert.prompt(
+                  'Report User',
+                  'Please select a reason for reporting this user:',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Report',
+                      style: 'destructive',
+                      onPress: async (reason) => {
+                        if (!reason) return;
+                        try {
+                          await reportUser(user.id, reason);
+                          Alert.alert('Success', 'Thank you for your report. We will review it shortly.');
+                        } catch (error) {
+                          logError('Error reporting user:', error);
+                          Alert.alert('Error', 'Failed to submit report');
+                        }
+                      }
+                    }
+                  ],
+                  'plain-text',
+                  '',
+                  'default',
+                  ['Spam', 'Harassment', 'Inappropriate Content', 'Impersonation', 'Other']
+                );
+              }}
+            >
+              <Ionicons name="flag" size={24} color="#ff9500" />
+              <Text style={[styles.moreMenuText, { color: '#ff9500' }]}>Report User</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.moreMenuItem, styles.moreMenuCancel]}
+              onPress={() => setShowMoreMenu(false)}
+            >
+              <Text style={[styles.moreMenuCancelText, { color: theme.subtext }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -655,6 +829,61 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  moreButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 14,
+  },
+  moreMenuContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+    maxHeight: '80%',
+  },
+  moreMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    gap: 16,
+  },
+  moreMenuText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  moreMenuCancel: {
+    borderBottomWidth: 0,
+    justifyContent: 'center',
+  },
+  moreMenuCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   section: {
     marginHorizontal: 20,

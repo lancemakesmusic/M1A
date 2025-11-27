@@ -3,10 +3,22 @@ import { Platform } from 'react-native';
 // Auto Poster API Service
 class AutoPosterService {
   constructor() {
-    // Use localhost for development, replace with your backend URL for production
-    this.baseURL = Platform.OS === 'ios' 
-      ? 'http://localhost:8001' 
-      : 'http://10.0.2.2:8001'; // Android emulator localhost
+    // Always use environment variable in production
+    if (process.env.EXPO_PUBLIC_API_BASE_URL) {
+      this.baseURL = process.env.EXPO_PUBLIC_API_BASE_URL;
+    } else if (Platform.OS === 'web') {
+      // Web development fallback
+      this.baseURL = 'http://localhost:8001';
+    } else if (__DEV__) {
+      // Development fallbacks for mobile
+      console.warn('⚠️ EXPO_PUBLIC_API_BASE_URL not set. Using localhost fallback (development only).');
+      this.baseURL = Platform.OS === 'ios' 
+        ? 'http://localhost:8001' 
+        : 'http://10.0.2.2:8001'; // Android emulator localhost
+    } else {
+      // Production: fail if no URL configured
+      throw new Error('EXPO_PUBLIC_API_BASE_URL must be set in production. Please configure your environment variables.');
+    }
   }
 
   // Generic API call method

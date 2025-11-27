@@ -1,6 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  increment,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -24,8 +38,12 @@ import { auth, db, isFirebaseReady } from '../firebase';
 import { sendMessageNotification } from '../services/NotificationService';
 import { getAvatarUrl } from '../utils/photoUtils';
 
+const defaultAvatar =
+  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face';
+
 export default function MessagesScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
   const { theme } = useTheme();
   const { user } = useAuth();
   const { preferences: notificationPrefs } = useNotificationPreferences();
@@ -35,6 +53,7 @@ export default function MessagesScreen() {
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [text, setText] = useState('');
   const [searchText, setSearchText] = useState('');
   const [userSearchText, setUserSearchText] = useState('');
@@ -43,6 +62,193 @@ export default function MessagesScreen() {
   const [showNewChat, setShowNewChat] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
   const listRef = useRef(null);
+
+  const createOrGetConversation = useCallback(
+    async (targetUser) => {
+      if (!user?.uid || !targetUser?.id) {
+        return null;
+      }
+
+      const participantIds = [user.uid, targetUser.id].sort();
+      const conversationId = participantIds.join('_');
+
+      try {
+        if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+          const conversationRef = doc(db, 'conversations', conversationId);
+          const conversationSnap = await getDoc(conversationRef);
+
+          if (!conversationSnap.exists()) {
+            await setDoc(conversationRef, {
+              participants: participantIds,
+              participantProfiles: {
+                [user.uid]: {
+                  name: user.displayName || user.email || 'You',
+                  avatar: getAvatarUrl(user) || null,
+                },
+                [targetUser.id]: {
+                  name:
+                    targetUser.displayName ||
+                    targetUser.name ||
+                    targetUser.username ||
+                    'User',
+                  avatar: targetUser.avatar || getAvatarUrl(targetUser) || null,
+                },
+              },
+              createdAt: serverTimestamp(),
+              lastMessage: '',
+              lastMessageAt: serverTimestamp(),
+              unreadCount: {
+                [user.uid]: 0,
+                [targetUser.id]: 0,
+              },
+            });
+          }
+        }
+      } catch (error) {
+        console.error('createOrGetConversation error:', error);
+      }
+
+      return conversationId;
+    },
+    [db, user]
+  );
+
+  const loadMessages = useCallback(
+    async (conversationId) => {
+      if (
+        !conversationId ||
+        !isFirebaseReady() ||
+        !db ||
+        typeof db.collection === 'function'
+      ) {
+        setMessages([]);
+        return;
+      }
+
+      setMessagesLoading(true);
+      try {
+        const messagesQuery = query(
+          collection(db, 'conversations', conversationId, 'messages'),
+          orderBy('createdAt', 'asc'),
+          limit(200)
+        );
+        const snapshot = await getDocs(messagesQuery);
+        const messagesData = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            text: data.text,
+            senderId: data.senderId,
+            timestamp: data.createdAt?.toDate() || new Date(),
+            isSent: data.senderId === user?.uid,
+          };
+        });
+        setMessages(messagesData);
+      } catch (error) {
+        console.error('Error loading messages:', error);
+      } finally {
+        setMessagesLoading(false);
+      }
+    },
+    [db, user?.uid]
+  );
+
+  const openConversationFromParams = useCallback(
+    async (params) => {
+      if (!params?.conversationId) {
+        return;
+      }
+
+      let participantId = params.userId;
+      let displayName = params.userName;
+      let avatarSource = params.avatar || defaultAvatar;
+      let isOnline = params.isOnline || false;
+
+      try {
+        if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+          const conversationRef = doc(db, 'conversations', params.conversationId);
+          const conversationSnap = await getDoc(conversationRef);
+
+          if (conversationSnap.exists()) {
+            const data = conversationSnap.data();
+            participantId =
+              data.participants?.find((id) => id !== user?.uid) || participantId;
+
+            if (participantId) {
+              const otherUserRef = doc(db, 'users', participantId);
+              const otherUserSnap = await getDoc(otherUserRef);
+              if (otherUserSnap.exists()) {
+                const otherUserData = { id: otherUserSnap.id, ...otherUserSnap.data() };
+                displayName =
+                  otherUserData.displayName ||
+                  otherUserData.name ||
+                  displayName ||
+                  'User';
+                avatarSource = getAvatarUrl(otherUserData) || avatarSource || defaultAvatar;
+                isOnline = otherUserData.isOnline || isOnline;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('openConversationFromParams error:', error);
+      }
+
+      setMessages([]);
+      setSelectedConversation({
+        id: params.conversationId,
+        name: displayName || 'User',
+        avatar: avatarSource || defaultAvatar,
+        isOnline,
+        participantId,
+      });
+    },
+    [db, user?.uid]
+  );
+
+  const handleConversationSelect = useCallback(
+    (conversation) => {
+      setMessages([]);
+      setSelectedConversation({
+        id: conversation.id,
+        name: conversation.name,
+        avatar: conversation.avatar,
+        isOnline: conversation.isOnline,
+        participantId: conversation.otherParticipantId,
+      });
+    },
+    []
+  );
+
+  const closeConversation = useCallback(() => {
+    setSelectedConversation(null);
+    setMessages([]);
+  }, []);
+
+  // Handle route params to start a chat with a specific user
+  useEffect(() => {
+    if (route.params?.conversationId) {
+      openConversationFromParams(route.params);
+      navigation.setParams({});
+    } else if (route.params?.userId && user?.uid) {
+      openConversationFromParams({
+        ...route.params,
+        conversationId: [user.uid, route.params.userId].sort().join('_'),
+      });
+      navigation.setParams({});
+    }
+  }, [navigation, openConversationFromParams, route.params, user?.uid]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (route.params?.conversationId) {
+        openConversationFromParams(route.params);
+        navigation.setParams({});
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, openConversationFromParams, route.params]);
 
   // Load real conversations from Firestore
   const loadConversations = useCallback(async () => {
@@ -83,8 +289,9 @@ export default function MessagesScreen() {
               lastMessage: data.lastMessage || '',
               timestamp: data.lastMessageAt?.toDate() || new Date(),
               unreadCount: data.unreadCount?.[user.uid] || 0,
-              avatar: getAvatarUrl(otherUser) || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+              avatar: getAvatarUrl(otherUser) || defaultAvatar,
               isOnline: otherUser?.isOnline || false,
+              otherParticipantId,
             };
           })
         );
@@ -127,7 +334,7 @@ export default function MessagesScreen() {
               id: docSnap.id,
               name: userData.displayName || 'Unknown User',
               username: userData.username || '',
-              avatar: getAvatarUrl(userData) || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+              avatar: getAvatarUrl(userData) || defaultAvatar,
               isOnline: userData.isOnline || false,
             };
           });
@@ -148,6 +355,12 @@ export default function MessagesScreen() {
     loadAvailableUsers();
   }, [loadConversations, loadAvailableUsers]);
 
+  useEffect(() => {
+    if (selectedConversation?.id) {
+      loadMessages(selectedConversation.id);
+    }
+  }, [selectedConversation?.id, loadMessages]);
+
   const formatTime = (timestamp) => {
     const now = new Date();
     const diff = now - timestamp;
@@ -162,17 +375,26 @@ export default function MessagesScreen() {
     return timestamp.toLocaleDateString();
   };
 
-  const startNewChat = (user) => {
-    setSelectedConversation({
-      id: `new-${user.id}`,
-      name: user.name,
-      avatar: user.avatar,
-      isOnline: user.isOnline,
-    });
-    setMessages([]);
-    setShowNewChat(false);
-    setUserSearchText('');
-  };
+  const startNewChat = useCallback(
+    async (selectedUser) => {
+      const conversationId = await createOrGetConversation(selectedUser);
+      if (!conversationId) {
+        return;
+      }
+
+      setSelectedConversation({
+        id: conversationId,
+        name: selectedUser.name,
+        avatar: selectedUser.avatar || defaultAvatar,
+        isOnline: selectedUser.isOnline,
+        participantId: selectedUser.id,
+      });
+      setMessages([]);
+      setShowNewChat(false);
+      setUserSearchText('');
+    },
+    [createOrGetConversation]
+  );
 
   const sendMessage = async () => {
     const uid = auth.currentUser?.uid;
@@ -197,14 +419,31 @@ export default function MessagesScreen() {
       listRef.current?.scrollToEnd({ animated: true });
     }, 100);
 
-    // In a real app, you would save to Firebase here
     try {
-      // await addDoc(collection(db, 'conversations', selectedConversation.id, 'messages'), {
-      //   text: messageText,
-      //   senderId: uid,
-      //   createdAt: serverTimestamp(),
-      // });
-      
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        await addDoc(
+          collection(db, 'conversations', selectedConversation.id, 'messages'),
+          {
+            text: messageText,
+            senderId: uid,
+            createdAt: serverTimestamp(),
+          }
+        );
+
+        const updates = {
+          lastMessage: messageText,
+          lastMessageAt: serverTimestamp(),
+          [`unreadCount.${uid}`]: 0,
+        };
+
+        if (selectedConversation.participantId) {
+          updates[`unreadCount.${selectedConversation.participantId}`] = increment(1);
+        }
+
+        await updateDoc(doc(db, 'conversations', selectedConversation.id), updates);
+        await loadMessages(selectedConversation.id);
+      }
+
       // Send notification to recipient (if not current user)
       if (selectedConversation && selectedConversation.id !== uid) {
         await sendMessageNotification({
@@ -256,10 +495,7 @@ export default function MessagesScreen() {
         >
           {/* Chat Header */}
           <View style={[styles.chatHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
-            <TouchableOpacity 
-              onPress={() => setSelectedConversation(null)}
-              style={styles.backButton}
-            >
+            <TouchableOpacity onPress={closeConversation} style={styles.backButton}>
               <Ionicons name="arrow-back" size={24} color={theme.text} />
             </TouchableOpacity>
             
@@ -304,15 +540,21 @@ export default function MessagesScreen() {
               </View>
             )}
             ListEmptyComponent={
-              <View style={styles.emptyChatContainer}>
-                <Ionicons name="chatbubbles-outline" size={64} color={theme.subtext} />
-                <Text style={[styles.emptyChatText, { color: theme.text }]}>
-                  Start a conversation
-                </Text>
-                <Text style={[styles.emptyChatSubtext, { color: theme.subtext }]}>
-                  Send a message to begin chatting
-                </Text>
-              </View>
+              messagesLoading ? (
+                <View style={styles.emptyChatContainer}>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                </View>
+              ) : (
+                <View style={styles.emptyChatContainer}>
+                  <Ionicons name="chatbubbles-outline" size={64} color={theme.subtext} />
+                  <Text style={[styles.emptyChatText, { color: theme.text }]}>
+                    Start a conversation
+                  </Text>
+                  <Text style={[styles.emptyChatSubtext, { color: theme.subtext }]}>
+                    Send a message to begin chatting
+                  </Text>
+                </View>
+              )
             }
           />
 
@@ -413,7 +655,7 @@ export default function MessagesScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.conversationItem, { backgroundColor: theme.cardBackground, borderBottomColor: theme.border }]}
-            onPress={() => setSelectedConversation(item)}
+            onPress={() => handleConversationSelect(item)}
             activeOpacity={0.7}
           >
             <View style={styles.conversationAvatar}>

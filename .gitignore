@@ -45,6 +45,10 @@ firebase.config.js
 *.p12
 *.key
 *.mobileprovision
+firebase-admin.json
+**/firebase-admin.json
+service-account*.json
+**/service-account*.json
 
 # ---------------------------
 # OS / IDE

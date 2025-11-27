@@ -4,19 +4,29 @@
  */
 
 import { Platform } from 'react-native';
+import { auth } from '../firebase';
 
 const STRIPE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
-// Use network IP for physical devices, localhost for web/simulator
+// Backend Configuration - Use environment variable or fallback
 const getApiBaseUrl = () => {
+    // Always check environment variable first (required for production)
     if (process.env.EXPO_PUBLIC_API_BASE_URL) {
         return process.env.EXPO_PUBLIC_API_BASE_URL;
     }
+    
+    // Development fallbacks
     if (Platform.OS === 'web') {
         return 'http://localhost:8001';
     }
-    // Use the same network IP as Metro bundler
-    // Update this to match your computer's IP address
-    return 'http://172.20.10.3:8001';
+    
+    // Development only - should never reach here in production
+    if (__DEV__) {
+        console.warn('⚠️ EXPO_PUBLIC_API_BASE_URL not set. Using localhost fallback (development only).');
+        return 'http://localhost:8001';
+    }
+    
+    // Production: fail if no URL configured
+    throw new Error('EXPO_PUBLIC_API_BASE_URL must be set in production. Please configure your environment variables.');
 };
 const API_BASE_URL = getApiBaseUrl();
 
@@ -46,6 +56,13 @@ class StripeService {
         throw new Error('Metadata must be an object');
       }
 
+      // Get Firebase auth token for authentication
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        throw new Error('User must be authenticated to create payment intent');
+      }
+      const idToken = await currentUser.getIdToken();
+
       // Create abort controller for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
@@ -54,6 +71,7 @@ class StripeService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           amount, // Amount in dollars (backend converts to cents)
@@ -96,6 +114,13 @@ class StripeService {
         throw new Error('Invalid payment method ID');
       }
 
+      // Get Firebase auth token for authentication
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        throw new Error('User must be authenticated to confirm payment');
+      }
+      const idToken = await currentUser.getIdToken();
+
       // Create abort controller for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
@@ -104,6 +129,7 @@ class StripeService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           paymentIntentId,

@@ -31,7 +31,7 @@ import SharingService from '../services/SharingService';
 import UsersScreen from './UsersScreen';
 
 const { width } = Dimensions.get('window');
-const itemWidth = (width - 60) / 2; // 2 columns with padding
+const itemWidth = (width - 36) / 2; // 2 columns with tighter padding
 
 export default function ExploreScreen() {
   const navigation = useNavigation();
@@ -49,13 +49,14 @@ export default function ExploreScreen() {
   const [selectedCategory, setSelectedCategory] = useState('Services');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [selectedPersonaFilter, setSelectedPersonaFilter] = useState('All');
+  const [showPersonaFilters, setShowPersonaFilters] = useState(false);
   const [filters, setFilters] = useState({
     minPrice: null,
     maxPrice: null,
     minRating: null,
     location: '',
   });
-  const [searchHistory, setSearchHistory] = useState([]);
   const [showRSVPModal, setShowRSVPModal] = useState(false);
   const [selectedRSVPItem, setSelectedRSVPItem] = useState(null);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
@@ -67,7 +68,7 @@ export default function ExploreScreen() {
     specialRequests: '',
   });
 
-  const categories = ['Users', 'Events', 'Services'];
+  const categories = ['Users', 'Events', 'Services', 'Bar'];
 
   useEffect(() => {
     loadItems();
@@ -277,7 +278,7 @@ export default function ExploreScreen() {
       }, 500);
       return () => clearTimeout(debounceTimer);
     }
-  }, [searchQuery, filteredItems.length]);
+  }, [searchQuery, filteredItems]);
 
   const getCategoryCount = (category) => {
     if (category === 'Users') {
@@ -401,30 +402,7 @@ export default function ExploreScreen() {
   
   const handleSearch = (text) => {
     setSearchQuery(text);
-    if (text.trim() && !searchHistory.includes(text.trim())) {
-      const newHistory = [text.trim(), ...searchHistory.slice(0, 4)]; // Keep last 5
-      setSearchHistory(newHistory);
-      // Store in AsyncStorage
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      AsyncStorage.setItem('m1a_search_history', JSON.stringify(newHistory));
-    }
   };
-  
-  const loadSearchHistory = async () => {
-    try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      const history = await AsyncStorage.getItem('m1a_search_history');
-      if (history) {
-        setSearchHistory(JSON.parse(history));
-      }
-    } catch (error) {
-      console.warn('Failed to load search history:', error);
-    }
-  };
-  
-  useEffect(() => {
-    loadSearchHistory();
-  }, []);
 
   const renderItem = ({ item, index }) => (
     <TouchableOpacity
@@ -522,15 +500,15 @@ export default function ExploreScreen() {
         { 
           backgroundColor: selectedCategory === item ? theme.primary : theme.cardBackground,
           borderColor: selectedCategory === item ? theme.primary : theme.border,
-          borderWidth: selectedCategory === item ? 2 : 1
+          borderWidth: 1
         }
       ]}
       onPress={() => {
         trackButtonClick('select_category', 'ExploreScreen', { category: item });
-        // Navigate to BarCategoryScreen immediately when Bar is selected
+        // Navigate to BarMenuScreen immediately when Bar is selected
         if (item === 'Bar') {
           navigation.getParent()?.navigate('Home', {
-            screen: 'BarCategory',
+            screen: 'BarMenu',
           });
           return; // Don't update selectedCategory state - navigate away immediately
         }
@@ -594,27 +572,17 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      {/* Header */}
-      <View style={styles.header}>
-        {!canGoBack && (
-          <>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Explore</Text>
-            <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
-              Events • Services • Bar
-            </Text>
-          </>
-        )}
-        {canGoBack && (
-          <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
-            Events • Services • Bar
-          </Text>
-        )}
-      </View>
+      {/* Compact Header - only show if not accessed from drawer */}
+      {!canGoBack && (
+        <View style={styles.header}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Explore</Text>
+        </View>
+      )}
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
+      {/* Compact Search and Category Filters */}
+      <View style={styles.searchAndFiltersContainer}>
         <View style={[styles.searchBar, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-          <Ionicons name="search" size={20} color={theme.subtext} style={styles.searchIcon} />
+          <Ionicons name="search" size={18} color={theme.subtext} style={styles.searchIcon} />
           <TextInput
             style={[styles.searchInput, { color: theme.text }]}
             placeholder="Search events, services, or bar items..."
@@ -631,42 +599,37 @@ export default function ExploreScreen() {
               }}
               style={styles.clearButton}
             >
-              <Ionicons name="close-circle" size={20} color={theme.subtext} />
+              <Ionicons name="close-circle" size={18} color={theme.subtext} />
             </TouchableOpacity>
           )}
         </View>
-        <TouchableOpacity
-          style={[styles.filterButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-          onPress={() => {
-            setShowFilters(true);
-            trackButtonClick('open_filters', 'ExploreScreen');
-          }}
-        >
-          <Ionicons name="options" size={20} color={theme.primary} />
-        </TouchableOpacity>
+        {selectedCategory === 'Users' ? (
+          <TouchableOpacity
+            style={[styles.filterButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+            onPress={() => {
+              setShowPersonaFilters(true);
+              trackButtonClick('open_persona_filters', 'ExploreScreen');
+            }}
+          >
+            <Ionicons name="people" size={18} color={theme.primary} />
+            {selectedPersonaFilter !== 'All' && (
+              <View style={[styles.filterBadge, { backgroundColor: theme.primary }]}>
+                <Text style={styles.filterBadgeText}>1</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.filterButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+            onPress={() => {
+              setShowFilters(true);
+              trackButtonClick('open_filters', 'ExploreScreen');
+            }}
+          >
+            <Ionicons name="options" size={18} color={theme.primary} />
+          </TouchableOpacity>
+        )}
       </View>
-
-      {/* Search Suggestions */}
-      {searchQuery.length === 0 && searchHistory.length > 0 && (
-        <View style={styles.searchHistoryContainer}>
-          <Text style={[styles.searchHistoryTitle, { color: theme.subtext }]}>Recent Searches</Text>
-          <View style={styles.searchHistoryRow}>
-            {searchHistory.slice(0, 5).map((term, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[styles.searchHistoryChip, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-                onPress={() => {
-                  setSearchQuery(term);
-                  trackButtonClick('search_history_item', 'ExploreScreen');
-                }}
-              >
-                <Ionicons name="time-outline" size={14} color={theme.subtext} />
-                <Text style={[styles.searchHistoryText, { color: theme.text }]}>{term}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
 
       {/* Category Filters */}
       <View style={styles.filtersContainer}>
@@ -682,7 +645,7 @@ export default function ExploreScreen() {
 
       {/* Show UsersScreen when Users category is selected */}
       {selectedCategory === 'Users' ? (
-        <UsersScreen navigation={navigation} />
+        <UsersScreen navigation={navigation} selectedPersonaFilter={selectedPersonaFilter} />
       ) : (
         <View style={{ flex: 1 }}>
           {/* Instagram-style Grid for Events, Services */}
@@ -837,6 +800,59 @@ export default function ExploreScreen() {
         </View>
       </Modal>
       
+      {/* Persona Filter Modal (for Users category) */}
+      <Modal
+        visible={showPersonaFilters}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowPersonaFilters(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Filter by Persona</Text>
+              <TouchableOpacity onPress={() => setShowPersonaFilters(false)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              {['All', 'Artist', 'Vendor', 'Promoter', 'Guest'].map((persona) => (
+                <TouchableOpacity
+                  key={persona}
+                  style={[
+                    styles.personaFilterOption,
+                    {
+                      backgroundColor: selectedPersonaFilter === persona ? theme.primary + '20' : theme.cardBackground,
+                      borderColor: selectedPersonaFilter === persona ? theme.primary : theme.border,
+                    },
+                  ]}
+                  onPress={() => {
+                    setSelectedPersonaFilter(persona);
+                    trackButtonClick('select_persona_filter', 'ExploreScreen', { persona });
+                    setShowPersonaFilters(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.personaFilterText,
+                      {
+                        color: selectedPersonaFilter === persona ? theme.primary : theme.text,
+                        fontWeight: selectedPersonaFilter === persona ? '600' : '400',
+                      },
+                    ]}
+                  >
+                    {persona}
+                  </Text>
+                  {selectedPersonaFilter === persona && (
+                    <Ionicons name="checkmark" size={20} color={theme.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Scroll Indicator */}
       {showScrollIndicator && selectedCategory !== 'Users' && (
         <ScrollIndicator
@@ -883,30 +899,92 @@ const styles = StyleSheet.create({
     width: 40, // Same width as back button to center title
   },
   header: {
-    padding: 20,
-    paddingBottom: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 4,
   },
-  headerSubtitle: {
+  searchAndFiltersContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    marginBottom: 4,
+    gap: 8,
+  },
+  searchBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    padding: 0,
+  },
+  clearButton: {
+    marginLeft: 8,
+  },
+  filterButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    position: 'relative',
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  filterBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  personaFilterOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  personaFilterText: {
     fontSize: 16,
   },
   filtersContainer: {
-    marginBottom: 15,
+    marginBottom: 0,
   },
   categoryList: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 0,
   },
   categoryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderRadius: 25,
-    marginRight: 12,
+    marginRight: 8,
     minWidth: 100,
     justifyContent: 'center',
   },
@@ -930,7 +1008,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   gridContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     paddingBottom: 20,
   },
   row: {
@@ -944,10 +1022,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   leftCard: {
-    marginRight: 10,
+    marginRight: 6,
   },
   rightCard: {
-    marginLeft: 10,
+    marginLeft: 6,
   },
   imageContainer: {
     position: 'relative',
@@ -1007,6 +1085,14 @@ const styles = StyleSheet.create({
   artistName: {
     fontSize: 12,
     marginBottom: 8,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 8,
+  },
+  shareButton: {
+    padding: 4,
   },
   categoryContainer: {
     flexDirection: 'row',

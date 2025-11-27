@@ -65,10 +65,87 @@ class PlatformStats(BaseModel):
     platform_breakdown: Dict[str, int]
     status_breakdown: Dict[str, int]
 
-# Authentication dependency (reuse from main API)
-def verify_token(credentials: str = Depends(lambda: "dummy")):
-    """Verify JWT token - simplified for demo"""
-    return {"user_id": "demo_user", "tenant_id": "demo_tenant"}
+# Import Firebase Admin for authentication
+try:
+    import firebase_admin
+    from firebase_admin import credentials, auth
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+    from fastapi import Depends, HTTPException, status
+    
+    # Initialize Firebase Admin if not already initialized
+    if not firebase_admin._apps:
+        cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if cred_path and os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+        else:
+            # Try default credentials (for Cloud Run, etc.)
+            try:
+                firebase_admin.initialize_app()
+            except Exception as e:
+                print(f"Warning: Firebase Admin initialization failed: {e}")
+    
+    security = HTTPBearer()
+    
+    def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+        """
+        Verify Firebase Auth ID token from Authorization header
+        
+        This function verifies that the request includes a valid Firebase Auth ID token
+        and returns the authenticated user's information.
+        
+        Raises:
+            HTTPException: 401 if token is missing, invalid, or expired
+        """
+        try:
+            token = credentials.credentials
+            
+            # Verify token with Firebase Admin SDK
+            decoded_token = auth.verify_id_token(token)
+            
+            # Return user information from decoded token
+            return {
+                "userId": decoded_token['uid'],
+                "user_id": decoded_token['uid'],  # For compatibility
+                "email": decoded_token.get('email'),
+                "email_verified": decoded_token.get('email_verified', False),
+                "tenant_id": decoded_token.get('uid')  # Use user ID as tenant for now
+            }
+        except ValueError as e:
+            # Invalid token format
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token format",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except firebase_admin.exceptions.InvalidArgumentError as e:
+            # Token verification failed
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except Exception as e:
+            # Other errors (network, Firebase service unavailable, etc.)
+            print(f"Authentication error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication failed. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+except ImportError:
+    # Fallback if Firebase Admin not available (should not happen in production)
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+    from fastapi import Depends, HTTPException, status
+    
+    security = HTTPBearer()
+    
+    def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+        """Fallback authentication - should not be used in production"""
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Firebase Admin SDK not available. Authentication unavailable.",
+        )
 
 @router.get("/platforms", response_model=List[str])
 async def get_available_platforms_endpoint():

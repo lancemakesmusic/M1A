@@ -168,6 +168,46 @@ export default function M1APersonalizationScreen({ navigation }) {
           primaryFocus: selectedPersona.primaryActions,
           tutorialCompleted: false, // Will show tutorial on first home screen visit
         });
+        
+        // Save persona to Firestore
+        try {
+          const { setUserCategory } = await import('../firebase');
+          await setUserCategory(selectedPersona.id, selectedPersona.title);
+        } catch (firestoreError) {
+          console.warn('Failed to save persona to Firestore:', firestoreError);
+          // Don't fail onboarding if Firestore save fails
+        }
+        
+        // Create Google Drive folder for the user
+        try {
+          const { auth } = await import('../firebase');
+          const currentUser = auth.currentUser;
+          if (currentUser) {
+            const idToken = await currentUser.getIdToken();
+            const username = currentUser.email?.split('@')[0] || currentUser.uid.substring(0, 8);
+            const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://172.20.10.3:8001';
+            const response = await fetch(`${API_BASE_URL}/api/google-drive/create-folder?folder_name=${encodeURIComponent(username)}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`,
+              },
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log('✅ Google Drive folder created:', data.folderId);
+            } else {
+              const errorText = await response.text();
+              console.warn('⚠️ Google Drive folder creation failed:', errorText);
+              // Don't fail onboarding if folder creation fails
+            }
+          }
+        } catch (folderError) {
+          console.warn('⚠️ Google Drive folder creation error (non-critical):', folderError);
+          // Don't fail onboarding if folder creation fails
+        }
+        
         await completeOnboarding();
         
         // Onboarding complete - RootNavigation will automatically show AppNavigator

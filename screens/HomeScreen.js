@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
     Alert,
     Modal,
@@ -19,9 +19,11 @@ import TutorialOverlay from '../components/TutorialOverlay';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { UserContext } from '../contexts/UserContext';
 
 export default function HomeScreen({ navigation }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user: authUser, loading: authLoading } = useAuth();
+  const { user: userProfile } = useContext(UserContext);
   const { theme } = useTheme();
   const { 
     userPersona, 
@@ -381,8 +383,8 @@ export default function HomeScreen({ navigation }) {
     { title: 'Profile', icon: 'person', onPress: () => navigation.navigate('ProfileTab') },
     { title: 'Messages', icon: 'chatbubbles', onPress: () => navigation.navigate('Messages') },
     { title: 'Wallet', icon: 'wallet', onPress: () => navigation.navigate('Wallet') },
-    { title: 'Settings', icon: 'settings', onPress: () => Alert.alert('Settings', 'Settings coming soon!') },
-    { title: 'Help', icon: 'help-circle', onPress: () => Alert.alert('Help', 'Help center coming soon!') },
+    { title: 'Settings', icon: 'settings', onPress: () => navigation.navigate('M1ASettings') },
+    { title: 'Help', icon: 'help-circle', onPress: () => navigation.navigate('Help') },
   ];
 
   return (
@@ -514,7 +516,7 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.welcomeSection}>
           <Text style={[styles.welcomeText, { color: theme.subtext }]}>Hello,</Text>
           <Text style={[styles.userName, { color: theme.text }]}>
-            {user?.email?.split('@')[0] || 'Guest'}
+            {userProfile?.displayName ? userProfile.displayName.split(' ')[0] : (authUser?.email?.split('@')[0] || 'Guest')}
           </Text>
         </View>
 

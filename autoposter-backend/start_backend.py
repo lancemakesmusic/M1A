@@ -12,6 +12,20 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    env_path = PROJECT_ROOT / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"[OK] Loaded environment variables from .env")
+    else:
+        print(f"[WARN] .env file not found at {env_path}")
+except ImportError:
+    print("[WARN] python-dotenv not installed, environment variables not loaded from .env")
+except Exception as e:
+    print(f"[WARN] Error loading .env: {e}")
+
 # Try to import from api.main (payment-enabled API)
 try:
     from api.main import app

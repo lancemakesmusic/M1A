@@ -143,16 +143,35 @@ export default function CreatePostScreen({ navigation }) {
 
   const pickAudio = async () => {
     try {
-      // For now, use ImagePicker to pick audio files (if supported)
-      // In production, you might want to use expo-document-picker
-      Alert.alert(
-        'Audio Upload',
-        'Audio file upload is coming soon. For now, you can record audio using the camera video feature.',
-        [{ text: 'OK' }]
-      );
+      const ok = await ensureLibraryPermission();
+      if (!ok) return;
+
+      // Use ImagePicker to select audio files
+      // Note: On some platforms, this may require using expo-document-picker
+      // For now, we'll use ImagePicker which supports audio on most platforms
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions?.All || 'all',
+        allowsEditing: false,
+        quality: 1,
+        allowsMultipleSelection: false,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        
+        // Check if it's an audio file
+        if (asset.type === 'audio' || asset.uri.endsWith('.mp3') || asset.uri.endsWith('.m4a') || asset.uri.endsWith('.wav')) {
+          setMediaType('audio');
+          setMediaUri(asset.uri);
+          setMediaUrl(null); // Will be set after upload
+          console.log('✅ Audio file selected:', asset.uri);
+        } else {
+          Alert.alert('Invalid File', 'Please select an audio file (MP3, M4A, or WAV).');
+        }
+      }
     } catch (error) {
       console.error('Error picking audio:', error);
-      Alert.alert('Error', 'Failed to pick audio file. Please try again.');
+      Alert.alert('Error', `Failed to pick audio file: ${error.message || 'Please try again.'}`);
     }
   };
 

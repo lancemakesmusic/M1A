@@ -1,22 +1,28 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { deleteUserAccount, exportUserData, signOut } from '../firebase';
 import TipTrackingService from '../services/TipTrackingService';
+import { logError, logInfo } from '../utils/logger';
 
 export default function M1ASettingsScreen({ navigation }) {
   const { theme } = useTheme();
+  const { user: currentUser } = useAuth();
   const { 
     userPersona, 
     preferences, 
@@ -34,6 +40,7 @@ export default function M1ASettingsScreen({ navigation }) {
   const [localPreferences, setLocalPreferences] = useState(preferences);
   const [saving, setSaving] = useState(false);
   const [tipsEnabled, setTipsEnabled] = useState(true);
+  const [exportingData, setExportingData] = useState(false);
 
   useEffect(() => {
     // Load tips enabled state
@@ -85,6 +92,152 @@ export default function M1ASettingsScreen({ navigation }) {
       ]
     );
   };
+
+  const handleExportData = async () => {
+    setExportingData(true);
+    try {
+      const userData = await exportUserData();
+      const jsonData = JSON.stringify(userData, null, 2);
+      const fileName = `user_data_export_${Date.now()}.json`;
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+      
+      await FileSystem.writeAsStringAsync(fileUri, jsonData);
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri);
+        Alert.alert('Success', 'Your data has been exported and shared.');
+      } else {
+        Alert.alert('Success', `Your data has been exported to: ${fileUri}`);
+      }
+      
+      logInfo('User data exported successfully');
+    } catch (error) {
+      logError('Error exporting data:', error);
+      Alert.alert('Error', 'Failed to export data. Please try again.');
+    } finally {
+      setExportingData(false);
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you absolutely sure? This action cannot be undone. All your data, posts, followers, and account information will be permanently deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Final Confirmation',
+              'Type DELETE to confirm account deletion:',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Confirm Delete',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await deleteUserAccount();
+                      Alert.alert('Account Deleted', 'Your account has been permanently deleted.');
+                      // Navigation will be handled by auth state change
+                    } catch (error) {
+                      logError('Error deleting account:', error);
+                      Alert.alert('Error', error.message || 'Failed to delete account. Please try again.');
+                    }
+                  }
+                }
+              ],
+              'plain-text'
+            );
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSignOut = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut();
+              logInfo('User signed out');
+            } catch (error) {
+              logError('Error signing out:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const renderAccountManagement = () => (
+    <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Account Management</Text>
+      
+      <TouchableOpacity
+        style={[styles.settingRow, styles.accountAction]}
+        onPress={handleExportData}
+        disabled={exportingData}
+      >
+        <View style={styles.settingInfo}>
+          <Ionicons name="download-outline" size={24} color={theme.primary} />
+          <View style={styles.settingTextContainer}>
+            <Text style={[styles.settingTitle, { color: theme.text }]}>Export My Data</Text>
+            <Text style={[styles.settingDescription, { color: theme.subtext }]}>
+              Download a copy of all your data (GDPR compliant)
+            </Text>
+          </View>
+        </View>
+        {exportingData ? (
+          <ActivityIndicator size="small" color={theme.primary} />
+        ) : (
+          <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+        )}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.settingRow, styles.accountAction]}
+        onPress={handleSignOut}
+      >
+        <View style={styles.settingInfo}>
+          <Ionicons name="log-out-outline" size={24} color="#ff9500" />
+          <View style={styles.settingTextContainer}>
+            <Text style={[styles.settingTitle, { color: '#ff9500' }]}>Sign Out</Text>
+            <Text style={[styles.settingDescription, { color: theme.subtext }]}>
+              Sign out of your account
+            </Text>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.settingRow, styles.accountAction, styles.dangerAction]}
+        onPress={handleDeleteAccount}
+      >
+        <View style={styles.settingInfo}>
+          <Ionicons name="trash-outline" size={24} color="#ff4444" />
+          <View style={styles.settingTextContainer}>
+            <Text style={[styles.settingTitle, { color: '#ff4444' }]}>Delete Account</Text>
+            <Text style={[styles.settingDescription, { color: theme.subtext }]}>
+              Permanently delete your account and all data
+            </Text>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+      </TouchableOpacity>
+    </View>
+  );
 
   const renderPersonaSection = () => (
     <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
@@ -565,6 +718,7 @@ export default function M1ASettingsScreen({ navigation }) {
         {renderAppearanceSettings()}
         {renderFeatureSettings()}
         {renderLanguageSettings()}
+        {renderAccountManagement()}
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>

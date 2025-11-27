@@ -14,8 +14,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import { signInWithEmailAndPassword } from '../firebase';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from '../firebase';
 import { trackLogin, trackButtonClick, trackError } from '../services/AnalyticsService';
+import { authRateLimiter } from '../utils/rateLimiter';
+import { AUTH_ERRORS, getFirebaseErrorMessage } from '../constants/errorMessages';
+import { AUTH_STRINGS, GENERAL_STRINGS } from '../constants/strings';
+import { logError, logInfo } from '../utils/logger';
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
@@ -29,15 +33,15 @@ export default function LoginScreen({ navigation }) {
     const newErrors = {};
     
     if (!email.trim()) {
-      newErrors.email = 'Email is required';
+      newErrors.email = AUTH_ERRORS.EMAIL_REQUIRED;
     } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Please enter a valid email';
+      newErrors.email = AUTH_ERRORS.INVALID_EMAIL;
     }
     
     if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+      newErrors.password = AUTH_ERRORS.PASSWORD_REQUIRED;
+    } else if (password.length < 8) {
+      newErrors.password = AUTH_ERRORS.PASSWORD_TOO_SHORT;
     }
     
     setErrors(newErrors);
@@ -47,31 +51,39 @@ export default function LoginScreen({ navigation }) {
   const handleLogin = async () => {
     if (!validateForm()) return;
     
+    // Check rate limit
+    const rateLimitCheck = authRateLimiter.checkLimit(email);
+    if (!rateLimitCheck.allowed) {
+      const remainingSeconds = authRateLimiter.getRemainingTime(email);
+      const remainingMinutes = Math.ceil(remainingSeconds / 60);
+      setErrors({ 
+        general: `${AUTH_ERRORS.RATE_LIMITED} Please wait ${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}.` 
+      });
+      return;
+    }
+    
     setLoading(true);
     setErrors({});
     
     try {
       trackButtonClick('login_button', 'LoginScreen');
-      console.log('🔐 Attempting sign in:', email);
+      logInfo('Attempting sign in');
       await signInWithEmailAndPassword(email, password);
-      console.log('✅ Login successful');
+      logInfo('Login successful');
+      
+      // Reset rate limiter on success
+      authRateLimiter.reset(email);
+      
       await trackLogin('email');
       // Navigation will be handled by AuthContext
     } catch (error) {
-      console.error('❌ Login error:', error.message);
+      // Record failure for rate limiting
+      authRateLimiter.recordFailure(email);
+      
+      logError('Login error:', error);
       trackError(error.message, 'login_error', 'LoginScreen');
-      let errorMessage = 'Login failed. Please try again.';
       
-      if (error.message.includes('user-not-found')) {
-        errorMessage = 'No account found with this email.';
-      } else if (error.message.includes('wrong-password')) {
-        errorMessage = 'Incorrect password.';
-      } else if (error.message.includes('invalid-email')) {
-        errorMessage = 'Please enter a valid email address.';
-      } else if (error.message.includes('too-many-requests')) {
-        errorMessage = 'Too many failed attempts. Please try again later.';
-      }
-      
+      const errorMessage = getFirebaseErrorMessage(error);
       setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
@@ -86,9 +98,9 @@ export default function LoginScreen({ navigation }) {
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={[styles.title, { color: theme.text }]}>Welcome Back</Text>
+            <Text style={[styles.title, { color: theme.text }]}>{AUTH_STRINGS.WELCOME_BACK}</Text>
             <Text style={[styles.subtitle, { color: theme.subtext }]}>
-              Sign in to your M1A account
+              {AUTH_STRINGS.SIGN_IN_TO_ACCOUNT}
             </Text>
           </View>
 
@@ -101,7 +113,7 @@ export default function LoginScreen({ navigation }) {
 
           <View style={styles.form}>
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>Email</Text>
+              <Text style={[styles.label, { color: theme.text }]}>{AUTH_STRINGS.EMAIL}</Text>
               <TextInput
                 style={[
                   styles.input, 
@@ -111,7 +123,7 @@ export default function LoginScreen({ navigation }) {
                     backgroundColor: theme.cardBackground
                   }
                 ]}
-                placeholder="Enter your email"
+                placeholder={AUTH_STRINGS.ENTER_EMAIL}
                 placeholderTextColor={theme.subtext}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -130,7 +142,7 @@ export default function LoginScreen({ navigation }) {
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>Password</Text>
+              <Text style={[styles.label, { color: theme.text }]}>{AUTH_STRINGS.PASSWORD}</Text>
               <View style={styles.passwordContainer}>
                 <TextInput
                   style={[
@@ -141,7 +153,7 @@ export default function LoginScreen({ navigation }) {
                       backgroundColor: theme.cardBackground
                     }
                   ]}
-                  placeholder="Enter your password"
+                  placeholder={AUTH_STRINGS.ENTER_PASSWORD}
                   placeholderTextColor={theme.subtext}
                   secureTextEntry={!showPassword}
                   value={password}
@@ -182,27 +194,44 @@ export default function LoginScreen({ navigation }) {
               {loading ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.loginButtonText}>Sign In</Text>
+                <Text style={styles.loginButtonText}>{AUTH_STRINGS.SIGN_IN}</Text>
               )}
             </TouchableOpacity>
 
             <TouchableOpacity 
               style={styles.forgotPassword}
-              onPress={() => Alert.alert('Forgot Password', 'Password reset feature coming soon!')}
+              onPress={async () => {
+                if (!email.trim()) {
+                  Alert.alert(AUTH_STRINGS.EMAIL, AUTH_ERRORS.EMAIL_REQUIRED);
+                  return;
+                }
+                
+                try {
+                  await sendPasswordResetEmail(email);
+                  Alert.alert(
+                    AUTH_STRINGS.PASSWORD_RESET_SENT,
+                    AUTH_STRINGS.PASSWORD_RESET_MESSAGE,
+                    [{ text: GENERAL_STRINGS.OK }]
+                  );
+                } catch (error) {
+                  const errorMessage = getFirebaseErrorMessage(error);
+                  Alert.alert(GENERAL_STRINGS.ERROR, errorMessage);
+                }
+              }}
             >
               <Text style={[styles.forgotPasswordText, { color: theme.primary }]}>
-                Forgot Password?
+                {AUTH_STRINGS.FORGOT_PASSWORD}
               </Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: theme.subtext }]}>
-              Don't have an account?{' '}
+              {AUTH_STRINGS.DONT_HAVE_ACCOUNT}{' '}
             </Text>
             <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
               <Text style={[styles.signupLink, { color: theme.primary }]}>
-                Sign up
+                {AUTH_STRINGS.SIGN_UP}
               </Text>
             </TouchableOpacity>
           </View>
