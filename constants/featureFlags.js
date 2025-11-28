@@ -27,3 +27,4 @@ export const isWalletEnabled = () => ENABLE_WALLET_FEATURES;
 // Show if wallet features enabled OR if we want to show transaction history
 export const shouldShowWalletScreen = () => ENABLE_WALLET_FEATURES || ENABLE_TRANSACTION_HISTORY;
 
+

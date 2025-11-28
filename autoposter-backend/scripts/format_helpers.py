@@ -201,3 +201,4 @@ def format_status(message, status="info"):
     icon = icons.get(status.lower(), Symbols.INFO)
     return f"{icon} {message}"
 
+

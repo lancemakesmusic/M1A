@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -19,9 +20,10 @@ import { useTheme } from '../contexts/ThemeContext';
 import { deleteUserAccount, exportUserData, signOut } from '../firebase';
 import TipTrackingService from '../services/TipTrackingService';
 import { logError, logInfo } from '../utils/logger';
+import M1ALogo from '../components/M1ALogo';
 
 export default function M1ASettingsScreen({ navigation }) {
-  const { theme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
   const { user: currentUser } = useAuth();
   const { 
     userPersona, 
@@ -505,10 +507,15 @@ export default function M1ASettingsScreen({ navigation }) {
         </View>
         <Switch
           trackColor={{ false: theme.border, true: theme.primary }}
-          thumbColor={localPreferences.darkMode ? theme.primary : theme.subtext}
+          thumbColor={theme.isDark ? theme.primary : theme.subtext}
           ios_backgroundColor={theme.border}
-          onValueChange={(value) => handlePreferenceChange('darkMode', value)}
-          value={localPreferences.darkMode}
+          onValueChange={(value) => {
+            // Immediately toggle theme
+            toggleTheme();
+            // Also update preferences
+            handlePreferenceChange('darkMode', value);
+          }}
+          value={theme.isDark}
         />
       </View>
 
@@ -713,6 +720,18 @@ export default function M1ASettingsScreen({ navigation }) {
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Brand Section */}
+        <View style={[styles.brandSection, { backgroundColor: theme.cardBackground }]}>
+          <M1ALogo size={80} variant="full" style={styles.brandLogo} />
+          <Text style={[styles.brandTitle, { color: theme.text }]}>M1A</Text>
+          <Text style={[styles.brandSubtitle, { color: theme.subtext }]}>
+            Merkaba Entertainment
+          </Text>
+          <Text style={[styles.brandVersion, { color: theme.subtext }]}>
+            Version 1.0.0
+          </Text>
+        </View>
+
         {renderPersonaSection()}
         {renderNotificationSettings()}
         {renderAppearanceSettings()}
@@ -774,6 +793,28 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
     paddingHorizontal: 20,
+  },
+  brandSection: {
+    borderRadius: 12,
+    padding: 24,
+    marginBottom: 16,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  brandLogo: {
+    marginBottom: 16,
+  },
+  brandTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  brandSubtitle: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  brandVersion: {
+    fontSize: 12,
   },
   section: {
     borderRadius: 12,

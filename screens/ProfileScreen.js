@@ -19,14 +19,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ScrollIndicator from '../components/ScrollIndicator';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
+import { Switch } from 'react-native';
 import { db, getPinnedPosts, isFirebaseReady, unpinPost, validateAndSanitizeUrl } from '../firebase';
 import { logError } from '../utils/logger';
 import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
 import { statsCache } from '../utils/statsCache';
+import M1ALogo from '../components/M1ALogo';
 
 export default function ProfileScreen() {
   const { user, loading, refreshUserProfile } = useContext(UserContext);
-  const { theme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
   const navigation = useNavigation();
   
   // Check if we can go back (i.e., accessed from drawer)
@@ -597,6 +599,28 @@ export default function ProfileScreen() {
               <Ionicons name="notifications-outline" size={20} color={theme.text} />
             </TouchableOpacity>
           </View>
+
+          {/* Dark Mode Toggle */}
+          <View style={[styles.darkModeSection, { borderTopColor: theme.border }]}>
+            <View style={styles.darkModeRow}>
+              <View style={styles.darkModeInfo}>
+                <Ionicons name="moon" size={20} color={theme.primary} style={styles.darkModeIcon} />
+                <View>
+                  <Text style={[styles.darkModeTitle, { color: theme.text }]}>Dark Mode</Text>
+                  <Text style={[styles.darkModeDescription, { color: theme.subtext }]}>
+                    {theme.isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                trackColor={{ false: theme.border, true: theme.primary }}
+                thumbColor={theme.isDark ? theme.primary : theme.subtext}
+                ios_backgroundColor={theme.border}
+                onValueChange={toggleTheme}
+                value={theme.isDark}
+              />
+            </View>
+          </View>
         </View>
 
         {/* Tabs */}
@@ -743,6 +767,14 @@ export default function ProfileScreen() {
             <Text style={[styles.emptyStateText, { color: theme.subtext }]}>No liked posts yet</Text>
           </View>
         )}
+
+        {/* Footer with Brand */}
+        <View style={styles.footer}>
+          <M1ALogo size={40} variant="minimal" style={styles.footerLogo} />
+          <Text style={[styles.footerText, { color: theme.subtext }]}>
+            Powered by M1A
+          </Text>
+        </View>
         </ScrollView>
       </View>
       
@@ -1126,5 +1158,45 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 0, // Remove top padding to eliminate whitespace
+  },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    marginTop: 20,
+  },
+  footerLogo: {
+    opacity: 0.3,
+    marginBottom: 8,
+  },
+  footerText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  darkModeSection: {
+    padding: 20,
+    borderTopWidth: 1,
+    marginTop: 8,
+  },
+  darkModeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  darkModeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  darkModeIcon: {
+    marginRight: 12,
+  },
+  darkModeTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  darkModeDescription: {
+    fontSize: 14,
   },
 });

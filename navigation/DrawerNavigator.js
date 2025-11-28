@@ -8,6 +8,7 @@ import { useContext } from 'react';
 import { UserContext } from '../contexts/UserContext';
 import { auth } from '../firebase';
 import { getAvatarSource, getImageKey } from '../utils/photoUtils';
+import M1ALogo from '../components/M1ALogo';
 
 // Import the main Tab Navigator
 import AppNavigator from './AppNavigator';
@@ -57,6 +58,11 @@ function CustomDrawerContent(props) {
         showsVerticalScrollIndicator={true}
         bounces={false}
       >
+        {/* Brand Header */}
+        <View style={[styles.brandHeader, { borderBottomColor: theme.border }]}>
+          <M1ALogo size={48} variant="icon" style={styles.brandLogo} />
+        </View>
+
         {/* User Info Section */}
         <View style={[styles.userSection, { borderBottomColor: theme.border }]}>
           <View style={[styles.avatarContainer, { backgroundColor: theme.primary + '20' }]}>
@@ -374,9 +380,19 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 8,
   },
-  userSection: {
+  brandHeader: {
     paddingHorizontal: 20,
     paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    alignItems: 'center',
+  },
+  brandLogo: {
+    marginBottom: 8,
+  },
+  userSection: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     marginBottom: 4,

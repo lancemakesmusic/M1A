@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
+import M1ALogo from './M1ALogo';
 
 export default function EmptyState({ 
   icon = 'infinite-outline',
@@ -16,6 +17,7 @@ export default function EmptyState({
 
   return (
     <View style={[styles.container, style]}>
+      <M1ALogo size={64} variant="icon" style={styles.logo} />
       <View style={[styles.iconContainer, { backgroundColor: theme.primary + '20' }]}>
         <Ionicons name={icon} size={48} color={theme.primary} />
       </View>
@@ -40,6 +42,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 40,
     minHeight: 300,
+  },
+  logo: {
+    marginBottom: 16,
+    opacity: 0.3,
   },
   iconContainer: {
     width: 96,

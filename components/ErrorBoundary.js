@@ -8,6 +8,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
+import M1ALogo from './M1ALogo';
 
 class ErrorBoundaryClass extends React.Component {
   constructor(props) {
@@ -61,6 +62,7 @@ function ErrorFallback({ error, errorInfo, onReset }) {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
+        <M1ALogo size={80} variant="icon" style={styles.logo} />
         <View style={styles.iconContainer}>
           <Ionicons name="alert-circle" size={64} color={theme.error} />
         </View>
@@ -115,6 +117,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+  },
+  logo: {
+    marginBottom: 16,
+    opacity: 0.5,
   },
   iconContainer: {
     marginBottom: 24,

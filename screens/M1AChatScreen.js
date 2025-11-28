@@ -23,6 +23,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useM1AAssistant } from '../contexts/M1AAssistantContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import M1AAssistantService from '../services/M1AAssistantService';
+import M1ALogo from '../components/M1ALogo';
 
 export default function M1AChatScreen({ onClose }) {
   const { theme } = useTheme();
@@ -125,8 +126,8 @@ export default function M1AChatScreen({ onClose }) {
         ]}
       >
         {!isUser && (
-          <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
-            <Ionicons name="rocket" size={20} color="#fff" />
+          <View style={[styles.avatar, { backgroundColor: 'transparent' }]}>
+            <M1ALogo size={32} variant="minimal" color="primary" />
           </View>
         )}
         <View
@@ -197,8 +198,8 @@ export default function M1AChatScreen({ onClose }) {
           }
         ]}>
           <View style={styles.headerLeft}>
-            <View style={[styles.headerAvatar, { backgroundColor: theme.primary }]}>
-              <Ionicons name="rocket" size={20} color="#fff" />
+            <View style={[styles.headerAvatar, { backgroundColor: 'transparent' }]}>
+              <M1ALogo size={36} variant="minimal" color="primary" />
             </View>
             <View>
               <Text style={[styles.headerTitle, { color: theme.text }]}>M1A Assistant</Text>
@@ -221,8 +222,8 @@ export default function M1AChatScreen({ onClose }) {
           contentContainerStyle={styles.messagesList}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <View style={[styles.emptyAvatar, { backgroundColor: theme.primary }]}>
-                <Ionicons name="rocket" size={48} color="#fff" />
+              <View style={[styles.emptyAvatar, { backgroundColor: 'transparent' }]}>
+                <M1ALogo size={80} variant="icon" color="primary" />
               </View>
               <Text style={[styles.emptyTitle, { color: theme.text }]}>
                 Hi! I'm M1A 👋

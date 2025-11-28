@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
+import M1ALogo from '../components/M1ALogo';
 
 export default function HomeScreen({ navigation }) {
   const { user: authUser, loading: authLoading } = useAuth();
@@ -425,6 +426,12 @@ export default function HomeScreen({ navigation }) {
                 <Ionicons name="menu" size={28} color={theme.text} />
               </TouchableOpacity>
             </View>
+            
+            {/* Logo Section */}
+            <View style={styles.logoSection}>
+              <M1ALogo size={64} variant="full" style={styles.homeLogo} />
+            </View>
+            
             <View style={styles.headerTitleRow}>
               <View style={styles.headerTitleContainer}>
                 <Text style={[styles.headerTitle, { color: theme.text }]}>
@@ -436,12 +443,6 @@ export default function HomeScreen({ navigation }) {
                     : 'Your AI-powered assistant for everything Merkaba'}
                 </Text>
               </View>
-              <TouchableOpacity
-                style={[styles.searchButton, { backgroundColor: theme.cardBackground }]}
-                onPress={() => setShowSearch(!showSearch)}
-              >
-                <Ionicons name="search" size={20} color={theme.text} />
-              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -680,6 +681,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     marginBottom: 8,
+  },
+  logoSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    marginVertical: 16,
+  },
+  homeLogo: {
+    alignSelf: 'center',
   },
   menuButton: {
     padding: 4,

@@ -21,6 +21,7 @@ import { authRateLimiter } from '../utils/rateLimiter';
 import { AUTH_ERRORS, getFirebaseErrorMessage } from '../constants/errorMessages';
 import { AUTH_STRINGS, GENERAL_STRINGS } from '../constants/strings';
 import { logError, logInfo, logWarn } from '../utils/logger';
+import M1ALogo from '../components/M1ALogo';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
@@ -169,6 +170,7 @@ export default function SignupScreen({ navigation }) {
       >
         <View style={styles.content}>
           <View style={styles.header}>
+            <M1ALogo size={80} variant="full" style={styles.logo} />
             <Text style={[styles.title, { color: theme.text }]}>Create Account</Text>
             <Text style={[styles.subtitle, { color: theme.subtext }]}>
               Sign up to get started with M1A
@@ -343,6 +345,9 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     marginBottom: 40,
+  },
+  logo: {
+    marginBottom: 24,
   },
   title: {
     fontSize: 32,
