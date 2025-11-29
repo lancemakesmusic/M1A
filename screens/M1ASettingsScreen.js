@@ -206,23 +206,21 @@ export default function M1ASettingsScreen({ navigation }) {
         </TouchableOpacity>
       )}
 
-      {(isMasterAdmin() || (!isAdmin() && !isMasterAdmin())) && (
-        <TouchableOpacity
-          style={styles.settingRow}
-          onPress={() => navigation.navigate('AdminSetup')}
-        >
-          <View style={styles.settingInfo}>
-            <Ionicons name="shield-checkmark" size={24} color={theme.primary} />
-            <View style={styles.settingTextContainer}>
-              <Text style={[styles.settingTitle, { color: theme.text }]}>Setup Admin Account</Text>
-              <Text style={[styles.settingDescription, { color: theme.subtext }]}>
-                Set up admin@merkabaent.com or other users as admin
-              </Text>
-            </View>
+      <TouchableOpacity
+        style={styles.settingRow}
+        onPress={() => navigation.navigate('AdminSetup')}
+      >
+        <View style={styles.settingInfo}>
+          <Ionicons name="shield-checkmark" size={24} color={theme.primary} />
+          <View style={styles.settingTextContainer}>
+            <Text style={[styles.settingTitle, { color: theme.text }]}>Setup Admin Account</Text>
+            <Text style={[styles.settingDescription, { color: theme.subtext }]}>
+              Set up admin@merkabaent.com or other users as admin
+            </Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
-        </TouchableOpacity>
-      )}
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+      </TouchableOpacity>
     </View>
   );
 
