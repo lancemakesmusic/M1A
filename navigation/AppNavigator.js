@@ -29,6 +29,7 @@ import ServiceBookingScreen from '../screens/ServiceBookingScreen';
 import UserProfileViewScreen from '../screens/UserProfileViewScreen';
 import WalletScreen from '../screens/WalletScreen';
 import AdminUserManagementScreen from '../screens/AdminUserManagementScreen';
+import AdminSetupScreen from '../screens/AdminSetupScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -115,6 +116,11 @@ function HomeStackNavigator() {
       <Stack.Screen
         name="AdminUserManagement"
         component={AdminUserManagementScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminSetup"
+        component={AdminSetupScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>
