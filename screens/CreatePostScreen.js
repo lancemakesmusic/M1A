@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
-import { auth, db, uploadFileAsync, uploadImageAsync } from '../firebase';
+import { auth, db, uploadFileAsync, uploadImageAsync, isFirebaseReady } from '../firebase';
 
 export default function CreatePostScreen({ navigation }) {
   const { user } = useContext(UserContext);
@@ -249,12 +249,13 @@ export default function CreatePostScreen({ navigation }) {
         createdAt: serverTimestamp(),
       };
 
-      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-        // Real Firestore
-        await addDoc(collection(db, 'posts'), postData);
-      } else {
-        throw new Error('Firestore not ready');
+      // Check if Firestore is ready
+      if (!isFirebaseReady() || !db) {
+        throw new Error('Database not ready. Please try again.');
       }
+
+      // Real Firestore - create post
+      await addDoc(collection(db, 'posts'), postData);
 
       Alert.alert('Success', 'Post created successfully!', [
         {
@@ -272,9 +273,6 @@ export default function CreatePostScreen({ navigation }) {
     }
   };
 
-  const isFirebaseReady = () => {
-    return db && (typeof db.collection !== 'function' || typeof db.collection === 'function');
-  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>

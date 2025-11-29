@@ -10,6 +10,7 @@ import { CartBubbleProvider } from './contexts/CartBubbleContext';
 import { M1APersonalizationProvider } from './contexts/M1APersonalizationContext';
 import { M1AAssistantProvider } from './contexts/M1AAssistantContext';
 import { NotificationPreferencesProvider } from './contexts/NotificationPreferencesContext';
+import { RoleProvider } from './contexts/RoleContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { UserProvider } from './contexts/UserContext';
 
@@ -105,20 +106,22 @@ export default function App() {
         <AuthProvider>
           <ThemeProvider>
             <UserProvider>
-              <M1APersonalizationProvider>
-                <NotificationPreferencesProvider>
-                  <M1AAssistantProvider>
-                    <CartBubbleProvider>
-                      <NavigationContainer>
-                        <StatusBar barStyle="dark-content" />
-                        <RootNavigation />
-                        <NavigationAwareM1A />
-                        <M1AChatBubble />
-                      </NavigationContainer>
-                    </CartBubbleProvider>
-                  </M1AAssistantProvider>
-                </NotificationPreferencesProvider>
-              </M1APersonalizationProvider>
+              <RoleProvider>
+                <M1APersonalizationProvider>
+                  <NotificationPreferencesProvider>
+                    <M1AAssistantProvider>
+                      <CartBubbleProvider>
+                        <NavigationContainer>
+                          <StatusBar barStyle="dark-content" />
+                          <RootNavigation />
+                          <NavigationAwareM1A />
+                          <M1AChatBubble />
+                        </NavigationContainer>
+                      </CartBubbleProvider>
+                    </M1AAssistantProvider>
+                  </NotificationPreferencesProvider>
+                </M1APersonalizationProvider>
+              </RoleProvider>
             </UserProvider>
           </ThemeProvider>
         </AuthProvider>

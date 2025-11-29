@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Solid black version for single-color printing -->
+  
+  <!-- Hexagram outer circles (black) -->
+  <circle cx="256" cy="106" r="41" fill="#000000" stroke="none"/>
+  <circle cx="384" cy="183" r="41" fill="#000000" stroke="none"/>
+  <circle cx="384" cy="329" r="41" fill="#000000" stroke="none"/>
+  <circle cx="256" cy="406" r="41" fill="#000000" stroke="none"/>
+  <circle cx="128" cy="329" r="41" fill="#000000" stroke="none"/>
+  <circle cx="128" cy="183" r="41" fill="#000000" stroke="none"/>
+  
+  <!-- Hexagram triangles (black outline) -->
+  <path d="M 256 106 L 384 183 L 384 329 Z" fill="none" stroke="#000000" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M 256 406 L 128 329 L 128 183 Z" fill="none" stroke="#000000" stroke-width="10" stroke-linejoin="round"/>
+  
+  <!-- Central M (black) -->
+  <path d="M 179 256 L 179 179 L 205 179 L 256 230 L 307 179 L 333 179 L 333 256 Z" 
+        fill="#000000" 
+        stroke="none"/>
+</svg>
+

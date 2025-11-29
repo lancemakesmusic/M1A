@@ -49,6 +49,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import jwt
+import httpx
 from scripts import db
 from scripts.secure_config_loader import load_client_config, save_client_config
 
@@ -827,7 +828,152 @@ async def toggle_auto_poster(request: Dict[str, Any]):
             "message": f"Error toggling auto poster: {str(e)}"
         }
 
+# Chat endpoint for M1A Assistant
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="User's chat message")
+    conversation_history: List[Dict[str, str]] = Field(default_factory=list, description="Previous conversation messages")
+    system_prompt: Optional[str] = Field(None, description="System prompt for context")
+    context: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional context (persona, screen, etc.)")
+
+class ChatResponse(BaseModel):
+    message: str
+    metadata: Optional[Dict[str, Any]] = None
+    suggestions: Optional[List[str]] = None
+    action: Optional[Dict[str, Any]] = None
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """Generate AI chat response using OpenAI"""
+    try:
+        # Import AI generator
+        ai_generator_path = PROJECT_ROOT / "services" / "ai_content_generator.py"
+        if ai_generator_path.exists():
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("ai_content_generator", ai_generator_path)
+            ai_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(ai_module)
+            ai_generator = ai_module.AIContentGenerator()
+        else:
+            raise Exception("AI content generator not found")
+        
+        if not ai_generator.is_available():
+            # Fallback response if AI not configured
+            return ChatResponse(
+                message="I'm here to help! However, AI features are not currently configured. I can still help you navigate the app and answer questions about M1A features. What would you like to know?",
+                metadata={"fallback": True, "ai_configured": False},
+                suggestions=["How do I create an event?", "Show me the menu", "What can you help me with?"]
+            )
+        
+        # Build messages for OpenAI
+        messages = []
+        
+        # Add system prompt
+        system_prompt = request.system_prompt or """You are M1A, an intelligent AI assistant for Merkaba Entertainment. Help users navigate the app, book events, order from the bar menu, and access services. Be conversational, helpful, and provide detailed responses."""
+        messages.append({"role": "system", "content": system_prompt})
+        
+        # Add conversation history
+        for msg in request.conversation_history[-10:]:  # Last 10 messages for context
+            if msg.get("role") in ["user", "assistant"] and msg.get("content"):
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+        
+        # Add current user message
+        messages.append({"role": "user", "content": request.message})
+        
+        # Generate response using OpenAI with shorter timeout for faster fallback
+        timeout = httpx.Timeout(8.0, connect=3.0)  # 8s total, 3s connect
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if not openai_key:
+                raise Exception("OpenAI API key not configured")
+            
+            try:
+                response = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {openai_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "gpt-4o-mini",  # Cost-effective and capable
+                        "messages": messages,
+                        "max_tokens": 400,  # Reduced for faster responses
+                        "temperature": 0.7,  # Balanced creativity
+                    }
+                )
+            except (httpx.TimeoutException, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                raise Exception("Request timed out. Please try again.")
+            except httpx.RequestError as e:
+                raise Exception(f"Network error: {str(e)}")
+            except Exception as e:
+                raise Exception(f"API error: {str(e)}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                ai_message = data["choices"][0]["message"]["content"]
+                
+                # Extract navigation intent if present
+                action = None
+                context = request.context or {}
+                lower_message = request.message.lower()
+                
+                # Check for navigation keywords
+                navigation_map = {
+                    "event": "EventBooking",
+                    "bar": "BarMenu",
+                    "menu": "BarMenu",
+                    "wallet": "Wallet",
+                    "explore": "Explore",
+                    "dashboard": "M1ADashboard",
+                    "autoposter": "AutoPoster",
+                    "profile": "ProfileMain",
+                    "settings": "M1ASettings",
+                    "help": "Help",
+                }
+                
+                for keyword, screen in navigation_map.items():
+                    if keyword in lower_message and ("go to" in lower_message or "take me" in lower_message or "show me" in lower_message or "open" in lower_message):
+                        action = {"type": "navigate", "screen": screen}
+                        break
+                
+                return ChatResponse(
+                    message=ai_message,
+                    metadata={
+                        "model": "gpt-4o-mini",
+                        "usage": data.get("usage", {}),
+                        "ai_configured": True
+                    },
+                    suggestions=[
+                        "Tell me more",
+                        "How do I use this?",
+                        "What else can you help with?"
+                    ],
+                    action=action
+                )
+            else:
+                error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                raise Exception(f"OpenAI API error: {response.status_code} - {error_data.get('error', {}).get('message', 'Unknown error')}")
+                
+    except (httpx.TimeoutException, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+        print(f"Chat API timeout - returning fallback: {e}")
+        return ChatResponse(
+            message="I'm here to help! The AI service is taking longer than expected. I can still help you navigate the app and answer questions about M1A features. What would you like to know?",
+            metadata={"error": "timeout", "fallback": True},
+            suggestions=["How do I create an event?", "Show me the menu", "What can you help me with?"]
+        )
+    except Exception as e:
+        print(f"Chat API error: {e}")
+        # Return helpful fallback
+        return ChatResponse(
+            message="I'm here to help! I can assist with navigating the app, creating events, ordering from the bar menu, managing your wallet, and booking services. What would you like help with?",
+            metadata={"error": str(e), "fallback": True},
+            suggestions=["How do I create an event?", "Show me the menu", "What can you help me with?"]
+        )
+
 print("[OK] AutoPoster endpoints loaded")
+print("[OK] Chat endpoint loaded")
 
 if __name__ == "__main__":
     import uvicorn

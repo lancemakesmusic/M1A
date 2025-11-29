@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     Dimensions,
     FlatList,
@@ -151,6 +152,7 @@ export default function M1APersonalizationScreen({ navigation }) {
   const { savePersona, savePreferences, completeOnboarding } = useM1APersonalization();
   const [selectedPersona, setSelectedPersona] = useState(null);
   const [currentStep, setCurrentStep] = useState(1); // 1: Persona Selection, 2: Features, 3: Preferences
+  const [isCompleting, setIsCompleting] = useState(false);
 
   const handlePersonaSelect = (persona) => {
     setSelectedPersona(persona);
@@ -161,60 +163,89 @@ export default function M1APersonalizationScreen({ navigation }) {
     if (currentStep === 2) {
       setCurrentStep(3);
     } else if (currentStep === 3) {
+      setIsCompleting(true);
       try {
-        // Save persona and preferences
+        // Save persona and preferences (critical - must succeed)
         await savePersona(selectedPersona);
         await savePreferences({
           primaryFocus: selectedPersona.primaryActions,
           tutorialCompleted: false, // Will show tutorial on first home screen visit
         });
         
-        // Save persona to Firestore
-        try {
-          const { setUserCategory } = await import('../firebase');
-          await setUserCategory(selectedPersona.id, selectedPersona.title);
-        } catch (firestoreError) {
-          console.warn('Failed to save persona to Firestore:', firestoreError);
-          // Don't fail onboarding if Firestore save fails
-        }
-        
-        // Create Google Drive folder for the user
-        try {
-          const { auth } = await import('../firebase');
-          const currentUser = auth.currentUser;
-          if (currentUser) {
-            const idToken = await currentUser.getIdToken();
-            const username = currentUser.email?.split('@')[0] || currentUser.uid.substring(0, 8);
-            const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://172.20.10.3:8001';
-            const response = await fetch(`${API_BASE_URL}/api/google-drive/create-folder?folder_name=${encodeURIComponent(username)}`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${idToken}`,
-              },
-            });
-            
-            if (response.ok) {
-              const data = await response.json();
-              console.log('✅ Google Drive folder created:', data.folderId);
-            } else {
-              const errorText = await response.text();
-              console.warn('⚠️ Google Drive folder creation failed:', errorText);
-              // Don't fail onboarding if folder creation fails
-            }
+        // Save persona to Firestore (non-critical)
+        Promise.resolve().then(async () => {
+          try {
+            const { setUserCategory } = await import('../firebase');
+            await setUserCategory(selectedPersona.id, selectedPersona.title);
+          } catch (firestoreError) {
+            console.warn('Failed to save persona to Firestore:', firestoreError);
+            // Don't fail onboarding if Firestore save fails
           }
-        } catch (folderError) {
-          console.warn('⚠️ Google Drive folder creation error (non-critical):', folderError);
-          // Don't fail onboarding if folder creation fails
-        }
+        }).catch(() => {}); // Ignore errors
         
+        // Create Google Drive folder for the user (non-critical, with timeout)
+        Promise.resolve().then(async () => {
+          try {
+            const { auth } = await import('../firebase');
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+              const idToken = await currentUser.getIdToken();
+              const username = currentUser.email?.split('@')[0] || currentUser.uid.substring(0, 8);
+              const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://172.20.10.3:8001';
+              
+              // Add timeout to prevent hanging
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+              
+              try {
+                const response = await fetch(`${API_BASE_URL}/api/google-drive/create-folder?folder_name=${encodeURIComponent(username)}`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`,
+                  },
+                  signal: controller.signal,
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                  const data = await response.json();
+                  console.log('✅ Google Drive folder created:', data.folderId);
+                } else {
+                  const errorText = await response.text();
+                  console.warn('⚠️ Google Drive folder creation failed:', errorText);
+                }
+              } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                  console.warn('⚠️ Google Drive folder creation timed out (non-critical)');
+                } else {
+                  console.warn('⚠️ Google Drive folder creation error (non-critical):', fetchError);
+                }
+              }
+            }
+          } catch (folderError) {
+            console.warn('⚠️ Google Drive folder creation error (non-critical):', folderError);
+          }
+        }).catch(() => {}); // Ignore errors
+        
+        // CRITICAL: Always complete onboarding, even if other operations fail
         await completeOnboarding();
         
         // Onboarding complete - RootNavigation will automatically show AppNavigator
         // No need to navigate manually, the context change will trigger re-render
       } catch (error) {
         console.error('Error saving personalization:', error);
-        Alert.alert('Error', 'Failed to save your preferences. Please try again.');
+        // Even if there's an error, try to complete onboarding
+        try {
+          await completeOnboarding();
+        } catch (completeError) {
+          console.error('Critical error: Failed to complete onboarding:', completeError);
+          Alert.alert('Error', 'Failed to complete setup. Please try again or restart the app.');
+        }
+      } finally {
+        setIsCompleting(false);
       }
     }
   };
@@ -368,13 +399,27 @@ export default function M1APersonalizationScreen({ navigation }) {
       {selectedPersona && (
         <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={[styles.continueButton, { backgroundColor: selectedPersona.color }]}
+            style={[
+              styles.continueButton,
+              {
+                backgroundColor: isCompleting ? theme.subtext : selectedPersona.color,
+                opacity: isCompleting ? 0.7 : 1,
+              }
+            ]}
             onPress={handleContinue}
+            disabled={isCompleting}
           >
             <Text style={styles.continueButtonText}>
-              {currentStep === 3 ? 'Complete Setup' : 'Continue'}
+              {isCompleting
+                ? 'Completing Setup...'
+                : currentStep === 3
+                ? 'Complete Setup'
+                : 'Continue'}
             </Text>
-            <Ionicons name="arrow-forward" size={20} color="white" />
+            {!isCompleting && <Ionicons name="arrow-forward" size={20} color="white" />}
+            {isCompleting && (
+              <ActivityIndicator size="small" color="white" style={{ marginLeft: 8 }} />
+            )}
           </TouchableOpacity>
         </View>
       )}

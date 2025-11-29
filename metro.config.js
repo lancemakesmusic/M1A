@@ -24,6 +24,12 @@ config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, 'node_modules'),
 ];
 
+// Add .JPG (uppercase) to asset extensions
+config.resolver.assetExts = [
+  ...config.resolver.assetExts,
+  'JPG', // Support uppercase .JPG files
+];
+
 // CRITICAL: Exclude gesture-handler from web bundle (it breaks web clicks)
 const originalResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {

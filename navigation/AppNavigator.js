@@ -28,6 +28,7 @@ import ProfileViewsScreen from '../screens/ProfileViewsScreen';
 import ServiceBookingScreen from '../screens/ServiceBookingScreen';
 import UserProfileViewScreen from '../screens/UserProfileViewScreen';
 import WalletScreen from '../screens/WalletScreen';
+import AdminUserManagementScreen from '../screens/AdminUserManagementScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -111,6 +112,11 @@ function HomeStackNavigator() {
         component={CreatePostScreen}
         options={{ headerShown: false }}
       />
+      <Stack.Screen
+        name="AdminUserManagement"
+        component={AdminUserManagementScreen}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }
@@ -134,7 +140,7 @@ function ProfileStackNavigator() {
       <Stack.Screen
         name="ProfileMain"
         component={ProfileScreen}
-        options={{ title: 'Profile' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="ProfileEdit"

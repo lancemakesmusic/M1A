@@ -32,6 +32,7 @@ export default function M1AChatScreen({ onClose }) {
   const {
     chatHistory,
     isTyping,
+    isLoadingHistory,
     sendMessage,
     currentScreen,
     addMessage,
@@ -127,7 +128,7 @@ export default function M1AChatScreen({ onClose }) {
       >
         {!isUser && (
           <View style={[styles.avatar, { backgroundColor: 'transparent' }]}>
-            <M1ALogo size={32} variant="minimal" color="primary" />
+            <M1ALogo size={32} variant="icon" />
           </View>
         )}
         <View
@@ -199,7 +200,7 @@ export default function M1AChatScreen({ onClose }) {
         ]}>
           <View style={styles.headerLeft}>
             <View style={[styles.headerAvatar, { backgroundColor: 'transparent' }]}>
-              <M1ALogo size={36} variant="minimal" color="primary" />
+              <M1ALogo size={36} variant="icon" />
             </View>
             <View>
               <Text style={[styles.headerTitle, { color: theme.text }]}>M1A Assistant</Text>
@@ -214,16 +215,24 @@ export default function M1AChatScreen({ onClose }) {
         </View>
 
         {/* Chat Messages */}
-        <FlatList
-          ref={flatListRef}
-          data={chatHistory}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.messagesList}
-          ListEmptyComponent={
+        {isLoadingHistory ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <Text style={[styles.loadingText, { color: theme.subtext }]}>
+              Loading chat history...
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={chatHistory}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.messagesList}
+            ListEmptyComponent={
             <View style={styles.emptyState}>
               <View style={[styles.emptyAvatar, { backgroundColor: 'transparent' }]}>
-                <M1ALogo size={80} variant="icon" color="primary" />
+                <M1ALogo size={80} variant="icon" />
               </View>
               <Text style={[styles.emptyTitle, { color: theme.text }]}>
                 Hi! I'm M1A 👋
@@ -292,7 +301,8 @@ export default function M1AChatScreen({ onClose }) {
               </View>
             )
           }
-        />
+          />
+        )}
 
         {/* Input Area */}
         <View style={[styles.inputContainer, { backgroundColor: theme.cardBackground, borderTopColor: theme.border }]}>
@@ -708,6 +718,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
   },
 });
 

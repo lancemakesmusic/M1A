@@ -24,6 +24,18 @@ import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/Noti
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import useScreenTracking from '../hooks/useScreenTracking';
 
+// Local asset images for bar menu items
+import BuffaloTraceImg from '../assets/images/Buffalo_Trace.JPG';
+import JamesonImg from '../assets/images/Jameson.JPG';
+import JackDanielsImg from '../assets/images/Jack_Daniels.JPG';
+import EspolonImg from '../assets/images/Espolon.JPG';
+import TitosImg from '../assets/images/Titos.JPG';
+import JoseCuervoImg from '../assets/images/Jose_Cuervo.JPG';
+import SpriteImg from '../assets/images/Sprite.JPG';
+import RedBullImg from '../assets/images/Red_Bull.JPG';
+import CranberryImg from '../assets/images/64oz_OS_Cranberry_front_v2.webp';
+import SeltzerImg from '../assets/images/Seltzer_Water.JPG';
+
 // Fallback menu items - matches actual Merkaba Entertainment bar menu
 // Reference: Bar menu image with categories: Specialty Drinks, Spirits, Wells, Beer, Mixers
 const fallbackMenuItems = [
@@ -34,7 +46,7 @@ const fallbackMenuItems = [
     description: 'Classic margarita cocktail',
     price: 12,
     category: 'Mixed Drinks',
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1536935338788-846bb9981813?w=400&h=400&fit=crop&q=80',
     popular: true,
     available: true,
   },
@@ -44,7 +56,7 @@ const fallbackMenuItems = [
     description: 'Refreshing green tea shot',
     price: 6,
     category: 'Mixed Drinks',
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=400&h=400&fit=crop&q=80',
     available: true,
   },
   {
@@ -53,7 +65,7 @@ const fallbackMenuItems = [
     description: 'Smooth white tea shot',
     price: 6,
     category: 'Mixed Drinks',
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=400&h=400&fit=crop&q=80',
     available: true,
   },
   
@@ -64,7 +76,7 @@ const fallbackMenuItems = [
     description: 'Premium bourbon whiskey',
     price: 9,
     category: 'Spirits',
-    image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop',
+    image: BuffaloTraceImg,
     available: true,
   },
   {
@@ -73,7 +85,7 @@ const fallbackMenuItems = [
     description: 'Irish whiskey',
     price: 9,
     category: 'Spirits',
-    image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop',
+    image: JamesonImg,
     available: true,
   },
   {
@@ -82,7 +94,7 @@ const fallbackMenuItems = [
     description: 'Tennessee whiskey',
     price: 8,
     category: 'Spirits',
-    image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop',
+    image: JackDanielsImg,
     available: true,
   },
   {
@@ -91,7 +103,7 @@ const fallbackMenuItems = [
     description: 'Premium tequila',
     price: 8,
     category: 'Spirits',
-    image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop',
+    image: EspolonImg,
     available: true,
   },
   {
@@ -100,7 +112,7 @@ const fallbackMenuItems = [
     description: 'Handmade vodka',
     price: 7,
     category: 'Spirits',
-    image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop',
+    image: TitosImg,
     available: true,
   },
   {
@@ -109,7 +121,7 @@ const fallbackMenuItems = [
     description: 'Classic tequila',
     price: 7,
     category: 'Spirits',
-    image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop',
+    image: JoseCuervoImg,
     available: true,
   },
   
@@ -120,7 +132,7 @@ const fallbackMenuItems = [
     description: 'House well spirits',
     price: 5,
     category: 'Spirits',
-    image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop&q=80',
     available: true,
   },
   
@@ -131,7 +143,7 @@ const fallbackMenuItems = [
     description: 'Mexican lager',
     price: 6,
     category: 'Beer',
-    image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop&q=80',
     available: true,
   },
   {
@@ -140,7 +152,7 @@ const fallbackMenuItems = [
     description: 'Light beer',
     price: 7,
     category: 'Beer',
-    image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop&q=80',
     available: true,
   },
   {
@@ -149,7 +161,7 @@ const fallbackMenuItems = [
     description: 'Mexican beer',
     price: 7,
     category: 'Beer',
-    image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop&q=80',
     available: true,
   },
   
@@ -160,7 +172,7 @@ const fallbackMenuItems = [
     description: 'Mixer - additional charge',
     price: 1,
     category: 'Mixers',
-    image: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=400&h=400&fit=crop&q=80',
     available: true,
     isMixer: true,
   },
@@ -170,7 +182,7 @@ const fallbackMenuItems = [
     description: 'Mixer - additional charge',
     price: 1,
     category: 'Mixers',
-    image: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=400&fit=crop',
+    image: SpriteImg,
     available: true,
     isMixer: true,
   },
@@ -180,7 +192,7 @@ const fallbackMenuItems = [
     description: 'Energy drink mixer - additional charge',
     price: 3,
     category: 'Mixers',
-    image: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=400&fit=crop',
+    image: RedBullImg,
     available: true,
     isMixer: true,
   },
@@ -190,7 +202,7 @@ const fallbackMenuItems = [
     description: 'Mixer - additional charge',
     price: 1,
     category: 'Mixers',
-    image: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=400&fit=crop',
+    image: 'https://images.unsplash.com/photo-1600271886742-f049cd451bba?w=400&h=400&fit=crop&q=80',
     available: true,
     isMixer: true,
   },
@@ -200,7 +212,7 @@ const fallbackMenuItems = [
     description: 'Mixer - additional charge',
     price: 1,
     category: 'Mixers',
-    image: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=400&fit=crop',
+    image: CranberryImg,
     available: true,
     isMixer: true,
   },
@@ -210,7 +222,7 @@ const fallbackMenuItems = [
     description: 'Mixer - additional charge',
     price: 1,
     category: 'Mixers',
-    image: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=400&fit=crop',
+    image: SeltzerImg,
     available: true,
     isMixer: true,
   },
@@ -219,7 +231,14 @@ const fallbackMenuItems = [
 const TAX_RATE = 0.08; // 8% tax
 const SERVICE_FEE = 0.03; // 3% service fee
 
-export default function BarMenuScreen({ navigation }) {
+// Helper to support both local require() images and remote URLs
+const getImageSource = (image) => {
+  if (!image) return undefined;
+  // In React Native, static images are numbers, remote images are strings
+  return typeof image === 'number' ? image : { uri: image };
+};
+
+export default function BarMenuScreen({ navigation, route }) {
   const { theme } = useTheme();
   const { user } = useAuth();
   const [menuItems, setMenuItems] = useState([]);
@@ -233,6 +252,27 @@ export default function BarMenuScreen({ navigation }) {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [orderNumber, setOrderNumber] = useState(null);
   const [specialInstructions, setSpecialInstructions] = useState('');
+
+  // Handle item added from dashboard
+  useEffect(() => {
+    if (route?.params?.addItemToCart) {
+      const item = route.params.addItemToCart;
+      // Add item to cart
+      setCart(prev => {
+        const existing = prev.find(i => i.id === item.id);
+        if (existing) {
+          return prev.map(i =>
+            i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i
+          );
+        }
+        return [...prev, { ...item, quantity: 1 }];
+      });
+      // Clear the param to prevent re-adding
+      navigation.setParams({ addItemToCart: undefined });
+      // Show success message
+      Alert.alert('Added to Cart', `${item.name} has been added to your cart!`);
+    }
+  }, [route?.params?.addItemToCart, navigation]);
 
   const categories = ['All', 'Mixed Drinks', 'Spirits', 'Beer'];
 
@@ -541,8 +581,12 @@ export default function BarMenuScreen({ navigation }) {
       disabled={item.available === false}
     >
       <Image
-        source={{ uri: item.image }}
+        source={getImageSource(item.image)}
         style={styles.menuItemImage}
+        onError={(error) => {
+          console.log('Image load error for', item.name, ':', item.image, error.nativeEvent.error);
+        }}
+        resizeMode="cover"
       />
       <View style={styles.menuItemContent}>
         <View style={styles.menuItemHeader}>

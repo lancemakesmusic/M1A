@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
   FlatList,
+  Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -49,9 +51,22 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     completedTasks: 0,
     revenue: 0,
   });
+  const [guestData, setGuestData] = useState({
+    featuredDrinks: [],
+    todaysSpecials: [],
+    deals: [],
+    recommendations: [],
+  });
+  const [showItemModal, setShowItemModal] = useState(false);
+  const [modalItems, setModalItems] = useState([]);
+  const [modalTitle, setModalTitle] = useState('');
 
   useEffect(() => {
-    loadDashboardData();
+    if (userPersona?.id === 'guest') {
+      loadGuestDashboardData();
+    } else {
+      loadDashboardData();
+    }
     
     // Show tutorial if needed
     if (shouldShowTutorial()) {
@@ -65,6 +80,102 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
       setShowTutorial(true);
     }
   }, []);
+
+  const loadGuestDashboardData = async () => {
+    try {
+      // Load guest-specific data: specials, deals, recommendations
+      const featuredDrinks = [
+        { id: '1', name: 'Merkaba Mule', price: 14, description: 'Premium vodka, ginger beer, lime', popular: true },
+        { id: '2', name: 'Cosmic Old Fashioned', price: 16, description: 'Bourbon, bitters, orange', popular: true },
+        { id: '3', name: 'Stellar Mojito', price: 13, description: 'White rum, mint, lime, soda', popular: false },
+      ];
+
+      const todaysSpecials = [
+        { 
+          id: '1', 
+          title: 'Happy Hour', 
+          description: '20% off all cocktails', 
+          time: '5PM - 7PM', 
+          icon: 'time',
+          items: [
+            { id: 'hh-1', name: 'Happy Hour Margarita', price: 9.60, originalPrice: 12, description: 'Classic margarita with 20% off', category: 'Mixed Drinks', available: true, isSpecial: true },
+            { id: 'hh-2', name: 'Happy Hour Old Fashioned', price: 12.80, originalPrice: 16, description: 'Premium bourbon cocktail with 20% off', category: 'Mixed Drinks', available: true, isSpecial: true },
+            { id: 'hh-3', name: 'Happy Hour Mojito', price: 10.40, originalPrice: 13, description: 'Refreshing mojito with 20% off', category: 'Mixed Drinks', available: true, isSpecial: true },
+          ]
+        },
+        { 
+          id: '2', 
+          title: 'Wine Wednesday', 
+          description: 'Half-price wine by the glass', 
+          time: 'All Day', 
+          icon: 'wine',
+          items: [
+            { id: 'ww-1', name: 'House Red Wine', price: 5, originalPrice: 10, description: 'Half-price house red wine', category: 'Wine', available: true, isSpecial: true },
+            { id: 'ww-2', name: 'House White Wine', price: 5, originalPrice: 10, description: 'Half-price house white wine', category: 'Wine', available: true, isSpecial: true },
+            { id: 'ww-3', name: 'Premium Wine Selection', price: 9, originalPrice: 18, description: 'Half-price premium wines', category: 'Wine', available: true, isSpecial: true },
+          ]
+        },
+        { 
+          id: '3', 
+          title: 'Weekend Special', 
+          description: 'Buy 2 get 1 free on select beers', 
+          time: 'Fri-Sun', 
+          icon: 'beer',
+          items: [
+            { id: 'ws-1', name: 'Beer Bucket', price: 24, description: '6-pack of your choice (Buy 2 get 1 free)', category: 'Beer', available: true, isSpecial: true, isPackage: true },
+            { id: 'ws-2', name: 'Dos Equis (3-pack)', price: 12, description: 'Buy 2 get 1 free', category: 'Beer', available: true, isSpecial: true },
+            { id: 'ws-3', name: 'Modelo (3-pack)', price: 14, description: 'Buy 2 get 1 free', category: 'Beer', available: true, isSpecial: true },
+          ]
+        },
+      ];
+
+      const deals = [
+        { 
+          id: '1', 
+          title: 'Bar Package Deal', 
+          description: '3 drinks + appetizer for $35', 
+          discount: 'Save $10', 
+          icon: 'gift',
+          items: [
+            { id: 'deal-1', name: 'Bar Package Deal', price: 35, description: '3 drinks + appetizer combo', category: 'Package', available: true, isPackage: true, includes: ['Any 3 drinks', 'Appetizer of choice'] },
+          ]
+        },
+        { 
+          id: '2', 
+          title: 'Group Discount', 
+          description: '10% off for parties of 6+', 
+          discount: 'Valid Today', 
+          icon: 'people',
+          items: [
+            { id: 'group-1', name: 'Group Package (6+)', price: 0, description: '10% off entire order for groups of 6 or more', category: 'Package', available: true, isPackage: true, discountPercent: 10 },
+          ]
+        },
+        { 
+          id: '3', 
+          title: 'Loyalty Reward', 
+          description: 'Earn points with every purchase', 
+          discount: 'Join Now', 
+          icon: 'star',
+          items: []
+        },
+      ];
+
+      const recommendations = [
+        { id: '1', title: 'Upcoming Event', description: 'Live Music Night - This Friday', action: 'View Details', icon: 'musical-notes' },
+        { id: '2', title: 'Try Our Signature', description: 'Merkaba Mule - Our most popular cocktail', action: 'Order Now', icon: 'wine' },
+        { id: '3', title: 'New Arrival', description: 'Premium whiskey selection just added', action: 'Explore Menu', icon: 'flask' },
+      ];
+
+      setGuestData({
+        featuredDrinks,
+        todaysSpecials,
+        deals,
+        recommendations,
+      });
+    } catch (error) {
+      console.error('Error loading guest dashboard data:', error);
+    }
+  };
 
   const loadDashboardData = async () => {
     try {
@@ -159,7 +270,11 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadDashboardData();
+    if (userPersona?.id === 'guest') {
+      await loadGuestDashboardData();
+    } else {
+      await loadDashboardData();
+    }
     setRefreshing(false);
   };
 
@@ -283,6 +398,21 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
           { title: 'Client Review', status: '5 Stars', time: '1 day ago' },
         ],
       },
+      guest: {
+        title: 'Merkaba Experience',
+        subtitle: 'Discover drinks, specials, and events',
+        quickActions: [
+          { title: 'View Menu', icon: 'wine', color: '#FF9500', screen: 'BarMenu' },
+          { title: 'Today\'s Specials', icon: 'gift', color: '#FF6B6B', screen: 'BarMenu' },
+          { title: 'Upcoming Events', icon: 'calendar', color: '#4ECDC4', screen: 'Explore' },
+          { title: 'Request Service', icon: 'help-circle', color: '#3498DB', action: 'service-request' },
+        ],
+        recentActivity: [
+          { title: 'Happy Hour Active', status: 'Now', time: 'Until 7PM' },
+          { title: 'New Drink Added', status: 'Available', time: '2 hours ago' },
+          { title: 'Weekend Special', status: 'Active', time: 'All Weekend' },
+        ],
+      },
     };
 
     return personaData[userPersona.id] || personaData.promoter;
@@ -290,22 +420,94 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
 
   const personaData = getPersonaSpecificData();
 
-  const renderStatCard = (title, value, icon, color) => (
-    <View style={[styles.statCard, { backgroundColor: theme.cardBackground }]}>
+  const handleStatCardPress = (title, type) => {
+    let items = [];
+    let modalTitle = title;
+    
+    switch (type) {
+      case 'featured':
+        items = guestData.featuredDrinks.map(drink => ({
+          id: drink.id,
+          name: drink.name,
+          price: drink.price,
+          description: drink.description,
+          category: 'Mixed Drinks',
+          available: true,
+        }));
+        break;
+      case 'specials':
+        // Flatten all special items
+        items = guestData.todaysSpecials.flatMap(special => special.items || []);
+        break;
+      case 'deals':
+        // Flatten all deal items
+        items = guestData.deals.flatMap(deal => deal.items || []);
+        break;
+      case 'recommendations':
+        // Convert recommendations to actionable items
+        items = guestData.recommendations.map(rec => ({
+          id: rec.id,
+          name: rec.title,
+          description: rec.description,
+          action: rec.action,
+          category: 'Recommendation',
+          available: true,
+        }));
+        break;
+    }
+    
+    if (items.length > 0) {
+      setModalItems(items);
+      setModalTitle(modalTitle);
+      setShowItemModal(true);
+    }
+  };
+
+  const handleAddToCart = (item) => {
+    // Navigate to BarMenu with the item to add
+    setShowItemModal(false);
+    navigation.navigate('BarMenu', { 
+      addItemToCart: {
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        description: item.description,
+        category: item.category || 'Mixed Drinks',
+        available: item.available !== false,
+        quantity: 1,
+      }
+    });
+  };
+
+  const renderStatCard = (title, value, icon, color, type) => (
+    <TouchableOpacity 
+      style={[styles.statCard, { backgroundColor: theme.cardBackground }]}
+      onPress={() => handleStatCardPress(title, type)}
+      activeOpacity={0.7}
+    >
       <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
         <Ionicons name={icon} size={24} color={color} />
       </View>
       <Text style={[styles.statValue, { color: theme.text }]}>{value}</Text>
       <Text style={[styles.statTitle, { color: theme.subtext }]}>{title}</Text>
-    </View>
+      <View style={styles.tapIndicator}>
+        <Ionicons name="chevron-forward" size={16} color={theme.subtext} style={{ opacity: 0.5 }} />
+      </View>
+    </TouchableOpacity>
   );
 
   const renderQuickAction = ({ item }) => (
     <TouchableOpacity
       style={[styles.quickActionCard, { backgroundColor: theme.cardBackground }]}
       onPress={() => {
-        // Navigate to appropriate screen based on action
-        console.log('Quick action:', item.title);
+        if (item.screen) {
+          navigation.navigate(item.screen);
+        } else if (item.action === 'service-request') {
+          // Open service request in chat
+          navigation.navigate('Home');
+        } else {
+          console.log('Quick action:', item.title);
+        }
       }}
     >
       <View style={[styles.actionIcon, { backgroundColor: item.color + '20' }]}>
@@ -390,16 +592,139 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
           </TouchableOpacity>
         </View>
 
-        {/* Stats Cards */}
-        <View style={styles.statsContainer}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
-          <View style={styles.statsGrid}>
-            {renderStatCard('Total Events', stats.totalEvents, 'calendar', getPersonaColor())}
-            {renderStatCard('Upcoming', stats.upcomingEvents, 'time', '#4ECDC4')}
-            {renderStatCard('Completed', stats.completedTasks, 'checkmark-circle', '#2ECC71')}
-            {renderStatCard('Revenue', `$${stats.revenue.toLocaleString()}`, 'cash', '#F39C12')}
+        {/* Stats Cards - Different for guests */}
+        {userPersona?.id === 'guest' ? (
+          <View style={styles.statsContainer}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Today at Merkaba</Text>
+            <View style={styles.statsGrid}>
+              {renderStatCard('Featured Drinks', guestData.featuredDrinks.length, 'wine', getPersonaColor(), 'featured')}
+              {renderStatCard('Active Specials', guestData.todaysSpecials.length, 'gift', '#FF6B6B', 'specials')}
+              {renderStatCard('Available Deals', guestData.deals.length, 'pricetag', '#4ECDC4', 'deals')}
+              {renderStatCard('Recommendations', guestData.recommendations.length, 'star', '#F39C12', 'recommendations')}
+            </View>
           </View>
-        </View>
+        ) : (
+          <View style={styles.statsContainer}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
+            <View style={styles.statsGrid}>
+              {renderStatCard('Total Events', stats.totalEvents, 'calendar', getPersonaColor())}
+              {renderStatCard('Upcoming', stats.upcomingEvents, 'time', '#4ECDC4')}
+              {renderStatCard('Completed', stats.completedTasks, 'checkmark-circle', '#2ECC71')}
+              {renderStatCard('Revenue', `$${stats.revenue.toLocaleString()}`, 'cash', '#F39C12')}
+            </View>
+          </View>
+        )}
+
+        {/* Guest-Specific Content */}
+        {userPersona?.id === 'guest' && (
+          <>
+            {/* Featured Drinks */}
+            {guestData.featuredDrinks.length > 0 && (
+              <View style={styles.guestSection}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Featured Drinks</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
+                  {guestData.featuredDrinks.map((drink) => (
+                    <TouchableOpacity
+                      key={drink.id}
+                      style={[styles.drinkCard, { backgroundColor: theme.cardBackground }]}
+                      onPress={() => navigation.navigate('BarMenu')}
+                    >
+                      <View style={[styles.drinkIcon, { backgroundColor: getPersonaColor() + '20' }]}>
+                        <Ionicons name="wine" size={32} color={getPersonaColor()} />
+                      </View>
+                      <Text style={[styles.drinkName, { color: theme.text }]}>{drink.name}</Text>
+                      <Text style={[styles.drinkDescription, { color: theme.subtext }]}>{drink.description}</Text>
+                      <Text style={[styles.drinkPrice, { color: getPersonaColor() }]}>${drink.price}</Text>
+                      {drink.popular && (
+                        <View style={[styles.popularBadge, { backgroundColor: '#FF6B6B' }]}>
+                          <Text style={styles.popularText}>Popular</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Today's Specials */}
+            {guestData.todaysSpecials.length > 0 && (
+              <View style={styles.guestSection}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Today's Specials</Text>
+                {guestData.todaysSpecials.map((special) => (
+                  <TouchableOpacity
+                    key={special.id}
+                    style={[styles.specialCard, { backgroundColor: theme.cardBackground }]}
+                    onPress={() => navigation.navigate('BarMenu')}
+                  >
+                    <View style={[styles.specialIcon, { backgroundColor: '#FF6B6B' + '20' }]}>
+                      <Ionicons name={special.icon} size={24} color="#FF6B6B" />
+                    </View>
+                    <View style={styles.specialContent}>
+                      <Text style={[styles.specialTitle, { color: theme.text }]}>{special.title}</Text>
+                      <Text style={[styles.specialDescription, { color: theme.subtext }]}>{special.description}</Text>
+                      <Text style={[styles.specialTime, { color: '#FF6B6B' }]}>{special.time}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Deals */}
+            {guestData.deals.length > 0 && (
+              <View style={styles.guestSection}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Exclusive Deals</Text>
+                {guestData.deals.map((deal) => (
+                  <TouchableOpacity
+                    key={deal.id}
+                    style={[styles.dealCard, { backgroundColor: theme.cardBackground, borderColor: '#4ECDC4' }]}
+                    onPress={() => navigation.navigate('BarMenu')}
+                  >
+                    <View style={[styles.dealIcon, { backgroundColor: '#4ECDC4' + '20' }]}>
+                      <Ionicons name={deal.icon} size={24} color="#4ECDC4" />
+                    </View>
+                    <View style={styles.dealContent}>
+                      <Text style={[styles.dealTitle, { color: theme.text }]}>{deal.title}</Text>
+                      <Text style={[styles.dealDescription, { color: theme.subtext }]}>{deal.description}</Text>
+                    </View>
+                    <View style={[styles.dealDiscount, { backgroundColor: '#4ECDC4' }]}>
+                      <Text style={styles.dealDiscountText}>{deal.discount}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Recommendations */}
+            {guestData.recommendations.length > 0 && (
+              <View style={styles.guestSection}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>For You</Text>
+                {guestData.recommendations.map((rec) => (
+                  <TouchableOpacity
+                    key={rec.id}
+                    style={[styles.recommendationCard, { backgroundColor: theme.cardBackground }]}
+                    onPress={() => {
+                      if (rec.action === 'View Details') {
+                        navigation.navigate('Explore');
+                      } else if (rec.action === 'Order Now' || rec.action === 'Explore Menu') {
+                        navigation.navigate('BarMenu');
+                      }
+                    }}
+                  >
+                    <View style={[styles.recIcon, { backgroundColor: '#F39C12' + '20' }]}>
+                      <Ionicons name={rec.icon} size={24} color="#F39C12" />
+                    </View>
+                    <View style={styles.recContent}>
+                      <Text style={[styles.recTitle, { color: theme.text }]}>{rec.title}</Text>
+                      <Text style={[styles.recDescription, { color: theme.subtext }]}>{rec.description}</Text>
+                    </View>
+                    <Text style={[styles.recAction, { color: '#F39C12' }]}>{rec.action}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </>
+        )}
 
         {/* Quick Actions */}
         <View style={styles.quickActionsContainer}>
@@ -476,6 +801,118 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
           onScrollStart={() => setShowScrollIndicator(false)}
         />
       )}
+
+      {/* Items Modal */}
+      <Modal
+        visible={showItemModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowItemModal(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+          <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+            {/* Modal Header */}
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>{modalTitle}</Text>
+              <TouchableOpacity
+                onPress={() => setShowItemModal(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Modal Content */}
+            <FlatList
+              data={modalItems}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.modalItemCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                  onPress={() => {
+                    if (item.action) {
+                      // Handle recommendation actions
+                      if (item.action === 'View Details') {
+                        navigation.navigate('Explore');
+                      } else if (item.action === 'Order Now' || item.action === 'Explore Menu') {
+                        navigation.navigate('BarMenu');
+                      }
+                      setShowItemModal(false);
+                    } else if (item.price !== undefined) {
+                      // Add to cart
+                      handleAddToCart(item);
+                    }
+                  }}
+                >
+                  <View style={styles.modalItemContent}>
+                    <View style={styles.modalItemHeader}>
+                      <Text style={[styles.modalItemName, { color: theme.text }]}>{item.name}</Text>
+                      {item.price !== undefined && item.price > 0 && (
+                        <Text style={[styles.modalItemPrice, { color: theme.primary }]}>
+                          ${item.price.toFixed(2)}
+                          {item.originalPrice && item.originalPrice > item.price && (
+                            <Text style={[styles.originalPrice, { color: theme.subtext }]}>
+                              {' '}${item.originalPrice.toFixed(2)}
+                            </Text>
+                          )}
+                        </Text>
+                      )}
+                    </View>
+                    {item.description && (
+                      <Text style={[styles.modalItemDescription, { color: theme.subtext }]}>
+                        {item.description}
+                      </Text>
+                    )}
+                    {item.includes && (
+                      <View style={styles.includesContainer}>
+                        <Text style={[styles.includesLabel, { color: theme.subtext }]}>Includes:</Text>
+                        {item.includes.map((include, idx) => (
+                          <Text key={idx} style={[styles.includesItem, { color: theme.text }]}>
+                            • {include}
+                          </Text>
+                        ))}
+                      </View>
+                    )}
+                    {item.isPackage && (
+                      <View style={[styles.packageBadge, { backgroundColor: theme.primary + '20' }]}>
+                        <Text style={[styles.packageBadgeText, { color: theme.primary }]}>Package Deal</Text>
+                      </View>
+                    )}
+                    {item.isSpecial && (
+                      <View style={[styles.specialBadge, { backgroundColor: '#FF6B6B' + '20' }]}>
+                        <Text style={[styles.specialBadgeText, { color: '#FF6B6B' }]}>Special</Text>
+                      </View>
+                    )}
+                  </View>
+                  {item.price !== undefined && item.price > 0 && (
+                    <TouchableOpacity
+                      style={[styles.addToCartButton, { backgroundColor: theme.primary }]}
+                      onPress={() => handleAddToCart(item)}
+                    >
+                      <Ionicons name="add" size={20} color="#fff" />
+                      <Text style={styles.addToCartText}>Add to Cart</Text>
+                    </TouchableOpacity>
+                  )}
+                  {item.action && (
+                    <View style={[styles.actionButton, { backgroundColor: theme.primary + '20' }]}>
+                      <Text style={[styles.actionButtonText, { color: theme.primary }]}>{item.action}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+              contentContainerStyle={styles.modalContent}
+              ListEmptyComponent={
+                <View style={styles.emptyModalState}>
+                  <Ionicons name="information-circle-outline" size={48} color={theme.subtext} />
+                  <Text style={[styles.emptyModalText, { color: theme.subtext }]}>
+                    No items available at this time
+                  </Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -683,5 +1120,296 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  guestSection: {
+    paddingHorizontal: 20,
+    marginBottom: 30,
+  },
+  horizontalScroll: {
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
+  },
+  drinkCard: {
+    width: 160,
+    padding: 16,
+    borderRadius: 12,
+    marginRight: 12,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  drinkIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  drinkName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  drinkDescription: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  drinkPrice: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  popularBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  popularText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  specialCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  specialIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  specialContent: {
+    flex: 1,
+  },
+  specialTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  specialDescription: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  specialTime: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dealCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 2,
+  },
+  dealIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  dealContent: {
+    flex: 1,
+  },
+  dealTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  dealDescription: {
+    fontSize: 14,
+  },
+  dealDiscount: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginLeft: 8,
+  },
+  dealDiscountText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  recommendationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  recIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  recContent: {
+    flex: 1,
+  },
+  recTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  recDescription: {
+    fontSize: 14,
+  },
+  recAction: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  tapIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    maxHeight: '80%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalContent: {
+    padding: 20,
+  },
+  modalItemCard: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  modalItemContent: {
+    flex: 1,
+  },
+  modalItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  modalItemName: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+  },
+  modalItemPrice: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  originalPrice: {
+    fontSize: 14,
+    textDecorationLine: 'line-through',
+    marginLeft: 4,
+  },
+  modalItemDescription: {
+    fontSize: 14,
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  includesContainer: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  includesLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  includesItem: {
+    fontSize: 12,
+    marginLeft: 8,
+  },
+  packageBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  packageBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  specialBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  specialBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  addToCartButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginTop: 12,
+    gap: 8,
+  },
+  addToCartText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  actionButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emptyModalState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyModalText: {
+    fontSize: 16,
+    marginTop: 12,
+    textAlign: 'center',
   },
 });

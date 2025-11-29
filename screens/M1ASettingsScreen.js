@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
+import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { deleteUserAccount, exportUserData, signOut } from '../firebase';
 import TipTrackingService from '../services/TipTrackingService';
@@ -25,6 +26,7 @@ import M1ALogo from '../components/M1ALogo';
 export default function M1ASettingsScreen({ navigation }) {
   const { theme, toggleTheme } = useTheme();
   const { user: currentUser } = useAuth();
+  const { isAdmin, isMasterAdmin, hasPermission } = useRole();
   const { 
     userPersona, 
     preferences, 
@@ -181,6 +183,30 @@ export default function M1ASettingsScreen({ navigation }) {
       ]
     );
   };
+
+  const renderAdminSection = () => (
+    <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Admin Tools</Text>
+      
+      {hasPermission('canViewAllUsers') && (
+        <TouchableOpacity
+          style={styles.settingRow}
+          onPress={() => navigation.navigate('AdminUserManagement')}
+        >
+          <View style={styles.settingInfo}>
+            <Ionicons name="people" size={24} color={theme.primary} />
+            <View style={styles.settingTextContainer}>
+              <Text style={[styles.settingTitle, { color: theme.text }]}>User Management</Text>
+              <Text style={[styles.settingDescription, { color: theme.subtext }]}>
+                Manage users, upgrade to employee/admin, revoke roles
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
 
   const renderAccountManagement = () => (
     <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>

@@ -34,32 +34,56 @@ import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptS
 import useScreenTracking from '../hooks/useScreenTracking';
 import EmptyState from '../components/EmptyState';
 
+// Local asset images for bar menu items (match BarMenuScreen)
+import BuffaloTraceImg from '../assets/images/Buffalo_Trace.JPG';
+import JamesonImg from '../assets/images/Jameson.JPG';
+import JackDanielsImg from '../assets/images/Jack_Daniels.JPG';
+import EspolonImg from '../assets/images/Espolon.JPG';
+import TitosImg from '../assets/images/Titos.JPG';
+import JoseCuervoImg from '../assets/images/Jose_Cuervo.JPG';
+import SpriteImg from '../assets/images/Sprite.JPG';
+import RedBullImg from '../assets/images/Red_Bull.JPG';
+import CranberryImg from '../assets/images/64oz_OS_Cranberry_front_v2.webp';
+import SeltzerImg from '../assets/images/Seltzer_Water.JPG';
+
 const { width, height } = Dimensions.get('window');
 
 // Fallback menu items - same as BarMenuScreen
 const fallbackMenuItems = [
   // MIXED DRINKS
-  { id: '1', name: 'Margarita', description: 'Classic margarita cocktail', price: 12, category: 'Mixed Drinks', image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=400&h=400&fit=crop', popular: true, available: true },
-  { id: '2', name: 'Green Tea Shot', description: 'Refreshing green tea shot', price: 6, category: 'Mixed Drinks', image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=400&h=400&fit=crop', available: true },
-  { id: '3', name: 'White Tea Shot', description: 'Smooth white tea shot', price: 6, category: 'Mixed Drinks', image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=400&h=400&fit=crop', available: true },
+  { id: '1', name: 'Margarita', description: 'Classic margarita cocktail', price: 12, category: 'Mixed Drinks', image: 'https://images.unsplash.com/photo-1536935338788-846bb9981813?w=400&h=400&fit=crop&q=80', popular: true, available: true },
+  { id: '2', name: 'Green Tea Shot', description: 'Refreshing green tea shot', price: 6, category: 'Mixed Drinks', image: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=400&h=400&fit=crop&q=80', available: true },
+  { id: '3', name: 'White Tea Shot', description: 'Smooth white tea shot', price: 6, category: 'Mixed Drinks', image: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=400&h=400&fit=crop&q=80', available: true },
   
   // SPIRITS
-  { id: '4', name: 'Buffalo Trace Bourbon', description: 'Premium bourbon whiskey', price: 9, category: 'Spirits', image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop', available: true },
-  { id: '5', name: 'Jameson', description: 'Irish whiskey', price: 9, category: 'Spirits', image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop', available: true },
-  { id: '6', name: 'Jack Daniel\'s', description: 'Tennessee whiskey', price: 8, category: 'Spirits', image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop', available: true },
-  { id: '7', name: 'Espolon', description: 'Premium tequila', price: 8, category: 'Spirits', image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop', available: true },
-  { id: '8', name: 'Tito\'s', description: 'Handmade vodka', price: 7, category: 'Spirits', image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop', available: true },
-  { id: '9', name: 'Jose Cuervo', description: 'Classic tequila', price: 7, category: 'Spirits', image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop', available: true },
-  { id: '10', name: 'Vodka / Whiskey / Tequila', description: 'House well spirits', price: 5, category: 'Spirits', image: 'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=400&fit=crop', available: true },
+  { id: '4', name: 'Buffalo Trace Bourbon', description: 'Premium bourbon whiskey', price: 9, category: 'Spirits', image: BuffaloTraceImg, available: true },
+  { id: '5', name: 'Jameson', description: 'Irish whiskey', price: 9, category: 'Spirits', image: JamesonImg, available: true },
+  { id: '6', name: 'Jack Daniel\'s', description: 'Tennessee whiskey', price: 8, category: 'Spirits', image: JackDanielsImg, available: true },
+  { id: '7', name: 'Espolon', description: 'Premium tequila', price: 8, category: 'Spirits', image: EspolonImg, available: true },
+  { id: '8', name: 'Tito\'s', description: 'Handmade vodka', price: 7, category: 'Spirits', image: TitosImg, available: true },
+  { id: '9', name: 'Jose Cuervo', description: 'Classic tequila', price: 7, category: 'Spirits', image: JoseCuervoImg, available: true },
+  { id: '10', name: 'Vodka / Whiskey / Tequila', description: 'House well spirits', price: 5, category: 'Spirits', image: 'https://images.unsplash.com/photo-1609501676725-7186f3a6a24d?w=400&h=400&fit=crop&q=80', available: true },
   
   // BEER
-  { id: '11', name: 'Dos Equis', description: 'Mexican lager', price: 6, category: 'Beer', image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop', available: true },
-  { id: '12', name: 'Michelob Ultra', description: 'Light beer', price: 7, category: 'Beer', image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop', available: true },
-  { id: '13', name: 'Modelo', description: 'Mexican beer', price: 7, category: 'Beer', image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop', available: true },
+  { id: '11', name: 'Dos Equis', description: 'Mexican lager', price: 6, category: 'Beer', image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop&q=80', available: true },
+  { id: '12', name: 'Michelob Ultra', description: 'Light beer', price: 7, category: 'Beer', image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop&q=80', available: true },
+  { id: '13', name: 'Modelo', description: 'Mexican beer', price: 7, category: 'Beer', image: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop&q=80', available: true },
+
+  // MIXERS (Additional charge) - only those with local assets
+  { id: '15', name: 'Sprite', description: 'Mixer - additional charge', price: 1, category: 'Mixers', image: SpriteImg, available: true, isMixer: true },
+  { id: '16', name: 'Redbull', description: 'Energy drink mixer - additional charge', price: 3, category: 'Mixers', image: RedBullImg, available: true, isMixer: true },
+  { id: '18', name: 'Cranberry Juice', description: 'Mixer - additional charge', price: 1, category: 'Mixers', image: CranberryImg, available: true, isMixer: true },
+  { id: '19', name: 'Club Soda', description: 'Mixer - additional charge', price: 1, category: 'Mixers', image: SeltzerImg, available: true, isMixer: true },
 ];
 
 const TAX_RATE = 0.08; // 8% tax
 const SERVICE_FEE = 0.03; // 3% service fee
+
+// Helper to support both local require() images and remote URLs
+const getImageSource = (image) => {
+  if (!image) return undefined;
+  return typeof image === 'number' ? image : { uri: image };
+};
 
 // Map category IDs to category names
 const categoryMap = {
@@ -342,7 +366,14 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
       style={[styles.menuItem, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
       activeOpacity={0.8}
     >
-      <Image source={{ uri: item.image }} style={styles.menuItemImage} />
+      <Image 
+        source={getImageSource(item.image)} 
+        style={styles.menuItemImage}
+        onError={(error) => {
+          console.log('Image load error for', item.name, ':', item.image, error.nativeEvent.error);
+        }}
+        resizeMode="cover"
+      />
       <View style={styles.menuItemContent}>
         <View style={styles.menuItemHeader}>
           <View style={styles.menuItemInfo}>

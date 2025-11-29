@@ -3,12 +3,14 @@
  * Manages the state and behavior of the M1A chat assistant
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import M1AAssistantService from '../services/M1AAssistantService';
 import TipTrackingService from '../services/TipTrackingService';
 import { useM1APersonalization } from './M1APersonalizationContext';
 
 const M1AAssistantContext = createContext();
+const CHAT_HISTORY_KEY = 'm1a_chat_history';
 
 export function M1AAssistantProvider({ children }) {
   const [isVisible, setIsVisible] = useState(true);
@@ -19,8 +21,49 @@ export function M1AAssistantProvider({ children }) {
   const [userBehavior, setUserBehavior] = useState({});
   const [chatHistory, setChatHistory] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   
   const { userPersona } = useM1APersonalization();
+
+  // Load chat history from AsyncStorage on mount
+  useEffect(() => {
+    loadChatHistory();
+  }, []);
+
+  // Save chat history to AsyncStorage whenever it changes
+  useEffect(() => {
+    if (!isLoadingHistory && chatHistory.length > 0) {
+      saveChatHistory();
+    }
+  }, [chatHistory, isLoadingHistory]);
+
+  const loadChatHistory = async () => {
+    try {
+      setIsLoadingHistory(true);
+      const savedHistory = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+      if (savedHistory) {
+        const parsed = JSON.parse(savedHistory);
+        // Convert timestamp strings back to Date objects
+        const historyWithDates = parsed.map(msg => ({
+          ...msg,
+          timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
+        }));
+        setChatHistory(historyWithDates);
+      }
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  const saveChatHistory = async () => {
+    try {
+      await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(chatHistory));
+    } catch (error) {
+      console.error('Error saving chat history:', error);
+    }
+  };
   
   // Navigation will be set up by NavigationAwareM1A component
   // We'll use a ref to store navigation and update screen via a callback
@@ -112,13 +155,20 @@ export function M1AAssistantProvider({ children }) {
 
   const addMessage = useCallback((role, message, isSystem = false) => {
     const newMessage = {
-      id: Date.now().toString(),
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       role, // 'user' or 'assistant'
       message,
       timestamp: new Date(),
       isSystem,
     };
-    setChatHistory(prev => [...prev, newMessage]);
+    setChatHistory(prev => {
+      const updated = [...prev, newMessage];
+      // Auto-save to AsyncStorage
+      AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updated)).catch(err => {
+        console.error('Error auto-saving chat history:', err);
+      });
+      return updated;
+    });
     return newMessage;
   }, []);
 
@@ -126,18 +176,23 @@ export function M1AAssistantProvider({ children }) {
     // Add user message
     addMessage('user', message);
 
-    // Show typing indicator
-    setIsTyping(true);
-
-    // Simulate AI thinking time
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Generate AI response
-    const aiResponse = M1AAssistantService.generateAIResponse(message, {
+    // Generate AI response (checks cache first for instant responses)
+    const aiResponse = await M1AAssistantService.generateAIResponse(message, {
       screen: currentScreen,
       userPersona,
       userBehavior,
+      chatHistory, // Pass chat history for context
     });
+
+    // Check if response is instant (from cache/pre-loaded)
+    const isInstant = aiResponse.metadata?.instant === true;
+    
+    if (!isInstant) {
+      // Show typing indicator only for non-instant responses
+      setIsTyping(true);
+      // Small delay for non-cached responses to feel natural
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
 
     // Add assistant response
     const responseText = aiResponse.response.message || aiResponse.response.title || '';
@@ -155,7 +210,7 @@ export function M1AAssistantProvider({ children }) {
           } catch (error) {
             console.warn('Navigation error:', error);
           }
-        }, 500);
+        }, isInstant ? 200 : 500); // Faster navigation for instant responses
       }
     }
 
@@ -164,7 +219,7 @@ export function M1AAssistantProvider({ children }) {
     setIsTyping(false);
 
     return aiResponse;
-  }, [currentScreen, userPersona, userBehavior, addMessage, hideBubble]);
+  }, [currentScreen, userPersona, userBehavior, chatHistory, addMessage, hideBubble]);
 
   const handleTipAction = useCallback((tip) => {
     if (!tip.action) return;
@@ -242,6 +297,15 @@ export function M1AAssistantProvider({ children }) {
     setUserBehavior(prev => ({ ...prev, ...behavior }));
   }, []);
 
+  const clearChatHistory = useCallback(async () => {
+    setChatHistory([]);
+    try {
+      await AsyncStorage.removeItem(CHAT_HISTORY_KEY);
+    } catch (error) {
+      console.error('Error clearing chat history:', error);
+    }
+  }, []);
+
   const value = {
     // State
     isVisible,
@@ -251,6 +315,7 @@ export function M1AAssistantProvider({ children }) {
     currentScreen,
     chatHistory,
     isTyping,
+    isLoadingHistory,
     
     // Actions
     toggleExpanded,
@@ -266,6 +331,7 @@ export function M1AAssistantProvider({ children }) {
     markTipAsShown,
     disableAllTips,
     guidePurchaseFlow,
+    clearChatHistory,
   };
 
   return (

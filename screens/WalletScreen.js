@@ -741,20 +741,28 @@ export default function WalletScreen() {
       )}
 
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
-        {!canGoBack && <Text style={[styles.headerTitle, { color: theme.text }]}>
-          {ENABLE_WALLET_BALANCE ? 'Wallet' : 'Payments'}
-        </Text>}
-        {canGoBack && <View style={{ flex: 1 }} />}
-        <TouchableOpacity style={styles.headerActionButton}>
-          <Ionicons name="settings-outline" size={24} color={theme.text} />
-        </TouchableOpacity>
-      </View>
+      {!canGoBack && (
+        <View style={[styles.header, { backgroundColor: theme.background }]}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            {ENABLE_WALLET_BALANCE ? 'Wallet' : 'Payments'}
+          </Text>
+          <TouchableOpacity 
+            style={styles.headerActionButton}
+            onPress={() => navigation.navigate('M1ASettings')}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="settings-outline" size={24} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Balance Card - Only show if wallet features are enabled */}
       {ENABLE_WALLET_BALANCE && (
-        <View style={[styles.balanceCard, { backgroundColor: theme.isDark ? '#1a1a1a' : theme.primary }]}>
-          <Text style={[styles.balanceLabel, { color: theme.isDark ? theme.primary : '#fff' }]}>Total Balance</Text>
+        <View style={[styles.balanceCard, { 
+          backgroundColor: theme.isDark ? '#1a1a1a' : theme.primary,
+          shadowColor: theme.primary,
+        }]}>
+          <Text style={[styles.balanceLabel, { color: theme.isDark ? theme.primary : 'rgba(255,255,255,0.9)' }]}>Total Balance</Text>
           <Text style={[styles.balanceAmount, { color: theme.isDark ? theme.primary : '#fff' }]}>${balance.toFixed(2)}</Text>
           <View style={styles.balanceActions}>
             {ENABLE_ADD_FUNDS && (
@@ -1872,50 +1880,72 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    paddingTop: 10,
-    borderBottomWidth: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 16,
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -0.5,
   },
   headerActionButton: {
     padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
   },
   
   // Balance card styles
   balanceCard: {
-    margin: 20,
-    padding: 24,
-    borderRadius: 20,
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 24,
+    padding: 28,
+    borderRadius: 24,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   balanceLabel: {
-    fontSize: 16,
+    fontSize: 14,
     marginBottom: 8,
+    opacity: 0.9,
+    fontWeight: '500',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   balanceAmount: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    marginBottom: 24,
+    fontSize: 48,
+    fontWeight: '700',
+    marginBottom: 28,
+    letterSpacing: -1,
   },
   balanceActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '100%',
+    gap: 12,
   },
   balanceActionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 16,
+    minWidth: 100,
+    justifyContent: 'center',
   },
   balanceActionText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
-    marginLeft: 6,
+    marginLeft: 8,
+    letterSpacing: 0.3,
   },
   
   // Quick actions styles
@@ -1923,25 +1953,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    marginBottom: 24,
+    marginBottom: 32,
+    gap: 12,
   },
   quickActionButton: {
     flex: 1,
     alignItems: 'center',
-    padding: 16,
-    marginHorizontal: 4,
-    borderRadius: 12,
+    paddingVertical: 20,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   quickActionText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    marginTop: 8,
+    marginTop: 10,
+    letterSpacing: 0.2,
   },
   
   // Section styles
   section: {
-    marginBottom: 24,
+    marginBottom: 32,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1951,11 +1991,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   sectionAction: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
   },
   
@@ -1963,19 +2004,27 @@ const styles = StyleSheet.create({
   transactionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: 18,
     marginHorizontal: 20,
-    marginBottom: 8,
-    borderRadius: 12,
-    borderBottomWidth: 1,
+    marginBottom: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   transactionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 16,
   },
   transactionContent: {
     flex: 1,
@@ -1983,17 +2032,20 @@ const styles = StyleSheet.create({
   transactionDescription: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 6,
+    letterSpacing: -0.2,
   },
   transactionTime: {
-    fontSize: 14,
+    fontSize: 13,
+    opacity: 0.7,
   },
   transactionAmount: {
     alignItems: 'flex-end',
   },
   transactionAmountText: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   pendingText: {
     fontSize: 12,
@@ -2009,12 +2061,20 @@ const styles = StyleSheet.create({
   paymentMethodItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: 18,
     marginHorizontal: 20,
-    marginBottom: 8,
-    borderRadius: 12,
+    marginBottom: 12,
+    borderRadius: 16,
     borderWidth: 1,
     justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   paymentMethodContentWrapper: {
     flexDirection: 'row',
@@ -2356,20 +2416,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderBottomWidth: 1,
     backgroundColor: 'transparent',
+    paddingHorizontal: 20,
   },
   tab: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 18,
     alignItems: 'center',
-    borderBottomWidth: 2,
+    borderBottomWidth: 3,
     borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomWidth: 2,
+    borderBottomWidth: 3,
   },
   tabText: {
     fontSize: 16,
     fontWeight: '600',
+    letterSpacing: 0.2,
   },
   // Scroll content styles
   scrollContent: {

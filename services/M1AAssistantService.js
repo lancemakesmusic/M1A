@@ -5,43 +5,168 @@
  */
 
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
+import ChatGPTService from './ChatGPTService';
 
 class M1AAssistantService {
   /**
-   * Screen mapping for navigation
+   * Screen mapping for navigation - comprehensive service coverage
    */
   getScreenMap() {
     return {
-      // Navigation keywords to screen names
+      // Home & Main
       'home': 'HomeMain',
+      'main': 'HomeMain',
+      'dashboard': 'HomeMain',
+      
+      // Event Booking
       'event': 'EventBooking',
+      'events': 'EventBooking',
       'booking': 'EventBooking',
       'book event': 'EventBooking',
       'create event': 'EventBooking',
       'schedule': 'EventBooking',
+      'schedule event': 'EventBooking',
+      'new event': 'EventBooking',
+      'plan event': 'EventBooking',
+      'event planning': 'EventBooking',
+      'ticket': 'EventBooking',
+      'tickets': 'EventBooking',
+      
+      // Bar Menu
       'bar': 'BarMenu',
       'menu': 'BarMenu',
       'drinks': 'BarMenu',
+      'drink': 'BarMenu',
       'order': 'BarMenu',
+      'order drinks': 'BarMenu',
+      'bar menu': 'BarMenu',
+      'food': 'BarMenu',
+      'cocktail': 'BarMenu',
+      'cocktails': 'BarMenu',
+      'wine': 'BarMenu',
+      'beer': 'BarMenu',
+      'spirits': 'BarMenu',
+      
+      // Wallet & Payments
       'wallet': 'Wallet',
       'money': 'Wallet',
       'funds': 'Wallet',
+      'payment': 'Wallet',
+      'payments': 'Wallet',
+      'transaction': 'Wallet',
+      'transactions': 'Wallet',
+      'balance': 'Wallet',
+      'add funds': 'Wallet',
+      'send money': 'Wallet',
+      
+      // Explore & Services
       'explore': 'Explore',
       'services': 'Explore',
+      'service': 'Explore',
       'browse': 'Explore',
-      'dashboard': 'M1ADashboard',
+      'browse services': 'Explore',
+      'find services': 'Explore',
+      'vendors': 'Explore',
+      'vendor': 'Explore',
+      'service providers': 'Explore',
+      
+      // Service Booking
+      'book service': 'ServiceBooking',
+      'service booking': 'ServiceBooking',
+      'hire': 'ServiceBooking',
+      'book vendor': 'ServiceBooking',
+      'reserve service': 'ServiceBooking',
+      
+      // M1A Dashboard
+      'm1a dashboard': 'M1ADashboard',
       'm1a': 'M1ADashboard',
+      'analytics': 'M1ADashboard',
+      'insights': 'M1ADashboard',
+      'stats': 'M1ADashboard',
+      'statistics': 'M1ADashboard',
+      
+      // Auto Poster
       'autoposter': 'AutoPoster',
+      'auto poster': 'AutoPoster',
+      'social media': 'AutoPoster',
+      'posting': 'AutoPoster',
+      'automation': 'AutoPoster',
+      'schedule post': 'AutoPoster',
+      'social posts': 'AutoPoster',
+      
+      // Profile
       'profile': 'ProfileMain',
-      'settings': 'M1ASettings',
-      'help': 'Help',
+      'my profile': 'ProfileMain',
+      'account': 'ProfileMain',
+      'edit profile': 'ProfileEdit',
+      'update profile': 'ProfileEdit',
+      'change profile': 'ProfileEdit',
+      'followers': 'FollowersList',
+      'following': 'FollowersList',
+      'profile views': 'ProfileViews',
+      'views': 'ProfileViews',
+      
+      // Messages
       'messages': 'Messages',
+      'message': 'Messages',
       'chat': 'Messages',
+      'conversation': 'Messages',
+      'inbox': 'Messages',
+      'dm': 'Messages',
+      'direct message': 'Messages',
+      
+      // Settings
+      'settings': 'M1ASettings',
+      'setting': 'M1ASettings',
+      'preferences': 'M1ASettings',
+      'configuration': 'M1ASettings',
+      'options': 'M1ASettings',
+      
+      // Help & Support
+      'help': 'Help',
+      'support': 'Help',
+      'faq': 'Help',
+      'questions': 'Help',
+      'guide': 'Help',
+      'tutorial': 'Help',
+      'feedback': 'Feedback',
+      'send feedback': 'Feedback',
+      'report': 'Feedback',
+      
+      // Calendar
+      'calendar': 'Calendar',
+      'schedule': 'Calendar',
+      'events calendar': 'Calendar',
+      'upcoming events': 'Calendar',
+      
+      // Users
+      'users': 'Users',
+      'people': 'Users',
+      'find users': 'Users',
+      'search users': 'Users',
+      'explore users': 'Users',
+      
+      // Create Post
+      'create post': 'CreatePost',
+      'new post': 'CreatePost',
+      'post': 'CreatePost',
+      'share': 'CreatePost',
+      
+      // Notifications
+      'notifications': 'Notifications',
+      'notification': 'Notifications',
+      'alerts': 'Notifications',
+      
+      // Personalization
+      'persona': 'M1APersonalization',
+      'personalization': 'M1APersonalization',
+      'setup': 'M1APersonalization',
+      'onboarding': 'M1APersonalization',
     };
   }
 
   /**
-   * Detect user intent from query
+   * Detect user intent from query - enhanced with service inquiry detection
    */
   detectIntent(query) {
     if (!query || typeof query !== 'string') {
@@ -53,7 +178,40 @@ class M1AAssistantService {
       return { type: 'question', confidence: 0.5, query: '' };
     }
     
-    // Navigation intent
+    // Service inquiry patterns - check first for better accuracy
+    const serviceInquiryPatterns = [
+      { pattern: /(what|tell me about|info about|information about|details about|learn about|know about)/i, type: 'service-inquiry' },
+      { pattern: /(how do i|how can i|how to|how does|how to use|how to access)/i, type: 'service-inquiry' },
+      { pattern: /(where is|where can i|where do i|where to find|where to access)/i, type: 'service-inquiry' },
+      { pattern: /(show me|take me to|open|go to|navigate to|bring me to)/i, type: 'navigate' },
+    ];
+    
+    for (const { pattern, type } of serviceInquiryPatterns) {
+      if (pattern.test(lowerQuery)) {
+        // If it's a service inquiry, still try to extract the service
+        const screenMap = this.getScreenMap();
+        for (const [keyword, screen] of Object.entries(screenMap)) {
+          if (lowerQuery.includes(keyword)) {
+            return {
+              type: type === 'service-inquiry' ? 'service-inquiry' : 'navigate',
+              screen,
+              confidence: 0.95,
+              query: lowerQuery,
+            };
+          }
+        }
+        // Service inquiry without specific service - return as inquiry
+        if (type === 'service-inquiry') {
+          return {
+            type: 'service-inquiry',
+            confidence: 0.9,
+            query: lowerQuery,
+          };
+        }
+      }
+    }
+    
+    // Navigation intent - check for direct navigation keywords
     const screenMap = this.getScreenMap();
     for (const [keyword, screen] of Object.entries(screenMap)) {
       if (lowerQuery.includes(keyword)) {
@@ -600,8 +758,10 @@ class M1AAssistantService {
 
   /**
    * Generate intelligent AI response with navigation and purchase assistance
+   * Now uses ChatGPT for in-depth responses while maintaining navigation capabilities
+   * Checks cache first for instant responses
    */
-  generateAIResponse(query, context = {}) {
+  async generateAIResponse(query, context = {}) {
     if (!query || typeof query !== 'string') {
       return {
         type: 'question',
@@ -609,6 +769,7 @@ class M1AAssistantService {
           title: 'I need more information',
           message: 'Could you please rephrase your question? I\'m here to help!',
         },
+        metadata: { instant: false },
       };
     }
     
@@ -616,11 +777,116 @@ class M1AAssistantService {
     const lowerQuery = query.toLowerCase();
     const userPersona = context?.userPersona;
     
+    // For navigation and simple actions, use rule-based (fast and reliable)
+    if (intent.type === 'navigate' && intent.screen) {
+      return {
+        type: 'navigate',
+        intent,
+        response: {
+          title: `Taking you to ${this.getScreenName(intent.screen)}`,
+          message: `I'll take you there right away! You're being navigated to ${this.getScreenName(intent.screen)}.`,
+          action: { type: 'navigate', screen: intent.screen },
+        },
+        suggestions: this.getContextualSuggestions(intent.screen),
+        metadata: { instant: true, source: 'rule-based' },
+      };
+    }
+    
+    // For everything else, use ChatGPT (which checks cache first for instant responses)
+    try {
+      const aiResponse = await ChatGPTService.generateChatResponse(query, {
+        chatHistory: context.chatHistory || [],
+        userPersona,
+        currentScreen: context.screen || 'Home',
+        userBehavior: context.userBehavior || {},
+      });
+      
+      // Merge AI response with navigation capabilities
+      const response = {
+        type: intent.type || 'general',
+        intent,
+        response: {
+          title: aiResponse.metadata?.title || 'M1A Assistant',
+          message: aiResponse.message,
+          action: aiResponse.action || (intent.screen ? { type: 'navigate', screen: intent.screen } : null),
+        },
+        suggestions: aiResponse.suggestions || this.getContextualSuggestions(context.screen),
+        metadata: aiResponse.metadata || { instant: false },
+      };
+      
+      // If AI detected navigation, ensure it's included
+      if (aiResponse.action && aiResponse.action.type === 'navigate') {
+        response.response.action = aiResponse.action;
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('Error generating AI response:', error);
+      // Fallback to rule-based response
+      const fallback = this.generateFallbackResponse(query, intent, lowerQuery, context);
+      return {
+        ...fallback,
+        metadata: { instant: false, fallback: true, error: error.message },
+      };
+    }
+  }
+  
+  /**
+   * Fallback response generator (original rule-based logic)
+   */
+  generateFallbackResponse(query, intent, lowerQuery, context) {
+    const userPersona = context?.userPersona;
+    
     // Guest persona - Customer service mode
     if (userPersona?.id === 'guest') {
       return this.generateGuestResponse(query, intent, lowerQuery, context);
     }
     
+    // Handle service inquiry intent
+    if (intent.type === 'service-inquiry') {
+      // Try to extract service from query
+      const screenMap = this.getScreenMap();
+      let detectedScreen = null;
+      for (const [keyword, screen] of Object.entries(screenMap)) {
+        if (lowerQuery.includes(keyword)) {
+          detectedScreen = screen;
+          break;
+        }
+      }
+      
+      if (detectedScreen) {
+        return {
+          type: 'service-inquiry',
+          intent,
+          response: {
+            title: `About ${this.getScreenName(detectedScreen)}`,
+            message: this.getServiceDescription(detectedScreen, lowerQuery),
+            action: { type: 'navigate', screen: detectedScreen },
+          },
+          suggestions: [
+            `Take me to ${this.getScreenName(detectedScreen)}`,
+            'Tell me more',
+            'How do I use this?',
+          ],
+        };
+      }
+      
+      // General service inquiry
+      return {
+        type: 'service-inquiry',
+        intent,
+        response: {
+          title: 'Service Information',
+          message: this.getGeneralServiceInfo(lowerQuery),
+        },
+        suggestions: [
+          'Tell me about events',
+          'What is the bar menu?',
+          'How do I book a service?',
+        ],
+      };
+    }
+
     // Handle navigation intent - terminate at destination
     if (intent.type === 'navigate' && intent.screen) {
       return {
@@ -833,12 +1099,78 @@ class M1AAssistantService {
       'M1ADashboard': 'M1A Dashboard',
       'AutoPoster': 'Auto Poster',
       'ProfileMain': 'Profile',
+      'ProfileEdit': 'Edit Profile',
       'M1ASettings': 'Settings',
       'Help': 'Help Center',
       'Messages': 'Messages',
       'ServiceBooking': 'Service Booking',
+      'Calendar': 'Calendar',
+      'Users': 'Users',
+      'CreatePost': 'Create Post',
+      'Notifications': 'Notifications',
+      'Feedback': 'Feedback',
+      'FollowersList': 'Followers',
+      'ProfileViews': 'Profile Views',
     };
     return names[screen] || screen;
+  }
+
+  /**
+   * Get service description for service inquiries
+   */
+  getServiceDescription(screen, query = '') {
+    const descriptions = {
+      'EventBooking': 'Event Booking allows you to create and manage events at Merkaba. You can schedule concerts, parties, corporate events, and more. Set dates, pricing tiers, add bar packages, and manage all your event details in one place.',
+      'BarMenu': 'Our Bar Menu features premium cocktails, wine, beer, spirits, and food items. Browse our selection, add items to your cart, and checkout securely. Perfect for ordering drinks during events or adding bar packages to your bookings.',
+      'Wallet': 'Your Wallet manages all payments and transactions. Add funds, send money, view transaction history, and track your balance. All payments are processed securely through Stripe.',
+      'Explore': 'Explore Services lets you discover vendors, service providers, and professionals. Browse by category, read reviews, and book services for your events. Find photographers, caterers, DJs, and more.',
+      'ServiceBooking': 'Service Booking allows you to book professional services for your events. Select a service provider, choose dates, and complete your booking. Perfect for finding vendors and suppliers.',
+      'M1ADashboard': 'M1A Dashboard provides analytics, insights, and automation tools. Track event performance, manage social media posting, and optimize your business with AI-powered recommendations.',
+      'AutoPoster': 'Auto Poster is an AI-powered social media management tool. Schedule posts, automate content creation, and manage multiple platforms from one place. Save time and increase engagement.',
+      'ProfileMain': 'Your Profile displays your information, posts, followers, and activity. Customize your profile to showcase your work and connect with others in the M1A community.',
+      'ProfileEdit': 'Edit Profile lets you update your information, photos, bio, and social links. Keep your profile current to build trust and attract clients.',
+      'Messages': 'Messages is your communication hub. Chat with clients, vendors, and other users. Send messages, share media, and stay connected.',
+      'Calendar': 'Calendar shows all your events, bookings, and scheduled activities. View your schedule, manage dates, and never miss an important event.',
+      'M1ASettings': 'Settings lets you customize your app experience. Manage notifications, appearance, language, and account preferences.',
+      'Help': 'Help Center provides guides, tutorials, and support. Find answers to common questions and learn how to use M1A features.',
+      'Feedback': 'Send Feedback allows you to share your thoughts and suggestions. Help us improve M1A by providing valuable feedback.',
+      'Users': 'Users lets you explore and connect with other M1A members. Find professionals, vendors, and collaborators for your events.',
+      'CreatePost': 'Create Post lets you share content with the M1A community. Post photos, videos, audio, and updates to engage with your audience.',
+      'Notifications': 'Notifications keeps you updated on messages, events, bookings, and important activities. Never miss important updates.',
+    };
+    return descriptions[screen] || `The ${this.getScreenName(screen)} feature helps you manage and access ${this.getScreenName(screen).toLowerCase()} functionality.`;
+  }
+
+  /**
+   * Get general service information for inquiries
+   */
+  getGeneralServiceInfo(query) {
+    const lowerQuery = query.toLowerCase();
+    
+    if (lowerQuery.includes('event') || lowerQuery.includes('booking')) {
+      return 'Event Booking lets you create and manage events at Merkaba. You can schedule concerts, parties, corporate events, and more. Set dates, pricing, add bar packages, and manage all details. Would you like me to take you there?';
+    }
+    
+    if (lowerQuery.includes('bar') || lowerQuery.includes('menu') || lowerQuery.includes('drink')) {
+      return 'Our Bar Menu features premium cocktails, wine, beer, spirits, and food. Browse, add to cart, and checkout securely. Perfect for ordering during events or adding bar packages. Would you like to see the menu?';
+    }
+    
+    if (lowerQuery.includes('wallet') || lowerQuery.includes('payment') || lowerQuery.includes('money')) {
+      return 'Your Wallet manages all payments and transactions. Add funds, send money, view history, and track your balance. All payments are secure through Stripe. Would you like to access your wallet?';
+    }
+    
+    if (lowerQuery.includes('service') || lowerQuery.includes('vendor') || lowerQuery.includes('provider')) {
+      return 'Explore Services lets you discover vendors and professionals. Browse by category, read reviews, and book services for your events. Find photographers, caterers, DJs, and more. Would you like to explore?';
+    }
+    
+    return 'M1A offers many services to help you manage events, connect with vendors, and grow your business. I can help you navigate to:\n\n' +
+      '• Event Booking - Create and manage events\n' +
+      '• Bar Menu - Order drinks and food\n' +
+      '• Explore Services - Find vendors and professionals\n' +
+      '• Wallet - Manage payments\n' +
+      '• M1A Dashboard - Analytics and automation\n' +
+      '• Auto Poster - Social media management\n\n' +
+      'What would you like to learn about or access?';
   }
 
   /**
