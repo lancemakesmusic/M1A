@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../contexts/ThemeContext';
 
 // Screens
+import AdminControlCenterScreen from '../screens/AdminControlCenterScreen';
 import AdminSetupScreen from '../screens/AdminSetupScreen';
 import AdminUserManagementScreen from '../screens/AdminUserManagementScreen';
 import AutoPosterScreen from '../screens/AutoPosterScreen';
@@ -111,6 +112,11 @@ function HomeStackNavigator() {
       <Stack.Screen
         name="CreatePost"
         component={CreatePostScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminControlCenter"
+        component={AdminControlCenterScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen

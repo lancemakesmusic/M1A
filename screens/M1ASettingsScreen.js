@@ -195,8 +195,29 @@ export default function M1ASettingsScreen({ navigation }) {
 
     return (
       <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Admin Tools</Text>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Admin Control</Text>
         
+        {/* Main Admin Control Center */}
+        <TouchableOpacity
+          style={[styles.settingRow, { backgroundColor: theme.primary + '10', borderRadius: 12, marginBottom: 12 }]}
+          onPress={() => navigation.navigate('AdminControlCenter')}
+        >
+          <View style={styles.settingInfo}>
+            <View style={[styles.adminIconContainer, { backgroundColor: theme.primary + '20' }]}>
+              <Ionicons name="shield-checkmark" size={28} color={theme.primary} />
+            </View>
+            <View style={styles.settingTextContainer}>
+              <Text style={[styles.settingTitle, { color: theme.text, fontSize: 18, fontWeight: '700' }]}>
+                Admin Control Center
+              </Text>
+              <Text style={[styles.settingDescription, { color: theme.subtext }]}>
+                Complete control over all app functions, services, calendar, users, and more
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color={theme.primary} />
+        </TouchableOpacity>
+
         {hasPermission('canViewAllUsers') && (
           <TouchableOpacity
             style={styles.settingRow}
@@ -220,7 +241,7 @@ export default function M1ASettingsScreen({ navigation }) {
           onPress={() => navigation.navigate('AdminSetup')}
         >
           <View style={styles.settingInfo}>
-            <Ionicons name="shield-checkmark" size={24} color={theme.primary} />
+            <Ionicons name="settings" size={24} color={theme.primary} />
             <View style={styles.settingTextContainer}>
               <Text style={[styles.settingTitle, { color: theme.text }]}>Setup Admin Account</Text>
               <Text style={[styles.settingDescription, { color: theme.subtext }]}>
