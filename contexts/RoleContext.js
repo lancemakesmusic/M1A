@@ -18,6 +18,9 @@ export function RoleProvider({ children }) {
   const [userRole, setUserRole] = useState(null);
   const [permissions, setPermissions] = useState({});
   const [loading, setLoading] = useState(true);
+  
+  // Security: Only admin@merkabaent.com can be admin
+  const isAdminEmail = authUser?.email === 'admin@merkabaent.com';
 
   useEffect(() => {
     if (!authUser) {
@@ -37,13 +40,30 @@ export function RoleProvider({ children }) {
       const userDoc = await getDoc(doc(db, 'users', authUser.uid));
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        const role = userData.role || 'client'; // Default to client
+        let role = userData.role || 'client'; // Default to client
+        
+        // Security: Only admin@merkabaent.com can be admin
+        // If someone else has admin role, downgrade them
+        if (role === 'admin' && !isAdminEmail) {
+          console.warn('Security: Non-admin email has admin role. Downgrading to client.');
+          role = 'client';
+          // Optionally update the document to fix it
+          try {
+            await updateDoc(doc(db, 'users', authUser.uid), {
+              role: 'client',
+              roleSecurityDowngrade: serverTimestamp(),
+            });
+          } catch (err) {
+            console.error('Error downgrading role:', err);
+          }
+        }
+        
         setUserRole(role);
-        setPermissions(getPermissionsForRole(role, userData.permissions));
+        setPermissions(getPermissionsForRole(role, userData.permissions, isAdminEmail));
       } else {
         // New user, default to client
         setUserRole('client');
-        setPermissions(getPermissionsForRole('client'));
+        setPermissions(getPermissionsForRole('client', {}, isAdminEmail));
       }
     } catch (error) {
       console.error('Error loading user role:', error);

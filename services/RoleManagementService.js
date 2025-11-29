@@ -173,10 +173,11 @@ class RoleManagementService {
 
   /**
    * Upgrade user to employee or admin
-   * Admin can upgrade to employee, master_admin can upgrade to admin
-   * @param {string} requesterId - ID of the admin/master admin
+   * SECURITY: Only admin@merkabaent.com can upgrade users
+   * Only employee role upgrades are allowed (no admin upgrades)
+   * @param {string} requesterId - ID of the admin (must be admin@merkabaent.com)
    * @param {string} userId - ID of user to upgrade
-   * @param {string} newRole - New role ('employee' or 'admin')
+   * @param {string} newRole - New role ('employee' only - admin upgrades blocked)
    * @param {Object} roleInfo - Additional role information (optional)
    * @returns {Promise<Object>} Update result
    */
@@ -190,19 +191,24 @@ class RoleManagementService {
 
       const requesterData = requesterDoc.data();
       
-      // Validate role upgrade permissions
-      if (newRole === 'admin' && requesterData.role !== 'master_admin') {
-        throw new Error('Only master admin can upgrade users to admin');
+      // SECURITY: Only admin@merkabaent.com can upgrade users
+      if (requesterData.email !== 'admin@merkabaent.com') {
+        throw new Error('Only admin@merkabaent.com can upgrade users');
       }
       
-      if (newRole === 'employee' && !['master_admin', 'admin'].includes(requesterData.role)) {
-        throw new Error('Only admin or master admin can upgrade users to employee');
+      // SECURITY: Block admin role upgrades - only admin@merkabaent.com can be admin
+      if (newRole === 'admin') {
+        throw new Error('Admin role upgrades are not allowed. Only admin@merkabaent.com can be admin.');
+      }
+      
+      if (newRole === 'employee' && requesterData.role !== 'admin') {
+        throw new Error('Only admin@merkabaent.com can upgrade users to employee');
       }
 
-      // Validate role
-      const validRoles = ['employee', 'admin'];
+      // Validate role - only employee allowed
+      const validRoles = ['employee'];
       if (!validRoles.includes(newRole)) {
-        throw new Error(`Invalid upgrade role. Must be one of: ${validRoles.join(', ')}`);
+        throw new Error(`Invalid upgrade role. Only 'employee' role upgrades are allowed.`);
       }
 
       // Get user to upgrade
@@ -278,8 +284,8 @@ class RoleManagementService {
 
   /**
    * Revoke user role (downgrade to client)
-   * Admin can revoke employee, master_admin can revoke admin
-   * @param {string} requesterId - ID of the admin/master admin
+   * SECURITY: Only admin@merkabaent.com can revoke roles
+   * @param {string} requesterId - ID of the admin (must be admin@merkabaent.com)
    * @param {string} userId - ID of user to revoke
    * @returns {Promise<Object>} Revocation result
    */
@@ -293,6 +299,11 @@ class RoleManagementService {
 
       const requesterData = requesterDoc.data();
 
+      // SECURITY: Only admin@merkabaent.com can revoke roles
+      if (requesterData.email !== 'admin@merkabaent.com') {
+        throw new Error('Only admin@merkabaent.com can revoke user roles');
+      }
+
       // Get user to revoke
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (!userDoc.exists()) {
@@ -301,18 +312,14 @@ class RoleManagementService {
 
       const userData = userDoc.data();
 
-      // Cannot revoke master_admin
+      // Cannot revoke admin@merkabaent.com's role
+      if (userData.email === 'admin@merkabaent.com') {
+        throw new Error('Cannot revoke admin@merkabaent.com role');
+      }
+
+      // Cannot revoke master_admin (though this shouldn't exist)
       if (userData.role === 'master_admin') {
         throw new Error('Cannot revoke master admin role');
-      }
-
-      // Admin can only revoke employees
-      if (userData.role === 'admin' && requesterData.role !== 'master_admin') {
-        throw new Error('Only master admin can revoke admin roles');
-      }
-
-      if (userData.role === 'employee' && !['master_admin', 'admin'].includes(requesterData.role)) {
-        throw new Error('Only admin or master admin can revoke employee roles');
       }
 
       // Downgrade to client

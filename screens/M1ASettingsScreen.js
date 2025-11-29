@@ -13,6 +13,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import M1ALogo from '../components/M1ALogo';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
@@ -21,12 +22,14 @@ import { useTheme } from '../contexts/ThemeContext';
 import { deleteUserAccount, exportUserData, signOut } from '../firebase';
 import TipTrackingService from '../services/TipTrackingService';
 import { logError, logInfo } from '../utils/logger';
-import M1ALogo from '../components/M1ALogo';
 
 export default function M1ASettingsScreen({ navigation }) {
   const { theme, toggleTheme } = useTheme();
   const { user: currentUser } = useAuth();
-  const { isAdmin, isMasterAdmin, hasPermission } = useRole();
+  const { isAdmin, isMasterAdmin, hasPermission, isAdminEmail } = useRole();
+  
+  // SECURITY: Only admin@merkabaent.com can access admin tools
+  const canAccessAdminTools = isAdminEmail && currentUser?.email === 'admin@merkabaent.com';
   const { 
     userPersona, 
     preferences, 
@@ -184,45 +187,52 @@ export default function M1ASettingsScreen({ navigation }) {
     );
   };
 
-  const renderAdminSection = () => (
-    <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Admin Tools</Text>
-      
-      {hasPermission('canViewAllUsers') && (
+  const renderAdminSection = () => {
+    // SECURITY: Only show admin tools to admin@merkabaent.com
+    if (!canAccessAdminTools) {
+      return null;
+    }
+
+    return (
+      <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Admin Tools</Text>
+        
+        {hasPermission('canViewAllUsers') && (
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => navigation.navigate('AdminUserManagement')}
+          >
+            <View style={styles.settingInfo}>
+              <Ionicons name="people" size={24} color={theme.primary} />
+              <View style={styles.settingTextContainer}>
+                <Text style={[styles.settingTitle, { color: theme.text }]}>User Management</Text>
+                <Text style={[styles.settingDescription, { color: theme.subtext }]}>
+                  Manage users, upgrade to employee, revoke roles
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           style={styles.settingRow}
-          onPress={() => navigation.navigate('AdminUserManagement')}
+          onPress={() => navigation.navigate('AdminSetup')}
         >
           <View style={styles.settingInfo}>
-            <Ionicons name="people" size={24} color={theme.primary} />
+            <Ionicons name="shield-checkmark" size={24} color={theme.primary} />
             <View style={styles.settingTextContainer}>
-              <Text style={[styles.settingTitle, { color: theme.text }]}>User Management</Text>
+              <Text style={[styles.settingTitle, { color: theme.text }]}>Setup Admin Account</Text>
               <Text style={[styles.settingDescription, { color: theme.subtext }]}>
-                Manage users, upgrade to employee/admin, revoke roles
+                Set up admin@merkabaent.com as admin (one-time setup)
               </Text>
             </View>
           </View>
           <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
         </TouchableOpacity>
-      )}
-
-      <TouchableOpacity
-        style={styles.settingRow}
-        onPress={() => navigation.navigate('AdminSetup')}
-      >
-        <View style={styles.settingInfo}>
-          <Ionicons name="shield-checkmark" size={24} color={theme.primary} />
-          <View style={styles.settingTextContainer}>
-            <Text style={[styles.settingTitle, { color: theme.text }]}>Setup Admin Account</Text>
-            <Text style={[styles.settingDescription, { color: theme.subtext }]}>
-              Set up admin@merkabaent.com or other users as admin
-            </Text>
-          </View>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
-      </TouchableOpacity>
-    </View>
-  );
+      </View>
+    );
+  };
 
   const renderAccountManagement = () => (
     <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>

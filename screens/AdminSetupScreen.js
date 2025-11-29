@@ -26,12 +26,26 @@ import { db } from '../firebase';
 export default function AdminSetupScreen({ navigation }) {
   const { user } = useAuth();
   const { theme } = useTheme();
-  const { isAdmin, isMasterAdmin } = useRole();
+  const { isAdmin, isMasterAdmin, isAdminEmail } = useRole();
   const [email, setEmail] = useState('admin@merkabaent.com');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  
+  // SECURITY: Only allow setting admin@merkabaent.com as admin
+  const canSetupAdmin = user?.email === 'admin@merkabaent.com' || !isAdmin();
 
   const handleSetup = async () => {
+    // SECURITY: Only allow setting admin@merkabaent.com as admin
+    if (email.trim().toLowerCase() !== 'admin@merkabaent.com') {
+      Alert.alert(
+        'Security Restriction',
+        'Only admin@merkabaent.com can be set as admin for security purposes.',
+        [{ text: 'OK' }]
+      );
+      setEmail('admin@merkabaent.com');
+      return;
+    }
+
     if (!email.trim()) {
       Alert.alert('Error', 'Please enter an email address');
       return;

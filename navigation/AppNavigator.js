@@ -5,6 +5,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../contexts/ThemeContext';
 
 // Screens
+import AdminSetupScreen from '../screens/AdminSetupScreen';
+import AdminUserManagementScreen from '../screens/AdminUserManagementScreen';
 import AutoPosterScreen from '../screens/AutoPosterScreen';
 import BarCategoryScreen from '../screens/BarCategoryScreen';
 import BarMenuCategoryScreen from '../screens/BarMenuCategoryScreen';
@@ -28,8 +30,6 @@ import ProfileViewsScreen from '../screens/ProfileViewsScreen';
 import ServiceBookingScreen from '../screens/ServiceBookingScreen';
 import UserProfileViewScreen from '../screens/UserProfileViewScreen';
 import WalletScreen from '../screens/WalletScreen';
-import AdminUserManagementScreen from '../screens/AdminUserManagementScreen';
-import AdminSetupScreen from '../screens/AdminSetupScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();

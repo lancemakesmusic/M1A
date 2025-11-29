@@ -29,7 +29,10 @@ import EmptyState from '../components/EmptyState';
 export default function AdminUserManagementScreen({ navigation }) {
   const { user } = useAuth();
   const { theme } = useTheme();
-  const { isAdmin, isMasterAdmin, hasPermission } = useRole();
+  const { isAdmin, isMasterAdmin, hasPermission, isAdminEmail } = useRole();
+  
+  // SECURITY: Only admin@merkabaent.com can access this screen
+  const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,13 +45,17 @@ export default function AdminUserManagementScreen({ navigation }) {
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
-    if (!isAdmin() && !isMasterAdmin()) {
-      Alert.alert('Access Denied', 'Only admins can access this screen');
+    // SECURITY: Only admin@merkabaent.com can access this screen
+    if (!canAccess) {
+      Alert.alert(
+        'Access Denied',
+        'Only admin@merkabaent.com can access admin tools for security purposes.'
+      );
       navigation.goBack();
       return;
     }
     loadUsers();
-  }, [user]);
+  }, [user, canAccess]);
 
   const loadUsers = useCallback(async () => {
     if (!user?.uid) return;
