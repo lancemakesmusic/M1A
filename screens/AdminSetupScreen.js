@@ -160,12 +160,20 @@ export default function AdminSetupScreen({ navigation }) {
               placeholder="admin@merkabaent.com"
               placeholderTextColor={theme.subtext}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                // SECURITY: Only allow admin@merkabaent.com
+                if (text.toLowerCase() === 'admin@merkabaent.com' || text === '') {
+                  setEmail(text);
+                }
+              }}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
-              editable={!loading && !success}
+              editable={false} // Locked to admin@merkabaent.com
             />
+            <Text style={[styles.securityNote, { color: theme.subtext }]}>
+              🔒 Only admin@merkabaent.com can be set as admin for security
+            </Text>
           </View>
 
           {success && (
