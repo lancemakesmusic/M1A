@@ -201,6 +201,8 @@ export default function DrawerNavigator() {
         }}
       />
 
+      {/* Profile is handled by AppNavigator's ProfileTab (ProfileStackNavigator) */}
+      {/* This drawer item navigates to the ProfileTab which has ProfileEdit access */}
       <Drawer.Screen
         name="ProfileDrawer"
         component={ProfileScreen}
@@ -211,6 +213,13 @@ export default function DrawerNavigator() {
           ),
           headerShown: false,
         }}
+        listeners={({ navigation }) => ({
+          drawerItemPress: (e) => {
+            // Navigate to ProfileTab in AppNavigator instead of ProfileDrawer
+            e.preventDefault();
+            navigation.navigate('MainApp', { screen: 'Profile' });
+          },
+        })}
       />
 
       {/* Divider Section */}

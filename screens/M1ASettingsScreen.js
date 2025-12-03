@@ -314,40 +314,53 @@ export default function M1ASettingsScreen({ navigation }) {
     </View>
   );
 
-  const renderPersonaSection = () => (
-    <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Your Persona</Text>
-      
-      {userPersona ? (
-        <View style={styles.personaCard}>
-          <View style={[styles.personaIcon, { backgroundColor: getPersonaColor() + '20' }]}>
-            <Ionicons name={getPersonaIcon()} size={32} color={getPersonaColor()} />
+  const renderPersonaSection = () => {
+    // SECURITY: admin@merkabaent.com is locked to venue_owner
+    const isPrimaryAdmin = currentUser?.email === 'admin@merkabaent.com';
+    const isLocked = isPrimaryAdmin && userPersona?.id === 'venue_owner';
+    
+    return (
+      <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Your Persona</Text>
+        
+        {userPersona ? (
+          <View style={styles.personaCard}>
+            <View style={[styles.personaIcon, { backgroundColor: getPersonaColor() + '20' }]}>
+              <Ionicons name={getPersonaIcon()} size={32} color={getPersonaColor()} />
+            </View>
+            <View style={styles.personaInfo}>
+              <Text style={[styles.personaName, { color: theme.text }]}>
+                {userPersona.title || userPersona.name}
+              </Text>
+              <Text style={[styles.personaDescription, { color: theme.subtext }]}>
+                {userPersona.description}
+              </Text>
+              {isLocked && (
+                <Text style={[styles.personaDescription, { color: theme.primary, fontSize: 12, marginTop: 4 }]}>
+                  🔒 Locked (Admin Venue Owner)
+                </Text>
+              )}
+            </View>
+            {!isLocked && (
+              <TouchableOpacity
+                style={[styles.changeButton, { borderColor: theme.primary }]}
+                onPress={() => navigation.navigate('M1APersonalization')}
+              >
+                <Text style={[styles.changeButtonText, { color: theme.primary }]}>Change</Text>
+              </TouchableOpacity>
+            )}
           </View>
-          <View style={styles.personaInfo}>
-            <Text style={[styles.personaName, { color: theme.text }]}>
-              {userPersona.name}
-            </Text>
-            <Text style={[styles.personaDescription, { color: theme.subtext }]}>
-              {userPersona.description}
-            </Text>
-          </View>
+        ) : (
           <TouchableOpacity
-            style={[styles.changeButton, { borderColor: theme.primary }]}
+            style={[styles.setupButton, { backgroundColor: theme.primary }]}
             onPress={() => navigation.navigate('M1APersonalization')}
           >
-            <Text style={[styles.changeButtonText, { color: theme.primary }]}>Change</Text>
+            <Text style={styles.setupButtonText}>Set Up Persona</Text>
           </TouchableOpacity>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={[styles.setupButton, { backgroundColor: theme.primary }]}
-          onPress={() => navigation.navigate('M1APersonalization')}
-        >
-          <Text style={styles.setupButtonText}>Set Up Persona</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+        )}
+      </View>
+    );
+  };
 
   const renderNotificationSettings = () => (
     <View style={[styles.section, { backgroundColor: theme.cardBackground }]}>
@@ -810,6 +823,7 @@ export default function M1ASettingsScreen({ navigation }) {
         {renderAppearanceSettings()}
         {renderFeatureSettings()}
         {renderLanguageSettings()}
+        {canAccessAdminTools && renderAdminSection()}
         {renderAccountManagement()}
 
         {/* Action Buttons */}

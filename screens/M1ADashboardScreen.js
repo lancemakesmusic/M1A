@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as Linking from 'expo-linking';
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Dimensions,
   FlatList,
   Modal,
@@ -21,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
+import GoogleCalendarService from '../services/GoogleCalendarService';
 
 const { width } = Dimensions.get('window');
 
@@ -189,10 +192,8 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
         if (process.env.EXPO_PUBLIC_API_BASE_URL) {
           return process.env.EXPO_PUBLIC_API_BASE_URL;
         }
-        if (Platform.OS === 'web') {
-          return 'http://localhost:8001';
-        }
-        return 'http://172.20.10.3:8001';
+        // Fallback for development (use environment variable in production)
+        return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
       };
       const API_BASE_URL = getApiBaseUrl();
 
@@ -358,7 +359,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
         subtitle: 'Maximize your space potential',
         quickActions: [
           { title: 'Manage Bookings', icon: 'calendar', color: '#9B59B6' },
-          { title: 'View Calendar', icon: 'grid', color: '#8E44AD' },
+          { title: 'View Calendar', icon: 'grid', color: '#8E44AD', action: 'open-google-calendar' },
           { title: 'Track Revenue', icon: 'trending-up', color: '#27AE60' },
           { title: 'Client Portal', icon: 'people', color: '#3498DB' },
         ],
@@ -496,6 +497,63 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     </TouchableOpacity>
   );
 
+  const handleOpenGoogleCalendar = async () => {
+    try {
+      // Get calendar ID from environment or default
+      const calendarId = process.env.EXPO_PUBLIC_GOOGLE_BUSINESS_CALENDAR_ID || 
+                        'merkaba.venue.calendar@gmail.com';
+      
+      // Check if Google Calendar is connected
+      const isConnected = await GoogleCalendarService.isConnected();
+      
+      if (!isConnected) {
+        // If not connected, try to connect first
+        Alert.alert(
+          'Connect Google Calendar',
+          'You need to connect your Google Calendar to view and edit events. Would you like to connect now?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Connect',
+              onPress: async () => {
+                try {
+                  const oauthUrl = GoogleCalendarService.getOAuthUrl();
+                  await Linking.openURL(oauthUrl);
+                } catch (error) {
+                  Alert.alert('Error', 'Failed to open Google Calendar connection. Please check your configuration.');
+                }
+              },
+            },
+          ]
+        );
+        return;
+      }
+      
+      // Encode calendar ID for URL (handle email format)
+      const encodedCalendarId = encodeURIComponent(calendarId);
+      
+      // Open Google Calendar in browser/app
+      // Format: https://calendar.google.com/calendar/u/0/r?cid={calendarId}
+      const calendarUrl = `https://calendar.google.com/calendar/u/0/r?cid=${encodedCalendarId}`;
+      
+      const canOpen = await Linking.canOpenURL(calendarUrl);
+      if (canOpen) {
+        await Linking.openURL(calendarUrl);
+      } else {
+        // Fallback: try opening general Google Calendar
+        const generalCalendarUrl = 'https://calendar.google.com/calendar/u/0/r';
+        await Linking.openURL(generalCalendarUrl);
+      }
+    } catch (error) {
+      console.error('Error opening Google Calendar:', error);
+      Alert.alert(
+        'Error',
+        'Failed to open Google Calendar. Please make sure Google Calendar is installed or try opening it manually.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
   const renderQuickAction = ({ item }) => (
     <TouchableOpacity
       style={[styles.quickActionCard, { backgroundColor: theme.cardBackground }]}
@@ -505,6 +563,8 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
         } else if (item.action === 'service-request') {
           // Open service request in chat
           navigation.navigate('Home');
+        } else if (item.action === 'open-google-calendar') {
+          handleOpenGoogleCalendar();
         } else {
           console.log('Quick action:', item.title);
         }

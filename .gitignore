@@ -49,6 +49,8 @@ firebase-admin.json
 **/firebase-admin.json
 service-account*.json
 **/service-account*.json
+firebase-service-account*.json
+**/firebase-service-account*.json
 
 # ---------------------------
 # OS / IDE

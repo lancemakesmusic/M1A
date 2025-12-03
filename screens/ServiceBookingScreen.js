@@ -378,8 +378,8 @@ export default function ServiceBookingScreen({ route, navigation }) {
         if (Platform.OS === 'web') {
           return 'http://localhost:8001';
         }
-        // Use the same network IP as Metro bundler
-        return 'http://172.20.10.3:8001';
+        // Fallback for development (use environment variable in production)
+        return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
       };
       const API_BASE_URL = getApiBaseUrl();
       
@@ -464,6 +464,81 @@ export default function ServiceBookingScreen({ route, navigation }) {
         // In production, you might want to fail here
       }
 
+      // Check availability via backend BEFORE payment (uses admin's calendar)
+      if (formData.serviceDate && formData.serviceTime) {
+        try {
+          // Parse service date and time to create start/end dates
+          const serviceDateStr = formData.serviceDate;
+          const serviceTimeStr = formData.serviceTime;
+          
+          // Parse date (format: "Monday, January 1, 2024")
+          const dateMatch = serviceDateStr.match(/(\w+), (\w+) (\d+), (\d+)/);
+          if (dateMatch) {
+            const [, , monthName, day, year] = dateMatch;
+            const monthMap = {
+              'January': 0, 'February': 1, 'March': 2, 'April': 3, 'May': 4, 'June': 5,
+              'July': 6, 'August': 7, 'September': 8, 'October': 9, 'November': 10, 'December': 11
+            };
+            const month = monthMap[monthName] || 0;
+            
+            // Parse time (format: "6:00 PM" or "18:00")
+            let startHour, startMinute;
+            if (serviceTimeStr.includes('AM') || serviceTimeStr.includes('PM')) {
+              const timeParts = serviceTimeStr.replace(/[AP]M/i, '').trim().split(':');
+              startHour = parseInt(timeParts[0]);
+              startMinute = parseInt(timeParts[1] || 0);
+              if (serviceTimeStr.toUpperCase().includes('PM') && startHour !== 12) {
+                startHour += 12;
+              } else if (serviceTimeStr.toUpperCase().includes('AM') && startHour === 12) {
+                startHour = 0;
+              }
+            } else {
+              const timeParts = serviceTimeStr.split(':');
+              startHour = parseInt(timeParts[0]);
+              startMinute = parseInt(timeParts[1] || 0);
+            }
+            
+            const startDate = new Date(parseInt(year), month, parseInt(day), startHour, startMinute);
+            
+            // Calculate end date based on service duration
+            const durationHours = item.isDeal && item.dealHours ? item.dealHours * formData.quantity : formData.quantity;
+            const endDate = new Date(startDate);
+            endDate.setHours(startDate.getHours() + durationHours);
+            
+            // Check availability via backend
+            const idToken = await user.getIdToken();
+            const availabilityResponse = await fetch(`${API_BASE_URL}/api/calendar/check-availability`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`,
+              },
+              body: JSON.stringify({
+                startTime: startDate.toISOString(),
+                endTime: endDate.toISOString(),
+              }),
+            });
+
+            if (availabilityResponse.ok) {
+              const availabilityData = await availabilityResponse.json();
+              if (!availabilityData.available) {
+                Alert.alert(
+                  'Time Unavailable',
+                  availabilityData.reason || 'This time slot is already booked. Please select another time.',
+                  [{ text: 'OK' }]
+                );
+                setProcessingPayment(false);
+                setPaymentStep('form');
+                return;
+              }
+            }
+          }
+        } catch (availabilityError) {
+          // If availability check fails, log but don't block (backend will check again)
+          console.warn('Availability check error, proceeding with booking. Backend will verify:', availabilityError);
+        }
+      }
+
       // Check if Stripe is configured
       if (!StripeService.isConfigured()) {
         throw new Error(
@@ -539,8 +614,98 @@ export default function ServiceBookingScreen({ route, navigation }) {
         backendBookingId: backendResult.bookingId || null,
       });
         
-      // Schedule service on Google Calendar
+      // Create calendar events via backend after payment confirmation
       let calendarResult = { success: false };
+      try {
+        if (formData.serviceDate && formData.serviceTime) {
+          // Parse service date and time to create start/end dates
+          const serviceDateStr = formData.serviceDate;
+          const serviceTimeStr = formData.serviceTime;
+          
+          // Parse date (format: "Monday, January 1, 2024")
+          const dateMatch = serviceDateStr.match(/(\w+), (\w+) (\d+), (\d+)/);
+          if (dateMatch) {
+            const [, , monthName, day, year] = dateMatch;
+            const monthMap = {
+              'January': 0, 'February': 1, 'March': 2, 'April': 3, 'May': 4, 'June': 5,
+              'July': 6, 'August': 7, 'September': 8, 'October': 9, 'November': 10, 'December': 11
+            };
+            const month = monthMap[monthName] || 0;
+            
+            // Parse time (format: "6:00 PM" or "18:00")
+            let startHour, startMinute;
+            if (serviceTimeStr.includes('AM') || serviceTimeStr.includes('PM')) {
+              const timeParts = serviceTimeStr.replace(/[AP]M/i, '').trim().split(':');
+              startHour = parseInt(timeParts[0]);
+              startMinute = parseInt(timeParts[1] || 0);
+              if (serviceTimeStr.toUpperCase().includes('PM') && startHour !== 12) {
+                startHour += 12;
+              } else if (serviceTimeStr.toUpperCase().includes('AM') && startHour === 12) {
+                startHour = 0;
+              }
+            } else {
+              const timeParts = serviceTimeStr.split(':');
+              startHour = parseInt(timeParts[0]);
+              startMinute = parseInt(timeParts[1] || 0);
+            }
+            
+            const startDate = new Date(parseInt(year), month, parseInt(day), startHour, startMinute);
+            
+            // Calculate end date based on service duration
+            const durationHours = item.isDeal && item.dealHours ? item.dealHours * formData.quantity : formData.quantity;
+            const endDate = new Date(startDate);
+            endDate.setHours(startDate.getHours() + durationHours);
+            
+            // Create calendar event via backend
+            const idToken = await user.getIdToken();
+            const eventTitle = `${item.name} - ${formData.contactName}`;
+            const eventDescription = `Service: ${item.name}\n` +
+              `Quantity: ${formData.quantity}\n` +
+              (item.isDeal && item.dealHours ? `Hours: ${item.dealHours * formData.quantity}\n` : '') +
+              `Total Cost: $${total.toFixed(2)}\n` +
+              `Contact: ${formData.contactEmail} | ${formData.contactPhone || 'N/A'}\n` +
+              (formData.specialRequests ? `Special Requests: ${formData.specialRequests}\n` : '') +
+              `Order ID: ${orderId}`;
+            
+            const calendarEventData = {
+              title: eventTitle,
+              description: eventDescription,
+              startTime: startDate.toISOString(),
+              endTime: endDate.toISOString(),
+              location: 'Merkaba Venue',
+              attendees: [{ email: formData.contactEmail }],
+              bookingId: backendResult.bookingId || orderId,
+              bookingType: 'service',
+              userEmail: formData.contactEmail,
+            };
+            
+            const calendarResponse = await fetch(`${API_BASE_URL}/api/calendar/create-event`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`,
+              },
+              body: JSON.stringify(calendarEventData),
+            });
+            
+            if (calendarResponse.ok) {
+              const calendarData = await calendarResponse.json();
+              calendarResult = calendarData;
+              console.log('✅ Calendar events created:', calendarData);
+            } else {
+              const errorData = await calendarResponse.json().catch(() => ({}));
+              console.warn('⚠️ Calendar event creation failed:', errorData);
+              calendarResult = { success: false, error: errorData.detail || 'Calendar sync failed' };
+            }
+          }
+        }
+      } catch (calendarError) {
+        console.error('Error creating calendar events:', calendarError);
+        calendarResult = { success: false, error: calendarError.message };
+      }
+      
+      // OLD CODE - Keep for reference but now using backend
+      /*let calendarResult = { success: false };
       try {
         const isConnected = await GoogleCalendarService.isConnected();
         if (isConnected && formData.serviceDate && formData.serviceTime) {
@@ -616,7 +781,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
       } catch (calendarError) {
         console.error('Error scheduling service on calendar:', calendarError);
         // Don't block booking if calendar sync fails
-      }
+      }*/
       
       // Track analytics
       await trackEventBookingCompleted({

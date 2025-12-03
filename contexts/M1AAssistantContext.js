@@ -332,6 +332,8 @@ export function M1AAssistantProvider({ children }) {
     disableAllTips,
     guidePurchaseFlow,
     clearChatHistory,
+    // Navigation ref for modal contexts
+    navigationRef,
   };
 
   return (

@@ -102,6 +102,59 @@ class StripeService {
   }
 
   /**
+   * Process a refund for a payment intent
+   */
+  async refundPayment(paymentIntentId, amount = null, reason = 'requested_by_customer') {
+    try {
+      if (!paymentIntentId) {
+        throw new Error('Payment intent ID is required');
+      }
+
+      // Get Firebase auth token for authentication
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        throw new Error('User must be authenticated to process refund');
+      }
+      const idToken = await currentUser.getIdToken();
+
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+
+      const response = await fetch(`${API_BASE_URL}/api/payments/refund`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          paymentIntentId,
+          amount, // Optional: null for full refund, or amount in dollars
+          reason,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to process refund: ${errorText || response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.error('Refund request timed out');
+        throw new Error('Request timed out. Please check your connection and try again.');
+      }
+      console.error('Error processing refund:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Confirm payment with Stripe
    */
   async confirmPayment(paymentIntentId, paymentMethodId) {

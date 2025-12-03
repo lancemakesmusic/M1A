@@ -180,3 +180,4 @@ if (hasPermission('canChargeClients')) {
 - ❌ `services/SquareService.js` - **NEEDS TO BE CREATED**
 - ❌ `services/ToastService.js` - **NEEDS TO BE CREATED**
 
+

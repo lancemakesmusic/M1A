@@ -250,3 +250,4 @@ const { userRole, hasPermission } = useRole();
 5. **Self-Promotion**: Users cannot promote themselves
 6. **Role Protection**: Master admin role cannot be changed or revoked
 
+

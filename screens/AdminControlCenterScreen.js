@@ -54,16 +54,60 @@ export default function AdminControlCenterScreen({ navigation }) {
   }, [user, canAccess]);
 
   const loadStats = useCallback(async () => {
-    // TODO: Load actual stats from Firestore
-    setStats({
-      totalUsers: 0,
-      activeUsers: 0,
-      employees: 0,
-      totalServices: 0,
-      activeEvents: 0,
-      pendingOrders: 0,
-    });
-  }, []);
+    if (!canAccess) return;
+    try {
+      const { collection, getDocs } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
+      
+      // Load from multiple collections in parallel
+      const [usersSnapshot, servicesSnapshot, publicEventsSnapshot, eventBookingsSnapshot, ordersSnapshot, cartOrdersSnapshot] = await Promise.all([
+        getDocs(collection(db, 'users')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'services')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'publicEvents')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'eventBookings')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'orders')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'cartOrders')).catch(() => ({ size: 0, docs: [] })),
+      ]);
+
+      const totalUsers = usersSnapshot.size || 0;
+      const activeUsers = usersSnapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.accountStatus !== 'inactive' && data.role !== 'inactive';
+      }).length;
+      const employees = usersSnapshot.docs.filter(doc => doc.data().role === 'employee').length;
+      const totalServices = servicesSnapshot.size || 0;
+      
+      // Combine events from both collections
+      const totalEvents = (publicEventsSnapshot.size || 0) + (eventBookingsSnapshot.size || 0);
+      
+      // Combine orders from both collections
+      const allOrders = [...ordersSnapshot.docs, ...cartOrdersSnapshot.docs];
+      const pendingOrders = allOrders.filter(doc => {
+        const data = doc.data();
+        return data.status === 'pending' || !data.status;
+      }).length;
+
+      setStats({
+        totalUsers,
+        activeUsers,
+        employees,
+        totalServices,
+        activeEvents: totalEvents,
+        pendingOrders,
+      });
+    } catch (error) {
+      console.error('Error loading admin stats:', error);
+      // Set default stats on error
+      setStats({
+        totalUsers: 0,
+        activeUsers: 0,
+        employees: 0,
+        totalServices: 0,
+        activeEvents: 0,
+        pendingOrders: 0,
+      });
+    }
+  }, [canAccess]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

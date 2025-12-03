@@ -12,8 +12,10 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useRole } from '../contexts/RoleContext';
 
 const { width } = Dimensions.get('window');
 
@@ -148,11 +150,23 @@ const userPersonas = [
 ];
 
 export default function M1APersonalizationScreen({ navigation }) {
+  const { user } = useAuth();
+  const { isAdminEmail } = useRole();
+  
+  // Admins can select personas - they get both admin features and persona-based features
+  const isAdmin = isAdminEmail;
   const { theme } = useTheme();
   const { savePersona, savePreferences, completeOnboarding } = useM1APersonalization();
   const [selectedPersona, setSelectedPersona] = useState(null);
   const [currentStep, setCurrentStep] = useState(1); // 1: Persona Selection, 2: Features, 3: Preferences
   const [isCompleting, setIsCompleting] = useState(false);
+
+  // SECURITY: venue_owner is EXCLUSIVE to admin@merkabaent.com only
+  // Other admins (like brogdon.lance@gmail.com) cannot select venue_owner
+  const isPrimaryAdmin = user?.email === 'admin@merkabaent.com';
+  const availablePersonas = isPrimaryAdmin
+    ? userPersonas // Only admin@merkabaent.com can select venue_owner
+    : userPersonas.filter(persona => persona.id !== 'venue_owner');
 
   const handlePersonaSelect = (persona) => {
     setSelectedPersona(persona);
@@ -191,7 +205,7 @@ export default function M1APersonalizationScreen({ navigation }) {
             if (currentUser) {
               const idToken = await currentUser.getIdToken();
               const username = currentUser.email?.split('@')[0] || currentUser.uid.substring(0, 8);
-              const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://172.20.10.3:8001';
+              const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
               
               // Add timeout to prevent hanging
               const controller = new AbortController();
@@ -335,7 +349,7 @@ export default function M1APersonalizationScreen({ navigation }) {
                 Select your role to customize your experience
               </Text>
               <FlatList
-                data={userPersonas}
+                data={availablePersonas}
                 renderItem={renderPersonaCard}
                 keyExtractor={(item) => item.id}
                 numColumns={2}

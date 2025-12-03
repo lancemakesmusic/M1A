@@ -4,7 +4,8 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState, useRef, useEffect } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,18 +18,34 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  ScrollView,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../contexts/AuthContext';
+import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useM1AAssistant } from '../contexts/M1AAssistantContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import M1AAssistantService from '../services/M1AAssistantService';
 import M1ALogo from '../components/M1ALogo';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 
 export default function M1AChatScreen({ onClose }) {
+  const { user } = useAuth();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const navigationHook = useNavigation();
+  const { navigationRef } = useM1AAssistant();
+  
+  // Use navigationRef if available (for modal context), otherwise use hook
+  const navigation = navigationRef?.current || navigationHook;
+  const { isAdminEmail } = useRole();
   const { userPersona } = useM1APersonalization();
+  
+  // Admin accounts should not use persona - they always get admin control center
+  // If admin has a persona set, ignore it and show admin interface
   const {
     chatHistory,
     isTyping,
@@ -36,13 +53,102 @@ export default function M1AChatScreen({ onClose }) {
     sendMessage,
     currentScreen,
     addMessage,
+    setNavigation,
   } = useM1AAssistant();
+
+  // Set up navigation ref for M1A Assistant
+  useEffect(() => {
+    if (navigation) {
+      setNavigation(navigation);
+    }
+  }, [navigation, setNavigation]);
+
+  // SECURITY: Check if this is admin@merkabaent.com
+  const isAdmin = isAdminEmail && user?.email === 'admin@merkabaent.com';
+  
+  // Admin stats
+  const [adminStats, setAdminStats] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    employees: 0,
+    totalServices: 0,
+    activeEvents: 0,
+    pendingOrders: 0,
+  });
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingStats, setLoadingStats] = useState(true);
 
   const [inputText, setInputText] = useState('');
   const [showServiceRequest, setShowServiceRequest] = useState(false);
   const [serviceRequestType, setServiceRequestType] = useState('');
   const [serviceRequestDetails, setServiceRequestDetails] = useState('');
   const flatListRef = useRef(null);
+
+  // Load admin stats
+  const loadAdminStats = useCallback(async () => {
+    if (!isAdmin) {
+      setLoadingStats(false);
+      return;
+    }
+    try {
+      setLoadingStats(true);
+      // Load from multiple collections in parallel
+      const [usersSnapshot, servicesSnapshot, publicEventsSnapshot, eventBookingsSnapshot, ordersSnapshot, cartOrdersSnapshot] = await Promise.all([
+        getDocs(collection(db, 'users')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'services')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'publicEvents')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'eventBookings')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'orders')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'cartOrders')).catch(() => ({ size: 0, docs: [] })),
+      ]);
+
+      const totalUsers = usersSnapshot.size || 0;
+      const activeUsers = usersSnapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.accountStatus !== 'inactive' && data.role !== 'inactive';
+      }).length;
+      const employees = usersSnapshot.docs.filter(doc => doc.data().role === 'employee').length;
+      const totalServices = servicesSnapshot.size || 0;
+      
+      // Combine events from both collections
+      const totalEvents = (publicEventsSnapshot.size || 0) + (eventBookingsSnapshot.size || 0);
+      
+      // Combine orders from both collections
+      const allOrders = [...ordersSnapshot.docs, ...cartOrdersSnapshot.docs];
+      const pendingOrders = allOrders.filter(doc => {
+        const data = doc.data();
+        return data.status === 'pending' || !data.status;
+      }).length;
+
+      setAdminStats({
+        totalUsers,
+        activeUsers,
+        employees,
+        totalServices,
+        activeEvents: totalEvents,
+        pendingOrders,
+      });
+    } catch (error) {
+      console.error('Error loading admin stats:', error);
+      // Set default stats on error
+      setAdminStats({
+        totalUsers: 0,
+        activeUsers: 0,
+        employees: 0,
+        totalServices: 0,
+        activeEvents: 0,
+        pendingOrders: 0,
+      });
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadAdminStats();
+    }
+  }, [isAdmin, loadAdminStats]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -62,6 +168,33 @@ export default function M1AChatScreen({ onClose }) {
   };
 
   const handleQuickAction = async (action) => {
+    // First, try to detect if this is a direct navigation request
+    const lowerAction = action.toLowerCase();
+    const screenMap = M1AAssistantService.getScreenMap();
+    
+    // Check for direct navigation keywords
+    let targetScreen = null;
+    for (const [keyword, screen] of Object.entries(screenMap)) {
+      if (lowerAction.includes(keyword)) {
+        targetScreen = screen;
+        break;
+      }
+    }
+    
+    // If we found a direct navigation target, navigate immediately
+    if (targetScreen) {
+      try {
+        navigation.navigate(targetScreen);
+        // Add a quick confirmation message
+        addMessage('assistant', `Taking you to ${M1AAssistantService.getScreenName(targetScreen)}...`, false);
+        return;
+      } catch (error) {
+        console.warn('Navigation error:', error);
+        // Fall through to send message if navigation fails
+      }
+    }
+    
+    // Otherwise, send as a message (which will also handle navigation if detected)
     setInputText(action);
     await sendMessage(action);
   };
@@ -101,19 +234,24 @@ export default function M1AChatScreen({ onClose }) {
   };
 
   const getQuickSuggestions = () => {
-    const suggestions = [
-      'How do I create an event?',
-      'What are sales tips?',
-      'How to increase revenue?',
-      'Show me pricing strategies',
+    // Get context-aware suggestions from the service
+    const contextualSuggestions = M1AAssistantService.getContextualSuggestions(currentScreen);
+    
+    // Enhanced quick actions that directly navigate or perform actions
+    const directActions = [
+      'Create an Event',
+      'Browse Bar Menu',
+      'View Dashboard',
+      'Explore Services',
+      'Open Wallet',
+      'Check Calendar',
     ];
-
-    // Get context-specific suggestions
-    const aiResponse = M1AAssistantService.generateAIResponse('', {
-      screen: currentScreen,
-    });
-
-    return aiResponse.suggestions || suggestions;
+    
+    // Combine contextual suggestions with direct actions
+    const allSuggestions = [...contextualSuggestions, ...directActions];
+    
+    // Remove duplicates and return
+    return [...new Set(allSuggestions)];
   };
 
   const renderMessage = ({ item }) => {
@@ -179,6 +317,283 @@ export default function M1AChatScreen({ onClose }) {
     </TouchableOpacity>
   );
 
+  // Admin Control Center Sections
+  const adminSections = [
+    {
+      id: 'users',
+      title: 'User Management',
+      icon: 'people',
+      color: '#007AFF',
+      description: 'Manage all users, deactivate accounts, view activity',
+      onPress: () => {
+        console.log('Admin: Navigating to User Management');
+        if (navigation) {
+          navigation.navigate('AdminUserManagement');
+        } else {
+          console.error('Navigation object not available');
+        }
+      },
+    },
+    {
+      id: 'services',
+      title: 'Service Management',
+      icon: 'business',
+      color: '#34C759',
+      description: 'Add, edit, delete services. Manage prices and deals',
+      onPress: () => {
+        console.log('Admin: Navigating to Service Management');
+        if (navigation) {
+          navigation.navigate('AdminServiceManagement');
+        }
+      },
+    },
+    {
+      id: 'calendar',
+      title: 'Calendar Management',
+      icon: 'calendar',
+      color: '#FF9500',
+      description: 'Edit events, manage bookings, control availability',
+      onPress: () => {
+        console.log('Admin: Navigating to Calendar Management');
+        if (navigation) {
+          navigation.navigate('AdminCalendarManagement');
+        }
+      },
+    },
+    {
+      id: 'createEvent',
+      title: 'Create Public Event',
+      icon: 'add-circle',
+      color: '#9C27B0',
+      description: 'Create events with tickets, pricing, photos, and discounts',
+      onPress: () => {
+        console.log('Admin: Navigating to Event Creation');
+        if (navigation) {
+          navigation.navigate('AdminEventCreation');
+        }
+      },
+    },
+    {
+      id: 'messages',
+      title: 'User Messaging',
+      icon: 'chatbubbles',
+      color: '#9C27B0',
+      description: 'Message any user, send announcements',
+      onPress: () => {
+        console.log('Admin: Navigating to Messaging');
+        if (navigation) {
+          navigation.navigate('AdminMessaging');
+        }
+      },
+    },
+    {
+      id: 'employees',
+      title: 'Employee Management',
+      icon: 'briefcase',
+      color: '#00BCD4',
+      description: 'Manage employees, assign roles, track performance',
+      onPress: () => {
+        console.log('Admin: Navigating to Employee Management');
+        if (navigation) {
+          navigation.navigate('AdminEmployeeManagement');
+        }
+      },
+    },
+    {
+      id: 'menu',
+      title: 'Menu Management',
+      icon: 'restaurant',
+      color: '#FF6B6B',
+      description: 'Edit bar menu, update prices, manage items',
+      onPress: () => {
+        console.log('Admin: Navigating to Menu Management');
+        if (navigation) {
+          navigation.navigate('AdminMenuManagement');
+        }
+      },
+    },
+    {
+      id: 'orders',
+      title: 'Order Management',
+      icon: 'receipt',
+      color: '#4ECDC4',
+      description: 'View all orders, process refunds, manage transactions',
+      onPress: () => {
+        console.log('Admin: Navigating to Order Management');
+        if (navigation) {
+          navigation.navigate('AdminOrderManagement');
+        }
+      },
+    },
+    {
+      id: 'analytics',
+      title: 'Analytics & Reports',
+      icon: 'stats-chart',
+      color: '#95E1D3',
+      description: 'View revenue, user activity, performance metrics',
+      onPress: () => {
+        console.log('Admin: Navigating to Analytics');
+        if (navigation) {
+          navigation.navigate('AdminAnalytics');
+        }
+      },
+    },
+    {
+      id: 'settings',
+      title: 'System Settings',
+      icon: 'settings',
+      color: '#F38181',
+      description: 'Configure app settings, integrations, system preferences',
+      onPress: () => {
+        console.log('Admin: Navigating to System Settings');
+        if (navigation) {
+          navigation.navigate('AdminSystemSettings');
+        }
+      },
+    },
+  ];
+
+  // If admin, show control center instead of chat
+  if (isAdmin) {
+    return (
+      <SafeAreaView 
+        style={[styles.container, { backgroundColor: theme.background }]}
+        edges={['bottom', 'left', 'right']}
+      >
+        {/* Admin Header */}
+        <View style={[
+          styles.header, 
+          { 
+            backgroundColor: theme.cardBackground, 
+            borderBottomColor: theme.border,
+            paddingTop: Math.max(insets.top, Platform.OS === 'ios' ? 8 : 12),
+          }
+        ]}>
+          <View style={styles.headerLeft}>
+            <View style={[styles.headerAvatar, { backgroundColor: theme.primary + '20' }]}>
+              <Ionicons name="shield-checkmark" size={24} color={theme.primary} />
+            </View>
+            <View>
+              <Text style={[styles.headerTitle, { color: theme.text }]}>Admin Control Center</Text>
+              <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+                Complete control over all app functions
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="close" size={20} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Admin Dashboard */}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.adminContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadAdminStats().finally(() => setRefreshing(false));
+              }}
+              tintColor={theme.primary}
+            />
+          }
+        >
+          {/* Welcome Section */}
+          <View style={[styles.welcomeCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+            <Text style={[styles.welcomeTitle, { color: theme.text }]}>Welcome, Admin</Text>
+            <Text style={[styles.welcomeSubtitle, { color: theme.subtext }]}>
+              Manage all aspects of the M1A platform from this control center
+            </Text>
+          </View>
+
+          {/* Quick Stats */}
+          <View style={styles.statsSection}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Quick Stats</Text>
+            {loadingStats ? (
+              <View style={styles.statsLoadingContainer}>
+                <ActivityIndicator size="small" color={theme.primary} />
+                <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading stats...</Text>
+              </View>
+            ) : (
+              <View style={styles.statsGrid}>
+              <View style={[styles.statCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <Ionicons name="people" size={24} color="#007AFF" />
+                <Text style={[styles.statValue, { color: theme.text }]}>{adminStats.totalUsers}</Text>
+                <Text style={[styles.statLabel, { color: theme.subtext }]}>Total Users</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <Ionicons name="person-check" size={24} color="#34C759" />
+                <Text style={[styles.statValue, { color: theme.text }]}>{adminStats.activeUsers}</Text>
+                <Text style={[styles.statLabel, { color: theme.subtext }]}>Active Users</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <Ionicons name="briefcase" size={24} color="#FF9500" />
+                <Text style={[styles.statValue, { color: theme.text }]}>{adminStats.employees}</Text>
+                <Text style={[styles.statLabel, { color: theme.subtext }]}>Employees</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <Ionicons name="business" size={24} color="#9C27B0" />
+                <Text style={[styles.statValue, { color: theme.text }]}>{adminStats.totalServices}</Text>
+                <Text style={[styles.statLabel, { color: theme.subtext }]}>Services</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <Ionicons name="calendar" size={24} color="#00BCD4" />
+                <Text style={[styles.statValue, { color: theme.text }]}>{adminStats.activeEvents}</Text>
+                <Text style={[styles.statLabel, { color: theme.subtext }]}>Events</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <Ionicons name="receipt" size={24} color="#FF6B6B" />
+                <Text style={[styles.statValue, { color: theme.text }]}>{adminStats.pendingOrders}</Text>
+                <Text style={[styles.statLabel, { color: theme.subtext }]}>Pending Orders</Text>
+              </View>
+            </View>
+            )}
+          </View>
+
+          {/* Management Sections */}
+          <View style={styles.sectionsSection}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Management Sections</Text>
+            {adminSections.map((section) => (
+              <TouchableOpacity
+                key={section.id}
+                style={[styles.sectionCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => {
+                  try {
+                    console.log(`Admin: Navigating to ${section.title} (${section.id})`);
+                    if (section.onPress && navigation) {
+                      section.onPress();
+                    } else {
+                      console.error(`Navigation issue: section.onPress=${!!section.onPress}, navigation=${!!navigation}`);
+                      Alert.alert('Navigation Error', `Navigation not available. Please try again.`);
+                    }
+                  } catch (error) {
+                    console.error(`Error navigating to ${section.title}:`, error);
+                    Alert.alert('Navigation Error', `Could not navigate to ${section.title}: ${error.message}`);
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.sectionIcon, { backgroundColor: section.color + '20' }]}>
+                  <Ionicons name={section.icon} size={28} color={section.color} />
+                </View>
+                <View style={styles.sectionInfo}>
+                  <Text style={[styles.sectionCardTitle, { color: theme.text }]}>{section.title}</Text>
+                  <Text style={[styles.sectionCardDescription, { color: theme.subtext }]}>
+                    {section.description}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.subtext} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Regular chat interface for non-admin users
   return (
     <SafeAreaView 
       style={[styles.container, { backgroundColor: theme.background }]}
@@ -728,6 +1143,101 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
+  },
+  statsLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  // Admin Control Center Styles
+  scrollView: {
+    flex: 1,
+  },
+  adminContent: {
+    padding: 16,
+  },
+  welcomeCard: {
+    padding: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 24,
+  },
+  welcomeTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  welcomeSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  statsSection: {
+    marginBottom: 24,
+  },
+  sectionsSection: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  statCard: {
+    width: '30%',
+    minWidth: 100,
+    aspectRatio: 1,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  sectionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    gap: 16,
+    minHeight: 80,
+  },
+  sectionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionInfo: {
+    flex: 1,
+  },
+  sectionCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  sectionCardDescription: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });
 

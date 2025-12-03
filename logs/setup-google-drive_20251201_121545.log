@@ -1,0 +1,16 @@
+[AUDIT] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA | Action: Script started | Details: setup-google-drive.ps1
+[2025-12-01 12:15:45] [AUDIT] Audit: Script started by MERKABA_MEDIA\admin on MERKABA_MEDIA
+[2025-12-01 12:15:45] [INFO] Starting Google Drive setup
+[2025-12-01 12:15:45] [INFO] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA
+[2025-12-01 12:15:45] [INFO] Log file: C:\Users\admin\M1A\logs\setup-google-drive_20251201_121545.log
+[2025-12-01 12:15:45] [INFO] Checking current configuration
+[2025-12-01 12:15:45] [INFO] Starting service account file setup
+[2025-12-01 12:15:45] [INFO] Credential expiration check passed (service account keys don't expire by default)
+[2025-12-01 12:15:45] [INFO] Service account validated: m1alive@m1alive.iam.gserviceaccount.com
+[AUDIT] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA | Action: Service account configured | Details: Email: m1alive@m1alive.iam.gserviceaccount.com
+[2025-12-01 12:15:45] [AUDIT] Audit: Service account configured by MERKABA_MEDIA\admin on MERKABA_MEDIA
+[2025-12-01 12:15:45] [INFO] Updated .env file with GOOGLE_APPLICATION_CREDENTIALS
+[AUDIT] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA | Action: Configuration updated | Details: GOOGLE_APPLICATION_CREDENTIALS set to C:\Users\admin\M1A\autoposter-backend\firebase-admin.json
+[2025-12-01 12:15:45] [AUDIT] Audit: Configuration updated by MERKABA_MEDIA\admin on MERKABA_MEDIA
+[2025-12-01 12:15:45] [INFO] Prompting user to share folder with service account
+[2025-12-01 12:15:49] [INFO] Setup completed. Log saved to: C:\Users\admin\M1A\logs\setup-google-drive_20251201_121545.log

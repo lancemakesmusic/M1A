@@ -1,0 +1,9 @@
+[AUDIT] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA | Action: Script started | Details: setup-google-drive.ps1
+[2025-12-01 12:15:50] [AUDIT] Audit: Script started by MERKABA_MEDIA\admin on MERKABA_MEDIA
+[2025-12-01 12:15:50] [INFO] Starting Google Drive setup
+[2025-12-01 12:15:50] [INFO] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA
+[2025-12-01 12:15:50] [INFO] Log file: C:\Users\admin\M1A\logs\setup-google-drive_20251201_121549.log
+[2025-12-01 12:15:50] [INFO] Checking current configuration
+[2025-12-01 12:15:50] [INFO] Starting service account file setup
+[2025-12-01 12:15:50] [ERROR] Invalid service account file provided: C:\path\to\file.json
+[2025-12-01 12:15:50] [INFO] Setup completed. Log saved to: C:\Users\admin\M1A\logs\setup-google-drive_20251201_121549.log

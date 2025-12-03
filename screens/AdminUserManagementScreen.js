@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
     Alert,
     FlatList,
+    Modal,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -217,11 +218,60 @@ export default function AdminUserManagementScreen({ navigation }) {
     );
   });
 
+  const handleDeactivateUser = (targetUser) => {
+    if (targetUser.email === 'admin@merkabaent.com') {
+      Alert.alert('Security Restriction', 'Cannot deactivate admin@merkabaent.com account');
+      return;
+    }
+
+    Alert.alert(
+      'Deactivate Account',
+      `Are you sure you want to deactivate ${targetUser.displayName || targetUser.email}'s account?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Deactivate',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setProcessing(true);
+              const result = await RoleManagementService.deactivateUser(user.uid, targetUser.id);
+              Alert.alert('Success', result.message);
+              loadUsers();
+            } catch (error) {
+              console.error('Error deactivating user:', error);
+              Alert.alert('Error', error.message || 'Failed to deactivate account');
+            } finally {
+              setProcessing(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleReactivateUser = async (targetUser) => {
+    try {
+      setProcessing(true);
+      const result = await RoleManagementService.reactivateUser(user.uid, targetUser.id);
+      Alert.alert('Success', result.message);
+      loadUsers();
+    } catch (error) {
+      console.error('Error reactivating user:', error);
+      Alert.alert('Error', error.message || 'Failed to reactivate account');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const renderUserItem = ({ item }) => {
     const canUpgrade = item.role === 'client' && hasPermission('canUpgradeToEmployee');
     const canUpgradeToAdmin = item.role === 'client' && isMasterAdmin();
     const canRevoke = (item.role === 'employee' && hasPermission('canRevokeEmployeeRole')) ||
                       (item.role === 'admin' && isMasterAdmin());
+    const isDeactivated = item.accountStatus === 'inactive';
+    const isBanned = item.accountStatus === 'banned';
+    const isSuspended = item.accountStatus === 'suspended';
 
     return (
       <View style={[styles.userItem, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
@@ -285,8 +335,151 @@ export default function AdminUserManagementScreen({ navigation }) {
               <Text style={[styles.actionButtonText, { color: theme.error }]}>Revoke</Text>
             </TouchableOpacity>
           )}
+          {!isDeactivated && item.email !== 'admin@merkabaent.com' && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#FF3B3020' }]}
+              onPress={() => handleDeactivateUser(item)}
+            >
+              <Ionicons name="ban" size={18} color="#FF3B30" />
+              <Text style={[styles.actionButtonText, { color: '#FF3B30' }]}>Deactivate</Text>
+            </TouchableOpacity>
+          )}
+          {isDeactivated && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#34C75920' }]}
+              onPress={() => handleReactivateUser(item)}
+            >
+              <Ionicons name="checkmark-circle" size={18} color="#34C759" />
+              <Text style={[styles.actionButtonText, { color: '#34C759' }]}>Reactivate</Text>
+            </TouchableOpacity>
+          )}
+          {/* Admin Actions Menu */}
+          <TouchableOpacity
+            style={[styles.adminMenuButton, { backgroundColor: theme.primary + '20' }]}
+            onPress={() => {
+              setSelectedUser(item);
+              setShowAdminMenu(true);
+            }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={18} color={theme.primary} />
+            <Text style={[styles.actionButtonText, { color: theme.primary }]}>Admin</Text>
+          </TouchableOpacity>
         </View>
       </View>
+    );
+  };
+
+  const handleDeleteUser = (targetUser) => {
+    if (targetUser.email === 'admin@merkabaent.com') {
+      Alert.alert('Security Restriction', 'Cannot delete admin@merkabaent.com account');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Account',
+      `Permanently delete ${targetUser.displayName || targetUser.email}'s account? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setProcessing(true);
+              // TODO: Implement account deletion in RoleManagementService
+              // For now, we'll deactivate and mark for deletion
+              await updateDoc(doc(db, 'users', targetUser.id), {
+                accountStatus: 'deleted',
+                deletedAt: serverTimestamp(),
+                deletedBy: user.uid,
+              });
+              Alert.alert('Success', 'Account marked for deletion');
+              loadUsers();
+            } catch (error) {
+              console.error('Error deleting user:', error);
+              Alert.alert('Error', error.message || 'Failed to delete account');
+            } finally {
+              setProcessing(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleBanUser = (targetUser) => {
+    if (targetUser.email === 'admin@merkabaent.com') {
+      Alert.alert('Security Restriction', 'Cannot ban admin@merkabaent.com account');
+      return;
+    }
+
+    Alert.alert(
+      'Ban User',
+      `Ban ${targetUser.displayName || targetUser.email}? They will not be able to access the app.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Ban',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setProcessing(true);
+              await updateDoc(doc(db, 'users', targetUser.id), {
+                accountStatus: 'banned',
+                bannedAt: serverTimestamp(),
+                bannedBy: user.uid,
+              });
+              Alert.alert('Success', 'User has been banned');
+              loadUsers();
+            } catch (error) {
+              console.error('Error banning user:', error);
+              Alert.alert('Error', error.message || 'Failed to ban user');
+            } finally {
+              setProcessing(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSuspendUser = (targetUser, days = 7) => {
+    if (targetUser.email === 'admin@merkabaent.com') {
+      Alert.alert('Security Restriction', 'Cannot suspend admin@merkabaent.com account');
+      return;
+    }
+
+    const suspendUntil = new Date();
+    suspendUntil.setDate(suspendUntil.getDate() + days);
+
+    Alert.alert(
+      'Suspend User',
+      `Suspend ${targetUser.displayName || targetUser.email} for ${days} days?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Suspend',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setProcessing(true);
+              await updateDoc(doc(db, 'users', targetUser.id), {
+                accountStatus: 'suspended',
+                suspendedUntil: suspendUntil,
+                suspendedAt: serverTimestamp(),
+                suspendedBy: user.uid,
+              });
+              Alert.alert('Success', `User suspended until ${suspendUntil.toLocaleDateString()}`);
+              loadUsers();
+            } catch (error) {
+              console.error('Error suspending user:', error);
+              Alert.alert('Error', error.message || 'Failed to suspend user');
+            } finally {
+              setProcessing(false);
+            }
+          },
+        },
+      ]
     );
   };
 
@@ -346,6 +539,174 @@ export default function AdminUserManagementScreen({ navigation }) {
           />
         }
       />
+
+      {/* Admin Actions Menu Modal */}
+      <Modal visible={showAdminMenu} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.adminMenuModal, { backgroundColor: theme.cardBackground }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                Admin Actions: {selectedUser?.displayName || selectedUser?.email}
+              </Text>
+              <TouchableOpacity onPress={() => setShowAdminMenu(false)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalContent}>
+              {/* Promote Actions */}
+              {selectedUser?.role === 'client' && (
+                <TouchableOpacity
+                  style={[styles.menuItem, { backgroundColor: theme.primary + '10', borderColor: theme.primary }]}
+                  onPress={() => {
+                    setShowAdminMenu(false);
+                    setSelectedUser(selectedUser);
+                    setUpgradeRole('employee');
+                    setShowUpgradeModal(true);
+                  }}
+                >
+                  <Ionicons name="arrow-up-circle" size={24} color={theme.primary} />
+                  <View style={styles.menuItemText}>
+                    <Text style={[styles.menuItemTitle, { color: theme.text }]}>Promote to Employee</Text>
+                    <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                      Grant employee permissions
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {/* Account Status Actions */}
+              {selectedUser?.accountStatus !== 'banned' && selectedUser?.email !== 'admin@merkabaent.com' && (
+                <TouchableOpacity
+                  style={[styles.menuItem, { backgroundColor: '#FF950010', borderColor: '#FF9500' }]}
+                  onPress={() => {
+                    setShowAdminMenu(false);
+                    handleBanUser(selectedUser);
+                  }}
+                >
+                  <Ionicons name="ban" size={24} color="#FF9500" />
+                  <View style={styles.menuItemText}>
+                    <Text style={[styles.menuItemTitle, { color: theme.text }]}>Ban User</Text>
+                    <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                      Permanently ban from app
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {selectedUser?.accountStatus !== 'suspended' && selectedUser?.email !== 'admin@merkabaent.com' && (
+                <>
+                  <TouchableOpacity
+                    style={[styles.menuItem, { backgroundColor: '#FF6B6B10', borderColor: '#FF6B6B' }]}
+                    onPress={() => {
+                      setShowAdminMenu(false);
+                      handleSuspendUser(selectedUser, 7);
+                    }}
+                  >
+                    <Ionicons name="pause-circle" size={24} color="#FF6B6B" />
+                    <View style={styles.menuItemText}>
+                      <Text style={[styles.menuItemTitle, { color: theme.text }]}>Suspend (7 days)</Text>
+                      <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                        Temporarily suspend access
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.menuItem, { backgroundColor: '#FF6B6B10', borderColor: '#FF6B6B' }]}
+                    onPress={() => {
+                      setShowAdminMenu(false);
+                      handleSuspendUser(selectedUser, 30);
+                    }}
+                  >
+                    <Ionicons name="pause-circle" size={24} color="#FF6B6B" />
+                    <View style={styles.menuItemText}>
+                      <Text style={[styles.menuItemTitle, { color: theme.text }]}>Suspend (30 days)</Text>
+                      <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                        Extended suspension
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* Deactivate/Reactivate */}
+              {selectedUser?.accountStatus !== 'inactive' && selectedUser?.email !== 'admin@merkabaent.com' && (
+                <TouchableOpacity
+                  style={[styles.menuItem, { backgroundColor: '#FF3B3010', borderColor: '#FF3B30' }]}
+                  onPress={() => {
+                    setShowAdminMenu(false);
+                    handleDeactivateUser(selectedUser);
+                  }}
+                >
+                  <Ionicons name="ban" size={24} color="#FF3B30" />
+                  <View style={styles.menuItemText}>
+                    <Text style={[styles.menuItemTitle, { color: theme.text }]}>Deactivate Account</Text>
+                    <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                      Disable account access
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {selectedUser?.accountStatus === 'inactive' && (
+                <TouchableOpacity
+                  style={[styles.menuItem, { backgroundColor: '#34C75910', borderColor: '#34C759' }]}
+                  onPress={() => {
+                    setShowAdminMenu(false);
+                    handleReactivateUser(selectedUser);
+                  }}
+                >
+                  <Ionicons name="checkmark-circle" size={24} color="#34C759" />
+                  <View style={styles.menuItemText}>
+                    <Text style={[styles.menuItemTitle, { color: theme.text }]}>Reactivate Account</Text>
+                    <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                      Restore account access
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {/* Revoke Role */}
+              {(selectedUser?.role === 'employee' || selectedUser?.role === 'admin') && selectedUser?.email !== 'admin@merkabaent.com' && (
+                <TouchableOpacity
+                  style={[styles.menuItem, { backgroundColor: theme.error + '10', borderColor: theme.error }]}
+                  onPress={() => {
+                    setShowAdminMenu(false);
+                    handleRevokeRole(selectedUser);
+                  }}
+                >
+                  <Ionicons name="arrow-down-circle" size={24} color={theme.error} />
+                  <View style={styles.menuItemText}>
+                    <Text style={[styles.menuItemTitle, { color: theme.text }]}>Revoke Role</Text>
+                    <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                      Downgrade to client
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {/* Delete Account */}
+              {selectedUser?.email !== 'admin@merkabaent.com' && (
+                <TouchableOpacity
+                  style={[styles.menuItem, { backgroundColor: '#00000010', borderColor: '#FF3B30' }]}
+                  onPress={() => {
+                    setShowAdminMenu(false);
+                    handleDeleteUser(selectedUser);
+                  }}
+                >
+                  <Ionicons name="trash" size={24} color="#FF3B30" />
+                  <View style={styles.menuItemText}>
+                    <Text style={[styles.menuItemTitle, { color: '#FF3B30' }]}>Delete Account</Text>
+                    <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                      Permanently delete (irreversible)
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Upgrade Modal */}
       {showUpgradeModal && selectedUser && (

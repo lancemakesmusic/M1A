@@ -1,5 +1,5 @@
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from './AuthContext';
 
@@ -19,8 +19,9 @@ export function RoleProvider({ children }) {
   const [permissions, setPermissions] = useState({});
   const [loading, setLoading] = useState(true);
   
-  // Security: Only admin@merkabaent.com can be admin
-  const isAdminEmail = authUser?.email === 'admin@merkabaent.com';
+  // Security: Only specific admin emails can be admin
+  const adminEmails = ['admin@merkabaent.com', 'brogdon.lance@gmail.com'];
+  const isAdminEmail = authUser?.email && adminEmails.includes(authUser.email);
 
   useEffect(() => {
     if (!authUser) {
@@ -42,7 +43,7 @@ export function RoleProvider({ children }) {
         const userData = userDoc.data();
         let role = userData.role || 'client'; // Default to client
         
-        // Security: Only admin@merkabaent.com can be admin
+        // Security: Only authorized admin emails can be admin
         // If someone else has admin role, downgrade them
         if (role === 'admin' && !isAdminEmail) {
           console.warn('Security: Non-admin email has admin role. Downgrading to client.');
@@ -58,17 +59,107 @@ export function RoleProvider({ children }) {
           }
         }
         
+        // AUTO-SETUP: If admin email but role is not admin, set it automatically
+        if (isAdminEmail && role !== 'admin') {
+          console.log(`🔧 Auto-setting ${authUser.email} to admin role`);
+          try {
+            await updateDoc(doc(db, 'users', authUser.uid), {
+              role: 'admin',
+              roleUpdatedAt: serverTimestamp(),
+              roleUpdatedBy: 'system',
+              adminInfo: {
+                adminId: authUser.uid,
+                department: 'Management',
+                assignedDate: serverTimestamp(),
+                status: 'active',
+                createdBy: 'system',
+                isFirstAdmin: true,
+              },
+            });
+            role = 'admin';
+            console.log(`✅ Successfully set ${authUser.email} to admin role`);
+          } catch (err) {
+            console.error('Error auto-setting admin role:', err);
+            // Even if update fails, allow admin access if email matches
+            role = 'admin';
+          }
+        }
+        
+        // AUTO-SETUP: Set admin@merkabaent.com as venue_owner (exclusive to this account)
+        if (authUser.email === 'admin@merkabaent.com') {
+          const currentCategory = userData.category || userData.categoryTitle;
+          if (currentCategory !== 'venue_owner') {
+            console.log('🔧 Auto-setting admin@merkabaent.com to venue_owner persona');
+            try {
+              await updateDoc(doc(db, 'users', authUser.uid), {
+                category: 'venue_owner',
+                categoryTitle: 'Venue Owner',
+                categoryUpdatedAt: serverTimestamp(),
+              });
+              console.log('✅ Successfully set admin@merkabaent.com as venue owner');
+            } catch (err) {
+              console.error('Error auto-setting venue owner persona:', err);
+            }
+          }
+        }
+        
         setUserRole(role);
         setPermissions(getPermissionsForRole(role, userData.permissions, isAdminEmail));
       } else {
-        // New user, default to client
-        setUserRole('client');
-        setPermissions(getPermissionsForRole('client', {}, isAdminEmail));
+        // New user - if admin email, create with admin role
+        if (isAdminEmail) {
+          console.log(`🔧 Creating ${authUser.email} user document with admin role`);
+          try {
+            const userData = {
+              email: authUser.email,
+              displayName: authUser.displayName || 'Admin',
+              role: 'admin',
+              createdAt: serverTimestamp(),
+              adminInfo: {
+                adminId: authUser.uid,
+                department: 'Management',
+                assignedDate: serverTimestamp(),
+                status: 'active',
+                createdBy: 'system',
+                isFirstAdmin: authUser.email === 'admin@merkabaent.com',
+              },
+            };
+            
+            // SPECIAL: admin@merkabaent.com is ALWAYS venue_owner
+            if (authUser.email === 'admin@merkabaent.com') {
+              userData.category = 'venue_owner';
+              userData.categoryTitle = 'Venue Owner';
+              userData.categoryUpdatedAt = serverTimestamp();
+            }
+            
+            await setDoc(doc(db, 'users', authUser.uid), userData);
+            setUserRole('admin');
+            setPermissions(getPermissionsForRole('admin', {}, isAdminEmail));
+            console.log(`✅ Created ${authUser.email} user document`);
+            if (authUser.email === 'admin@merkabaent.com') {
+              console.log('✅ Set admin@merkabaent.com as venue owner');
+            }
+          } catch (err) {
+            console.error('Error creating admin user document:', err);
+            // Even if creation fails, allow admin access if email matches
+            setUserRole('admin');
+            setPermissions(getPermissionsForRole('admin', {}, isAdminEmail));
+          }
+        } else {
+          setUserRole('client');
+          setPermissions(getPermissionsForRole('client', {}, isAdminEmail));
+        }
       }
     } catch (error) {
       console.error('Error loading user role:', error);
-      setUserRole('client');
-      setPermissions(getPermissionsForRole('client'));
+      // If admin email, still allow admin access even on error
+      if (isAdminEmail) {
+        setUserRole('admin');
+        setPermissions(getPermissionsForRole('admin', {}, isAdminEmail));
+      } else {
+        setUserRole('client');
+        setPermissions(getPermissionsForRole('client', {}, isAdminEmail));
+      }
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,33 @@
+# Minimal requirements for Cloud Run deployment
+# Only essential packages needed for API to run
+
+# Core FastAPI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# Environment
+python-dotenv==1.1.1
+
+# Payment processing
+stripe==7.0.0
+
+# Authentication
+PyJWT==2.8.0
+
+# HTTP client
+httpx==0.25.0
+requests==2.31.0
+
+# Firebase
+firebase-admin==6.2.0
+
+# Google Calendar API
+google-api-python-client==2.110.0
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.2.0
+
+# Cryptography (for security)
+cryptography==41.0.7
+
+

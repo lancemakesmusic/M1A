@@ -22,11 +22,33 @@ if (Test-Path $envPath) {
     }
 }
 
-# Check Python
+# Detect Python (check for venv first)
 Write-Host "Step 1: Checking Python..." -ForegroundColor Yellow
 Write-Host "-" * 40 -ForegroundColor Gray
+
+$pythonCmd = "python"
+$venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+$parentVenvPython = Join-Path (Split-Path $PSScriptRoot) ".venv\Scripts\python.exe"
+
+# Check for venv in current, parent, or root directory
+if (Test-Path $venvPython) {
+    $pythonCmd = $venvPython
+    Write-Host "✓ Using virtual environment: .venv" -ForegroundColor Green
+} elseif (Test-Path $parentVenvPython) {
+    $pythonCmd = $parentVenvPython
+    Write-Host "✓ Using virtual environment: ..\.venv" -ForegroundColor Green
+} elseif (Test-Path $rootVenvPython) {
+    $pythonCmd = $rootVenvPython
+    Write-Host "✓ Using virtual environment: ..\..\.venv" -ForegroundColor Green
+} else {
+    Write-Host "⚠️  No virtual environment found, using system Python" -ForegroundColor Yellow
+    Write-Host "   Looking for: $venvPython" -ForegroundColor Gray
+    Write-Host "   Or: $parentVenvPython" -ForegroundColor Gray
+    Write-Host "   Or: $rootVenvPython" -ForegroundColor Gray
+}
+
 try {
-    $pythonVersion = python --version 2>&1
+    $pythonVersion = & $pythonCmd --version 2>&1
     Write-Host "✓ Python: $pythonVersion" -ForegroundColor Green
 } catch {
     Write-Host "✗ Python not found" -ForegroundColor Red
@@ -36,22 +58,49 @@ try {
 # Check required packages
 Write-Host "`nStep 2: Checking Python packages..." -ForegroundColor Yellow
 Write-Host "-" * 40 -ForegroundColor Gray
-$packages = @("google.auth", "googleapiclient")
+
+$packages = @(
+    @{Name="google.auth"; Import="google.auth"},
+    @{Name="google-api-python-client"; Import="googleapiclient.discovery"}
+)
+
 $allInstalled = $true
+$missingPackages = @()
+
 foreach ($pkg in $packages) {
     try {
-        python -c "import $($pkg.Replace('.', '_'))" 2>&1 | Out-Null
-        Write-Host "✓ $pkg installed" -ForegroundColor Green
+        $testScript = "import $($pkg.Import)"
+        & $pythonCmd -c $testScript 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✓ $($pkg.Name) installed" -ForegroundColor Green
+        } else {
+            throw "Import failed"
+        }
     } catch {
-        Write-Host "✗ $pkg NOT installed" -ForegroundColor Red
+        Write-Host "✗ $($pkg.Name) NOT installed" -ForegroundColor Red
         $allInstalled = $false
+        $missingPackages += $pkg.Name
     }
 }
 
 if (-not $allInstalled) {
-    Write-Host "`n⚠️  Install missing packages:" -ForegroundColor Yellow
-    Write-Host "   pip install google-auth google-api-python-client" -ForegroundColor White
-    exit 1
+    Write-Host "`n⚠️  Installing missing packages..." -ForegroundColor Yellow
+    $pipCmd = $pythonCmd -replace "python.exe$", "pip.exe"
+    if (-not (Test-Path $pipCmd)) {
+        $pipCmd = "pip"
+    }
+    
+    foreach ($pkg in $missingPackages) {
+        Write-Host "   Installing $pkg..." -ForegroundColor White
+        & $pipCmd install $pkg 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "   ✓ $pkg installed" -ForegroundColor Green
+        } else {
+            Write-Host "   ✗ Failed to install $pkg" -ForegroundColor Red
+            Write-Host "`n   Try manually: $pipCmd install $pkg" -ForegroundColor Yellow
+            exit 1
+        }
+    }
 }
 
 # Check environment variables
@@ -113,71 +162,11 @@ try {
 Write-Host "`nStep 5: Testing folder creation..." -ForegroundColor Yellow
 Write-Host "-" * 40 -ForegroundColor Gray
 
-$testScript = @"
-import os
-import json
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-
-try:
-    # Load credentials
-    creds_path = r'$serviceAccountPath'
-    parent_folder_id = '$parentFolderId'
-    test_folder_name = '$TestFolderName'
-    
-    SCOPES = ['https://www.googleapis.com/auth/drive']
-    credentials = service_account.Credentials.from_service_account_file(
-        creds_path, scopes=SCOPES
-    )
-    drive_service = build('drive', 'v3', credentials=credentials)
-    
-    # Create test folder
-    folder_metadata = {
-        'name': test_folder_name,
-        'mimeType': 'application/vnd.google-apps.folder',
-        'parents': [parent_folder_id]
-    }
-    
-    folder = drive_service.files().create(
-        body=folder_metadata,
-        fields='id, name, webViewLink'
-    ).execute()
-    
-    folder_id = folder.get('id')
-    folder_url = folder.get('webViewLink')
-    
-    print(f'SUCCESS: Folder created')
-    print(f'Folder ID: {folder_id}')
-    print(f'Folder Name: {test_folder_name}')
-    print(f'Folder URL: {folder_url}')
-    
-    # Clean up - delete test folder
-    try:
-        drive_service.files().delete(fileId=folder_id).execute()
-        print(f'CLEANUP: Test folder deleted')
-    except:
-        print(f'WARNING: Could not delete test folder. Delete manually: {folder_url}')
-    
-except HttpError as e:
-    if e.resp.status == 403:
-        print(f'ERROR: Permission denied')
-        print(f'Make sure the parent folder is shared with: $serviceAccountEmail')
-        print(f'Folder URL: https://drive.google.com/drive/folders/{parent_folder_id}')
-    else:
-        print(f'ERROR: {e}')
-    exit(1)
-except Exception as e:
-    print(f'ERROR: {e}')
-    exit(1)
-"@
-
-$testScriptPath = Join-Path $PSScriptRoot "test_drive_temp.py"
-$testScript | Out-File -FilePath $testScriptPath -Encoding UTF8
+$testScriptPath = Join-Path $PSScriptRoot "test_drive_creation.py"
 
 try {
     Write-Host "Creating test folder: $TestFolderName" -ForegroundColor White
-    $result = python $testScriptPath 2>&1
+    $result = & $pythonCmd $testScriptPath $serviceAccountPath $parentFolderId $TestFolderName 2>&1
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "`n✅ SUCCESS! Google Drive is properly configured." -ForegroundColor Green

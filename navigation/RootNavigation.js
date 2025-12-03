@@ -2,6 +2,7 @@
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
+import { useRole } from '../contexts/RoleContext';
 import DrawerNavigator from './DrawerNavigator';
 import AuthNavigator from './AuthNavigator';
 import OnboardingNavigator from './OnboardingNavigator';
@@ -12,6 +13,12 @@ export default function RootNavigation() {
   const { user, loading: authLoading } = useAuth();
   const { isOnboarded, loading: personalizationLoading } = useM1APersonalization();
   const { theme } = useTheme();
+
+  // Admins can have personas - they get both admin features and persona features
+  // They're auto-onboarded but can still select/change persona
+  const { isAdminEmail } = useRole();
+  const isAdmin = isAdminEmail;
+  const adminIsOnboarded = isAdmin ? true : isOnboarded;
 
   // Show loading while checking auth and personalization
   if (authLoading || personalizationLoading) {
@@ -33,7 +40,8 @@ export default function RootNavigation() {
   }
 
   // If logged in but not onboarded, force persona selection
-  if (!isOnboarded) {
+  // Admins are auto-onboarded but can still select persona from Settings
+  if (!adminIsOnboarded) {
     return <OnboardingNavigator />;
   }
 

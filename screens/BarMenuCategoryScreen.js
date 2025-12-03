@@ -5,46 +5,46 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, orderBy, query, addDoc, serverTimestamp } from 'firebase/firestore';
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { addDoc, collection, getDocs, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  Alert,
-  Modal,
-  ActivityIndicator,
-  TextInput,
-  Animated,
-  Dimensions,
-  KeyboardAvoidingView,
-  Platform,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Dimensions,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme } from '../contexts/ThemeContext';
+import EmptyState from '../components/EmptyState';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
-import StripeService from '../services/StripeService';
+import useScreenTracking from '../hooks/useScreenTracking';
 import { trackBarOrder, trackButtonClick, trackFeatureUsage } from '../services/AnalyticsService';
 import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
-import useScreenTracking from '../hooks/useScreenTracking';
-import EmptyState from '../components/EmptyState';
+import StripeService from '../services/StripeService';
 
 // Local asset images for bar menu items (match BarMenuScreen)
-import BuffaloTraceImg from '../assets/images/Buffalo_Trace.JPG';
-import JamesonImg from '../assets/images/Jameson.JPG';
-import JackDanielsImg from '../assets/images/Jack_Daniels.JPG';
-import EspolonImg from '../assets/images/Espolon.JPG';
-import TitosImg from '../assets/images/Titos.JPG';
-import JoseCuervoImg from '../assets/images/Jose_Cuervo.JPG';
-import SpriteImg from '../assets/images/Sprite.JPG';
-import RedBullImg from '../assets/images/Red_Bull.JPG';
 import CranberryImg from '../assets/images/64oz_OS_Cranberry_front_v2.webp';
+import BuffaloTraceImg from '../assets/images/Buffalo_Trace.JPG';
+import EspolonImg from '../assets/images/Espolon.JPG';
+import JackDanielsImg from '../assets/images/Jack_Daniels.JPG';
+import JamesonImg from '../assets/images/Jameson.JPG';
+import JoseCuervoImg from '../assets/images/Jose_Cuervo.JPG';
+import RedBullImg from '../assets/images/Red_Bull.JPG';
 import SeltzerImg from '../assets/images/Seltzer_Water.JPG';
+import SpriteImg from '../assets/images/Sprite.JPG';
+import TitosImg from '../assets/images/Titos.JPG';
 
 const { width, height } = Dimensions.get('window');
 
@@ -213,11 +213,8 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
         if (process.env.EXPO_PUBLIC_API_BASE_URL) {
           return process.env.EXPO_PUBLIC_API_BASE_URL;
         }
-        if (Platform.OS === 'web') {
-          return 'http://localhost:8001';
-        }
-        // Use the same network IP as Metro bundler
-        return 'http://172.20.10.3:8001';
+        // Fallback for development (use environment variable in production)
+        return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
       };
       const API_BASE_URL = getApiBaseUrl();
 

@@ -1,101 +1,94 @@
-# Deploy M1A Backend to Google Cloud Run (PowerShell)
-# This script automates the deployment process
+# Deploy M1A Backend to Google Cloud Run
+# Run this script from the autoposter-backend directory
 
-$ErrorActionPreference = "Stop"
-
-Write-Host "🚀 Deploying M1A Backend to Google Cloud Run" -ForegroundColor Cyan
-Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Configuration
-$PROJECT_ID = if ($env:GCP_PROJECT_ID) { $env:GCP_PROJECT_ID } else { "your-project-id" }
-$SERVICE_NAME = if ($env:SERVICE_NAME) { $env:SERVICE_NAME } else { "m1a-backend" }
-$REGION = if ($env:REGION) { $env:REGION } else { "us-central1" }
-$IMAGE_NAME = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
+Write-Host "`n🚀 Deploying M1A Backend to Google Cloud Run`n" -ForegroundColor Cyan
 
 # Check if gcloud is installed
 try {
-    $null = Get-Command gcloud -ErrorAction Stop
+    $gcloudVersion = gcloud --version 2>&1
+    Write-Host "✅ Google Cloud SDK found" -ForegroundColor Green
 } catch {
     Write-Host "❌ Google Cloud SDK not found!" -ForegroundColor Red
-    Write-Host "Install it from: https://cloud.google.com/sdk/docs/install" -ForegroundColor Yellow
-    Write-Host "Or use: winget install Google.CloudSDK" -ForegroundColor Yellow
+    Write-Host "Please install Google Cloud SDK first:" -ForegroundColor Yellow
+    Write-Host "  https://cloud.google.com/sdk/docs/install`n" -ForegroundColor White
     exit 1
 }
 
-# Check if logged in
-$activeAccount = gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>$null
-if (-not $activeAccount) {
-    Write-Host "⚠️  Not logged in to Google Cloud. Logging in..." -ForegroundColor Yellow
+# Check if authenticated
+Write-Host "`nChecking authentication..." -ForegroundColor Yellow
+$authStatus = gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>&1
+if (-not $authStatus) {
+    Write-Host "⚠️ Not authenticated. Please run: gcloud auth login" -ForegroundColor Yellow
+    Write-Host "Opening browser for authentication..." -ForegroundColor White
     gcloud auth login
 }
 
-# Set project
-Write-Host "📋 Setting project to: $PROJECT_ID" -ForegroundColor Yellow
-gcloud config set project $PROJECT_ID
-
-# Enable required APIs
-Write-Host "🔧 Enabling required APIs..." -ForegroundColor Yellow
-gcloud services enable cloudbuild.googleapis.com
-gcloud services enable run.googleapis.com
-gcloud services enable containerregistry.googleapis.com
-
-# Build and deploy
-Write-Host "🏗️  Building Docker image..." -ForegroundColor Yellow
-gcloud builds submit --tag $IMAGE_NAME
-
-Write-Host "🚀 Deploying to Cloud Run..." -ForegroundColor Yellow
-try {
-    # Try with secrets first (if they exist)
-    gcloud run deploy $SERVICE_NAME `
-        --image $IMAGE_NAME `
-        --platform managed `
-        --region $REGION `
-        --allow-unauthenticated `
-        --memory 1Gi `
-        --cpu 1 `
-        --timeout 300 `
-        --max-instances 10 `
-        --min-instances 0 `
-        --port 8080 `
-        --set-env-vars "PYTHONUNBUFFERED=1" `
-        --set-secrets "STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest" `
-        2>$null
-} catch {
-    # Fallback to env vars if secrets don't exist
-    Write-Host "⚠️  Secrets not found, using environment variables instead..." -ForegroundColor Yellow
-    gcloud run deploy $SERVICE_NAME `
-        --image $IMAGE_NAME `
-        --platform managed `
-        --region $REGION `
-        --allow-unauthenticated `
-        --memory 1Gi `
-        --cpu 1 `
-        --timeout 300 `
-        --max-instances 10 `
-        --min-instances 0 `
-        --port 8080 `
-        --set-env-vars "PYTHONUNBUFFERED=1"
+# Get project ID
+$projectId = gcloud config get-value project 2>&1
+if (-not $projectId -or $projectId -match "ERROR") {
+    Write-Host "⚠️ No project set. Please set a project:" -ForegroundColor Yellow
+    Write-Host "  gcloud config set project YOUR_PROJECT_ID`n" -ForegroundColor White
+    exit 1
 }
 
-# Get the service URL
-$SERVICE_URL = gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)'
+Write-Host "✅ Using project: $projectId`n" -ForegroundColor Green
 
-Write-Host ""
-Write-Host "✅ Deployment complete!" -ForegroundColor Green
-Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "🌐 Service URL: $SERVICE_URL" -ForegroundColor Green
-Write-Host "📖 API Docs: $SERVICE_URL/docs" -ForegroundColor Cyan
-Write-Host "💚 Health Check: $SERVICE_URL/api/health" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "📝 Next steps:" -ForegroundColor Yellow
-Write-Host "1. Set environment variables:" -ForegroundColor White
-Write-Host "   gcloud run services update $SERVICE_NAME --region $REGION \`" -ForegroundColor Gray
-Write-Host "     --set-env-vars STRIPE_SECRET_KEY=sk_...,OPENAI_API_KEY=sk_..." -ForegroundColor Gray
-Write-Host ""
-Write-Host "2. Update your app's .env file:" -ForegroundColor White
-Write-Host "   EXPO_PUBLIC_API_BASE_URL=$SERVICE_URL" -ForegroundColor Gray
-Write-Host ""
-Write-Host "3. Update Stripe webhook URL:" -ForegroundColor White
-Write-Host "   $SERVICE_URL/api/payments/webhook" -ForegroundColor Gray
+# Enable required APIs
+Write-Host "Enabling required APIs..." -ForegroundColor Yellow
+gcloud services enable run.googleapis.com --quiet
+gcloud services enable cloudbuild.googleapis.com --quiet
+gcloud services enable secretmanager.googleapis.com --quiet
+Write-Host "✅ APIs enabled`n" -ForegroundColor Green
 
+# Get environment variables
+Write-Host "Environment Variables:" -ForegroundColor Yellow
+$calendarId = Read-Host "Enter GOOGLE_BUSINESS_CALENDAR_ID (or press Enter to skip)"
+$stripeKey = Read-Host "Enter STRIPE_SECRET_KEY (or press Enter to skip)"
+$stripeWebhook = Read-Host "Enter STRIPE_WEBHOOK_SECRET (or press Enter to skip)"
+
+# Build env vars string
+$envVars = @()
+if ($calendarId) {
+    $envVars += "GOOGLE_BUSINESS_CALENDAR_ID=$calendarId"
+}
+if ($stripeKey) {
+    $envVars += "STRIPE_SECRET_KEY=$stripeKey"
+}
+if ($stripeWebhook) {
+    $envVars += "STRIPE_WEBHOOK_SECRET=$stripeWebhook"
+}
+
+$envVarsString = $envVars -join ","
+
+# Deploy to Cloud Run
+Write-Host "`n🚀 Deploying to Cloud Run...`n" -ForegroundColor Cyan
+
+$deployCommand = "gcloud run deploy m1a-backend --source . --region us-central1 --platform managed --allow-unauthenticated --port 8080 --memory 512Mi --timeout 300"
+
+if ($envVarsString) {
+    $deployCommand += " --set-env-vars `"$envVarsString`""
+}
+
+Write-Host "Running: $deployCommand`n" -ForegroundColor Gray
+Invoke-Expression $deployCommand
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "`n✅ Deployment successful!`n" -ForegroundColor Green
+    
+    # Get service URL
+    $serviceUrl = gcloud run services describe m1a-backend --region us-central1 --format="value(status.url)" 2>&1
+    
+    if ($serviceUrl) {
+        Write-Host "🌐 Service URL: $serviceUrl`n" -ForegroundColor Cyan
+        Write-Host "📋 Next steps:" -ForegroundColor Yellow
+        Write-Host "  1. Update frontend .env:" -ForegroundColor White
+        Write-Host "     EXPO_PUBLIC_API_BASE_URL=$serviceUrl" -ForegroundColor Gray
+        Write-Host "  2. Test health endpoint:" -ForegroundColor White
+        Write-Host "     Invoke-RestMethod -Uri '$serviceUrl/api/health' -Method Get" -ForegroundColor Gray
+        Write-Host "  3. Rebuild app:" -ForegroundColor White
+        Write-Host "     eas build --platform ios --profile production`n" -ForegroundColor Gray
+    }
+} else {
+    Write-Host "`n❌ Deployment failed. Check errors above.`n" -ForegroundColor Red
+    exit 1
+}

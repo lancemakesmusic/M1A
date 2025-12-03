@@ -16,17 +16,15 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '../contexts/AuthContext';
-import { useTheme } from '../contexts/ThemeContext';
-import ErrorRecovery from '../components/ErrorRecovery';
-import { trackEventBookingStarted, trackEventBookingCompleted, trackFunnelStep, trackButtonClick, trackFeatureUsage, trackError } from '../services/AnalyticsService';
-import { scheduleEventReminder, sendBookingReminder, sendEventNotification } from '../services/NotificationService';
-import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
-import GoogleCalendarService from '../services/GoogleCalendarService';
 import BookingCalendar from '../components/BookingCalendar';
+import { useAuth } from '../contexts/AuthContext';
+import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
+import { useTheme } from '../contexts/ThemeContext';
+import useScreenTracking from '../hooks/useScreenTracking';
+import { trackButtonClick, trackError, trackEventBookingCompleted, trackFunnelStep } from '../services/AnalyticsService';
+import { scheduleEventReminder, sendBookingReminder, sendEventNotification } from '../services/NotificationService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import StripeService from '../services/StripeService';
-import useScreenTracking from '../hooks/useScreenTracking';
 
 const { width } = Dimensions.get('window');
 
@@ -609,71 +607,7 @@ export default function EventBookingScreen({ navigation }) {
             const endDate = new Date(startDate);
             endDate.setHours(startDate.getHours() + formData.duration);
 
-            // Check final availability before submitting (if Google Calendar is connected)
-            let calendarResult = { success: false };
-            try {
-                const isConnected = await GoogleCalendarService.isConnected();
-                if (isConnected) {
-                    const availability = await GoogleCalendarService.checkAvailability(startDate, endDate);
-                    if (availability && !availability.available && !availability.warning) {
-                        // Only block if explicitly unavailable (not just a warning)
-                        Alert.alert(
-                            'Time Unavailable',
-                            availability.reason || 'This time slot is no longer available. Please select another time.',
-                            [{ text: 'OK' }]
-                        );
-                        setIsSubmitting(false);
-                        return;
-                    }
-                    // Show warning if calendar check had issues but don't block booking
-                    if (availability && availability.warning) {
-                        console.warn('Calendar availability warning:', availability.reason);
-                        // Optionally show a non-blocking alert
-                        // Alert.alert('Availability Warning', availability.reason, [{ text: 'Continue Anyway' }]);
-                    }
-
-                    // Create event in Google Business Calendar
-                    const eventTitle = `${formData.eventType.charAt(0).toUpperCase() + formData.eventType.slice(1)} - ${formData.firstName} ${formData.lastName}`;
-                    const eventDescription = `Event Type: ${formData.eventType}\n` +
-                        `Guests: ${formData.guestCount}\n` +
-                        `Duration: ${formData.duration} hours\n` +
-                        `Bar Package: ${formData.barPackage}\n` +
-                        `Total Cost: $${totalCost.toFixed(2)}\n` +
-                        `Contact: ${formData.email} | ${formData.phone}\n` +
-                        (formData.specialRequirements ? `Special Requirements: ${formData.specialRequirements}\n` : '') +
-                        (formData.notes ? `Notes: ${formData.notes}` : '');
-
-                    calendarResult = await GoogleCalendarService.createEvent({
-                        title: eventTitle,
-                        description: eventDescription,
-                        startTime: startDate.toISOString(),
-                        endTime: endDate.toISOString(),
-                        location: 'Merkaba Venue',
-                        attendees: [{ email: formData.email }],
-                    });
-                    
-                    // Show error if calendar event creation failed
-                    if (!calendarResult.success) {
-                        console.error('Failed to create calendar event:', calendarResult.message);
-                        Alert.alert(
-                            'Calendar Sync Warning',
-                            calendarResult.message || 'Event booking will continue, but it may not appear in Google Calendar. Please contact support.',
-                            [{ text: 'Continue' }]
-                        );
-                    }
-                }
-            } catch (calendarError) {
-                console.error('Error with Google Calendar:', calendarError);
-                Alert.alert(
-                    'Calendar Sync Error',
-                    'Unable to sync with Google Calendar. Event booking will continue, but it may not appear in your calendar. Please contact support if needed.',
-                    [{ text: 'Continue' }]
-                );
-                // Continue with booking even if calendar sync fails
-            }
-
-            // Submit booking to backend API
-            // Use network IP for physical devices, localhost for web/simulator
+            // Get API base URL
             const getApiBaseUrl = () => {
                 if (process.env.EXPO_PUBLIC_API_BASE_URL) {
                     return process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -683,11 +617,47 @@ export default function EventBookingScreen({ navigation }) {
                 if (Platform.OS === 'web') {
                     return 'http://localhost:8001';
                 }
-                // Use the same network IP as Metro bundler (172.20.10.3 from ipconfig)
-                // In production, this should be your actual backend URL
-                return 'http://172.20.10.3:8001';
+                // Fallback for development (use environment variable in production)
+                return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
             };
             const API_BASE_URL = getApiBaseUrl();
+
+            // Check availability via backend (uses admin's calendar, not user's)
+            try {
+                const idToken = await user.getIdToken();
+                const availabilityResponse = await fetch(`${API_BASE_URL}/api/calendar/check-availability`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`,
+                    },
+                    body: JSON.stringify({
+                        startTime: startDate.toISOString(),
+                        endTime: endDate.toISOString(),
+                    }),
+                });
+
+                if (availabilityResponse.ok) {
+                    const availabilityData = await availabilityResponse.json();
+                    if (!availabilityData.available) {
+                        Alert.alert(
+                            'Time Unavailable',
+                            availabilityData.reason || 'This time slot is already booked. Please select another time.',
+                            [{ text: 'OK' }]
+                        );
+                        setIsSubmitting(false);
+                        return;
+                    }
+                } else {
+                    // If availability check fails, log but don't block (backend will check again)
+                    console.warn('Availability check failed, proceeding with booking. Backend will verify.');
+                }
+            } catch (availabilityError) {
+                // If availability check fails, log but don't block (backend will check again)
+                console.warn('Availability check error, proceeding with booking. Backend will verify:', availabilityError);
+            }
+
+            // Submit booking to backend API
             let backendResult = { success: false };
             
             try {
@@ -866,6 +836,47 @@ export default function EventBookingScreen({ navigation }) {
             } else {
                 // No deposit required
                 paymentResult = { success: true, paymentIntentId: null };
+            }
+
+            // Create calendar events after payment confirmation
+            let calendarResult = { success: false };
+            if (paymentResult.success) {
+                try {
+                    const idToken = await user.getIdToken();
+                    const calendarEventData = {
+                        title: eventTitle,
+                        description: eventDescription,
+                        startTime: startDate.toISOString(),
+                        endTime: endDate.toISOString(),
+                        location: 'Merkaba Venue',
+                        attendees: [{ email: formData.email }],
+                        bookingId: backendResult.bookingId,
+                        bookingType: 'event',
+                        userEmail: formData.email,
+                    };
+                    
+                    const calendarResponse = await fetch(`${API_BASE_URL}/api/calendar/create-event`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${idToken}`,
+                        },
+                        body: JSON.stringify(calendarEventData),
+                    });
+                    
+                    if (calendarResponse.ok) {
+                        const calendarData = await calendarResponse.json();
+                        calendarResult = calendarData;
+                        console.log('✅ Calendar events created:', calendarData);
+                    } else {
+                        const errorData = await calendarResponse.json().catch(() => ({}));
+                        console.warn('⚠️ Calendar event creation failed:', errorData);
+                        calendarResult = { success: false, error: errorData.detail || 'Calendar sync failed' };
+                    }
+                } catch (calendarError) {
+                    console.error('Error creating calendar events:', calendarError);
+                    calendarResult = { success: false, error: calendarError.message };
+                }
             }
 
             // Track booking completion

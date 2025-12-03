@@ -1,4 +1,6 @@
-# M1A - Version 1.0
+# M1A - Merkaba Entertainment Platform
+
+**Version 1.0.0** | **Production Ready** ✅
 
 **M1A** is a comprehensive platform for Merkaba Entertainment, connecting artists, vendors, and fans. Book services, schedule events, manage your wallet, and engage with the community—all in one app.
 
@@ -7,21 +9,23 @@
 ## 🎯 Features
 
 ### Core Functionality
-- **Authentication**: Secure email/password login with Firebase Auth
-- **Personalization**: M1A persona system with 6 user types (Artist, Vendor, Fan, Guest, Professional, Creator)
-- **Service Booking**: Book recording time, production services, and more with integrated payments
-- **Event Booking**: Schedule events with Google Calendar sync
-- **Wallet**: Full wallet functionality with QR codes, payment methods, and financial insights
-- **Social Features**: User profiles, messaging, explore feed
-- **Auto-Poster**: Social media content generation and scheduling across multiple platforms
+- ✅ **Authentication**: Secure email/password login with Firebase Auth
+- ✅ **Personalization**: M1A persona system (Guest, Promoter, Coordinator, Wedding Planner, Venue Owner, Performer, Vendor)
+- ✅ **Service Booking**: Book recording time, production services with integrated Stripe payments
+- ✅ **Event Booking**: Schedule events with automatic Google Calendar sync
+- ✅ **Wallet**: Digital wallet with transaction history (MTL features hidden for compliance)
+- ✅ **Social Features**: User profiles, messaging, explore feed
+- ✅ **Auto-Poster**: AI-powered social media content generation and scheduling
+- ✅ **Admin Dashboard**: Complete admin control center for managing users, services, events, and analytics
 
-### Technical Highlights
-- **React Native** with Expo SDK 54
-- **Firebase** (Auth, Firestore, Storage)
-- **Stripe** payment processing (frontend + backend)
-- **Google Calendar** integration
-- **FastAPI** backend for services and payments
-- **Real-time** data synchronization
+### Technical Stack
+- **Frontend**: React Native with Expo SDK 54
+- **Backend**: FastAPI (Python) - Deploy to Google Cloud Run
+- **Database**: Firebase Firestore
+- **Storage**: Firebase Storage
+- **Payments**: Stripe (frontend + backend)
+- **Calendar**: Google Calendar API with service account
+- **Drive**: Google Drive API (optional, for content storage)
 
 ---
 
@@ -29,9 +33,9 @@
 
 ### Prerequisites
 - Node.js 20+
-- Python 3.9+ (for backend)
+- Python 3.11+ (for backend)
 - Expo CLI: `npm install -g expo-cli eas-cli`
-- iOS Simulator or Android Emulator (or Expo Go app)
+- Google Cloud SDK (for deployment)
 
 ### Installation
 
@@ -44,154 +48,160 @@
 2. **Install dependencies:**
    ```bash
    npm install
+   cd autoposter-backend
+   pip install -r requirements.txt
    ```
 
 3. **Set up environment variables:**
-   Create a `.env` file in the root directory:
+   
+   Create `.env` in project root:
    ```env
    # Firebase Configuration
-   EXPO_PUBLIC_FIREBASE_API_KEY=your_api_key
-   EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
-   EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-   EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
-   EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-   EXPO_PUBLIC_FIREBASE_APP_ID=your_app_id
-
-   # Stripe Configuration
-   EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_your_key
-
-   # Google Calendar
-   EXPO_PUBLIC_GOOGLE_CLIENT_ID=your_client_id
-   EXPO_PUBLIC_GOOGLE_BUSINESS_CALENDAR_ID=your_calendar_id
-
-   # API Configuration
-   EXPO_PUBLIC_API_BASE_URL=http://localhost:8001
-   ```
-
-4. **Start the backend:**
-   ```bash
-   cd autoposter-backend
-   python start_backend.py
-   ```
-   Keep this terminal open. Backend runs on `http://localhost:8001`
-
-5. **Start the app:**
-   ```bash
-   npx expo start --clear
-   ```
-   - Press `i` for iOS simulator
-   - Press `a` for Android emulator
-   - Scan QR code with Expo Go app (physical device)
-
----
-
-## 📚 Setup & Configuration
-
-### Initial Setup
-
-#### 1. Firebase Setup
-1. Create project at https://console.firebase.google.com
-2. Enable: Firestore, Storage, Authentication (Email/Password)
-3. Get config from Project Settings → Your apps → Web app
-4. Add to `.env`:
-   ```env
    EXPO_PUBLIC_FIREBASE_API_KEY=your_api_key
    EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
    EXPO_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
    EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
    EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789
    EXPO_PUBLIC_FIREBASE_APP_ID=1:123456789:web:abcdef...
-   ```
 
-#### 2. Stripe Setup
-1. Create account at https://dashboard.stripe.com
-2. Get API keys from Developers → API keys
-3. Add to `.env`:
-   ```env
-   EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
-   ```
-4. Add to backend `.env`:
-   ```env
-   STRIPE_SECRET_KEY=sk_test_...
-   ```
-5. **Test cards:** `4242 4242 4242 4242` (success), `4000 0000 0000 0002` (declined)
+   # Stripe Configuration
+   EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_your_key
 
-#### 3. Google Calendar Setup
-1. Create project at https://console.cloud.google.com
-2. Enable Google Calendar API
-3. Configure OAuth consent screen (External)
-4. Create OAuth 2.0 credentials (Web application)
-5. Create business calendar in Google Calendar
-6. Get Calendar ID from calendar settings
-7. Add to `.env`:
-   ```env
+   # Google Calendar
    EXPO_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
    EXPO_PUBLIC_GOOGLE_BUSINESS_CALENDAR_ID=your-calendar-id@group.calendar.google.com
+
+   # API Configuration (REQUIRED FOR PRODUCTION)
+   EXPO_PUBLIC_API_BASE_URL=https://your-backend-url.run.app
    ```
 
-#### 4. Google Drive Setup (Optional)
-1. Use Firebase service account JSON (same as Firebase setup)
-2. Place `firebase-admin.json` in `autoposter-backend/`
-3. Share parent folder with service account email (Editor permissions)
-4. Set in backend `.env`:
+   Create `autoposter-backend/.env`:
    ```env
+   # Stripe
+   STRIPE_SECRET_KEY=sk_live_your_secret_key
+   STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+
+   # Google Calendar Service Account
+   GOOGLE_SERVICE_ACCOUNT_FILE=./firebase-admin.json
+   GOOGLE_BUSINESS_CALENDAR_ID=your-calendar-id@group.calendar.google.com
+
+   # Firebase Admin
    GOOGLE_APPLICATION_CREDENTIALS=./firebase-admin.json
+
+   # CORS (for production)
+   CORS_ALLOWED_ORIGINS=https://yourdomain.com
    ```
 
-### Backend Setup
+4. **Start development:**
+   ```bash
+   # Terminal 1: Backend
+   cd autoposter-backend
+   python -m uvicorn api.main:app --reload --port 8001
 
-The backend is a FastAPI server located in `autoposter-backend/`:
+   # Terminal 2: Frontend
+   npx expo start --clear
+   ```
+
+---
+
+## 📚 Setup & Configuration
+
+### 1. Firebase Setup
+
+1. Create project at https://console.firebase.google.com
+2. Enable: **Firestore**, **Storage**, **Authentication** (Email/Password)
+3. Get config from **Project Settings → Your apps → Web app**
+4. Download service account JSON: **Project Settings → Service Accounts → Generate New Private Key**
+5. Save as `autoposter-backend/firebase-admin.json` (add to `.gitignore`)
+
+### 2. Stripe Setup
+
+1. Create account at https://dashboard.stripe.com
+2. Get API keys from **Developers → API keys**
+3. Add publishable key to frontend `.env`
+4. Add secret key to backend `.env`
+5. Set up webhook endpoint: `https://your-backend-url/api/payments/webhook`
+6. **Test cards**: `4242 4242 4242 4242` (success), `4000 0000 0000 0002` (declined)
+
+### 3. Google Calendar Setup
+
+1. Create project at https://console.cloud.google.com
+2. Enable **Google Calendar API**
+3. Configure **OAuth consent screen** (External):
+   - App name, support email
+   - Privacy policy URL: `https://www.merkabaent.com/privacypolicy`
+   - Add test users: `admin@merkabaent.com`, `brogdon.lance@gmail.com`
+4. Create **OAuth 2.0 credentials** (Web application)
+5. Add redirect URIs:
+   - `m1a://auth/google`
+   - `exp://localhost:8081`
+   - `https://your-backend-url/auth/callback` (for production)
+6. Create business calendar in Google Calendar
+7. Get Calendar ID from calendar settings (format: `xxxxx@group.calendar.google.com`)
+8. Share calendar with service account email (Editor permissions)
+
+### 4. Google Drive Setup (Optional)
+
+1. Use same service account JSON as Firebase
+2. Enable **Google Drive API** in Google Cloud Console
+3. Share parent folder with service account email (Editor permissions)
+4. Backend automatically creates user folders on account creation
+
+---
+
+## 🚀 Production Deployment
+
+### ⚠️ CRITICAL: Deploy Backend to Cloud
+
+**The app requires backend to be deployed to cloud (not localhost) for production use.**
+
+### Option 1: Google Cloud Run (Recommended)
+
+**Why**: Serverless, auto-scaling, no laptop needed, free tier available
+
+**Steps**:
+```bash
+# 1. Install Google Cloud SDK
+# Windows: Download from https://cloud.google.com/sdk/docs/install
+
+# 2. Login and set project
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+
+# 3. Enable APIs
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com
+
+# 4. Deploy backend
+cd autoposter-backend
+gcloud run deploy m1a-backend \
+  --source . \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --port 8080 \
+  --memory 512Mi \
+  --set-env-vars "GOOGLE_BUSINESS_CALENDAR_ID=your-calendar-id@group.calendar.google.com"
+
+# 5. Get URL (save this!)
+# Output: Service URL: https://m1a-backend-xxxxx-uc.a.run.app
+
+# 6. Update frontend .env
+EXPO_PUBLIC_API_BASE_URL=https://m1a-backend-xxxxx-uc.a.run.app
+
+# 7. Rebuild app
+eas build --platform ios --profile production
+```
+
+**Cost**: $0-20/month (free tier: 2M requests/month)
+
+**See**: `DEPLOY_TO_CLOUD_NOW.md` for detailed instructions
+
+### Option 2: Firebase Functions
 
 ```bash
-cd autoposter-backend
-pip install -r requirements.txt
-python start_backend.py
+cd autoposter-backend/firebase
+firebase deploy --only functions
 ```
-
-**Backend Endpoints:**
-- Health: `http://localhost:8001/api/payments/health`
-- API Docs: `http://localhost:8001/docs`
-- Payments: `/api/payments/*`
-- Services: `/api/service-booking`
-- Events: `/api/event-booking`
-- Auto-Poster: `/api/multi-platform/*`
-
-**Backend Environment Variables:**
-```env
-STRIPE_SECRET_KEY=sk_live_your_secret_key
-STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
-GOOGLE_APPLICATION_CREDENTIALS=./firebase-admin.json
-CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://m1alive.firebaseapp.com
-```
-
-### Production Deployment
-
-#### Option 1: Google Cloud Run (Recommended)
-- **Cost:** Free tier (2M requests/month)
-- **Setup:** 15 minutes
-- **Steps:**
-  1. Install Google Cloud SDK
-  2. `gcloud auth login`
-  3. `gcloud projects create m1a-backend`
-  4. `cd autoposter-backend && ./deploy-cloud-run.ps1`
-  5. Update `EXPO_PUBLIC_API_BASE_URL` to Cloud Run URL
-
-#### Option 2: Firebase Hosting + Functions
-- **Cost:** Free tier
-- **Setup:** 30 minutes
-- **Steps:**
-  1. `npm install -g firebase-tools`
-  2. `firebase login`
-  3. `cd autoposter-backend/firebase && firebase init`
-  4. `firebase deploy --only functions,hosting`
-
-#### Option 3: Vercel/Netlify (Frontend Only)
-- **Cost:** Free tier
-- **Steps:**
-  1. `npx expo export:web`
-  2. Deploy `web-build` folder
-
-**Update OAuth Redirect URIs** in Google Cloud Console after deployment.
 
 ---
 
@@ -199,35 +209,26 @@ CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://m1alive.firebaseapp.com
 
 ```
 M1A/
-├── screens/              # Main app screens
+├── screens/              # 42 app screens
 │   ├── HomeScreen.js
-│   ├── ExploreScreen.js
+│   ├── EventBookingScreen.js
+│   ├── ServiceBookingScreen.js
 │   ├── WalletScreen.js
-│   ├── MessagesScreen.js
-│   └── ...
+│   └── ... (38 more screens)
 ├── components/           # Reusable components
-│   ├── TutorialOverlay.js
-│   ├── ErrorRecovery.js
-│   └── ...
-├── contexts/             # React contexts
-│   ├── AuthContext.js
-│   ├── ThemeContext.js
-│   └── ...
-├── services/             # API and service integrations
+├── contexts/             # React contexts (Auth, Theme, etc.)
+├── services/             # API integrations
 │   ├── StripeService.js
 │   ├── GoogleCalendarService.js
 │   └── ...
 ├── navigation/           # Navigation configuration
-│   ├── AppNavigator.js
-│   ├── DrawerNavigator.js
+├── autoposter-backend/   # FastAPI backend
+│   ├── api/
+│   │   ├── main.py
+│   │   ├── payments.py
+│   │   └── calendar_events.py
 │   └── ...
-├── M1A/                 # M1A personalization system
-│   ├── personas.js
-│   └── ...
-└── autoposter-backend/  # FastAPI backend
-    ├── api/
-    ├── scripts/
-    └── ...
+└── docs/                 # Documentation
 ```
 
 ---
@@ -241,9 +242,8 @@ npm start              # Start Expo dev server
 npm run ios            # Start iOS simulator
 npm run android        # Start Android emulator
 npm run lint           # Run ESLint
-npm run build:ios      # Build iOS app (EAS)
-npm run build:android  # Build Android app (EAS)
-npm run submit:ios     # Submit to App Store
+eas build --platform ios --profile production    # Build iOS
+eas build --platform android --profile production # Build Android
 ```
 
 ### Building for Production
@@ -260,155 +260,105 @@ eas build --platform android --profile production
 eas submit --platform android --profile production
 ```
 
-See [UPDATE_TESTFLIGHT.md](UPDATE_TESTFLIGHT.md) for detailed instructions.
-
 ---
 
 ## ✅ Production Status
 
 **Version:** 1.0.0  
-**Status:** ✅ **100% Production Ready**
+**Status:** ✅ **Production Ready** (after backend cloud deployment)
 
 ### Verified Systems
 - ✅ Firebase Authentication & Firestore
-- ✅ Stripe Payment Processing (Frontend + Backend)
-- ✅ Google Calendar Integration
+- ✅ Stripe Payment Processing
+- ✅ Google Calendar Integration (with double-booking prevention)
 - ✅ Backend API (FastAPI)
 - ✅ Wallet Functionality
 - ✅ Service & Event Booking
+- ✅ Admin Dashboard
 - ✅ User Profiles & Social Features
+- ✅ Auto-Poster Content Generation
 
-### Environment
-- **Frontend**: React Native (Expo SDK 54)
-- **Backend**: FastAPI (Python)
-- **Database**: Firebase Firestore
-- **Storage**: Firebase Storage
-- **Payments**: Stripe
-- **Calendar**: Google Calendar API
+### Recent Fixes (v1.0.0)
+- ✅ Removed duplicate calendar event creation
+- ✅ Added backend availability checking
+- ✅ Fixed double-booking prevention
+- ✅ Removed hardcoded IP addresses
+- ✅ Consolidated documentation
 
 ---
 
 ## 🧪 Testing
 
-### Verify Setup
-```bash
-node scripts/verify-all.js
-```
-
-This checks:
-- Environment variables
-- Backend connectivity
-- Stripe configuration
-- Google Calendar setup
-
 ### Manual Testing Checklist
-- [ ] User authentication (sign up, login, logout, password reset)
+- [ ] User authentication (sign up, login, logout)
 - [ ] Persona selection and onboarding
 - [ ] Service booking with payment
 - [ ] Event booking with calendar sync
-- [ ] Wallet operations (add funds, view transactions, QR codes)
-- [ ] Profile editing (avatar, cover photo, bio, social links)
+- [ ] Wallet operations
+- [ ] Profile editing
 - [ ] Messaging functionality
-- [ ] Explore feed and search
-- [ ] Post creation (photo, video, audio)
-- [ ] Auto-Poster content generation and scheduling
-- [ ] Google Drive integration (if configured)
+- [ ] Admin functions (admin@merkabaent.com only)
+- [ ] Calendar conflict detection
+
+### Backend Health Check
+```bash
+curl https://your-backend-url/api/health
+curl https://your-backend-url/api/calendar/health
+```
 
 ---
 
-## 📱 App Store & TestFlight
+## 📱 App Store
 
 **Bundle ID:** `com.merkabaent.m1a`  
 **App Store Connect:** https://appstoreconnect.apple.com  
 **EAS Project:** https://expo.dev/accounts/lancemakesmusic/projects/m1a
 
-### Building & Submitting
-
-**Build for iOS:**
-```bash
-eas build --platform ios --profile production
-```
-
-**Submit to TestFlight:**
-```bash
-eas submit --platform ios --profile production
-```
-
-**Or build and submit in one command:**
-```bash
-eas build --platform ios --profile production --auto-submit
-```
-
-**Check build status:**
-- Visit: https://expo.dev/accounts/lancemakesmusic/projects/m1a/builds
-
-### Current Build
-- **Version:** 1.0.0
-- **Build Number:** Auto-incremented (remote source)
-- **Status:** Production ready
+**Privacy Policy:** https://www.merkabaent.com/privacypolicy
 
 ---
 
-## 🔐 Security Notes
+## 🔐 Security
 
 ### Credential Management
 - ✅ Never commit `.env` files or API keys
 - ✅ Stripe secret keys only in backend environment
-- ✅ Firebase credentials are safe for frontend (public config)
+- ✅ Service account JSON files in `.gitignore`
 - ✅ Use environment variables for all sensitive data
-- ✅ Service account JSON files should be restricted (Windows: `icacls file.json /inheritance:r`)
-
-### OAuth Security
-- ✅ Configure OAuth consent screen with privacy policy and terms URLs
-- ✅ Add test users if app is in Testing mode
-- ✅ Use HTTPS for all production redirect URIs
-- ✅ Rotate service account keys every 90 days
 
 ### Production Checklist
-- [ ] `.env` in `.gitignore`
-- [ ] Service account files in `.gitignore`
-- [ ] File permissions restricted
+- [ ] Backend deployed to cloud (not localhost)
+- [ ] `EXPO_PUBLIC_API_BASE_URL` set to production URL
+- [ ] All hardcoded IPs removed
 - [ ] SSL/TLS enabled
-- [ ] CORS configured for production domains only
-- [ ] Rate limiting enabled
+- [ ] CORS configured for production domains
+- [ ] OAuth redirect URIs updated for production
 
 ---
 
 ## 🐛 Troubleshooting
 
 ### Backend Not Connecting
-1. Check backend is running: `http://localhost:8001/api/payments/health`
-2. Verify `.env` has correct `EXPO_PUBLIC_API_BASE_URL`
-3. For physical device, use network IP: `http://192.168.1.111:8001`
+1. Verify backend is deployed to cloud
+2. Check `EXPO_PUBLIC_API_BASE_URL` matches backend URL
+3. Test health endpoint: `https://your-backend-url/api/health`
 
 ### Stripe Not Working
 1. Verify `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` in `.env`
 2. Check backend has `STRIPE_SECRET_KEY` set
-3. Test with Stripe test cards first
+3. Use test cards first: `4242 4242 4242 4242`
 
 ### Google Calendar Not Syncing
-1. Verify OAuth consent screen is configured
-2. Check `EXPO_PUBLIC_GOOGLE_CLIENT_ID` and `EXPO_PUBLIC_GOOGLE_BUSINESS_CALENDAR_ID`
-3. Ensure Calendar API is enabled in Google Cloud Console
-4. Add test users to OAuth consent screen if in Testing mode
+1. Verify OAuth consent screen configured
+2. Check test users added (if in Testing mode)
+3. Verify `GOOGLE_BUSINESS_CALENDAR_ID` is correct
+4. Ensure service account has calendar access
 
-### Google OAuth Error 400: invalid_request
-1. **Check OAuth consent screen:**
-   - Privacy policy URL must be set and accessible
-   - Terms of service URL must be set and accessible
-   - App name and support email required
-2. **Check redirect URIs:**
-   - Must match exactly (including protocol: `exp://`, `http://`, `https://`)
-   - Add all redirect URIs your app uses
-3. **If in Testing mode:**
-   - Add user email to "Test users" list
-   - Wait 5 minutes after changes for propagation
-
-### Google Drive Not Working
-1. Verify service account JSON file exists in `autoposter-backend/`
-2. Check service account email has Editor access to parent folder
-3. Verify `GOOGLE_APPLICATION_CREDENTIALS` path in backend `.env`
-4. Ensure Google Drive API is enabled in Google Cloud Console
+### OAuth Error 400: invalid_request
+1. Check OAuth consent screen has privacy policy URL
+2. Verify redirect URIs match exactly
+3. Add user email to "Test users" if in Testing mode
+4. Wait 5 minutes after changes for propagation
 
 ---
 
@@ -418,33 +368,12 @@ MIT License - See LICENSE file for details
 
 ---
 
-## 🙏 Acknowledgments
+## 📞 Support
 
-Built for **Merkaba Entertainment** - Connecting artists, vendors, and fans in one platform.
+**Email:** admin@merkabaent.com  
+**Privacy Policy:** https://www.merkabaent.com/privacypolicy
 
-**Version 1.0** - November 2025
-
----
-
-## 📞 Support & Troubleshooting
-
-### Quick Fixes
-- **Backend not connecting:** Check `EXPO_PUBLIC_API_BASE_URL` matches backend URL
-- **Payments failing:** Verify Stripe keys are correct (test vs live)
-- **OAuth errors:** Check OAuth consent screen configuration and redirect URIs
-- **Build errors:** Clear cache with `npx expo start --clear`
-
-### Verification Scripts
-```bash
-# Verify all environment variables
-node scripts/verify-all.js
-
-# Verify Google Drive setup (backend)
-cd autoposter-backend
-python check_google_drive_setup.py
-```
-
-### Additional Resources
+### Resources
 - **Firebase Console:** https://console.firebase.google.com
 - **Stripe Dashboard:** https://dashboard.stripe.com
 - **Google Cloud Console:** https://console.cloud.google.com
@@ -452,6 +381,16 @@ python check_google_drive_setup.py
 
 ---
 
-**🎉 M1A v1.0 - Production Ready!**
+## 📚 Additional Documentation
+
+- **Deployment Guide:** `DEPLOY_TO_CLOUD_NOW.md`
+- **App Review:** `FULL_APP_REVIEW_AND_DEPLOYMENT_READINESS.md`
+- **System Status:** `SYSTEM_100_PERCENT_COMPLETE.md`
+- **Admin Setup:** `docs/ADMIN_SETUP_COMPLETE.md`
+- **Role Permissions:** `docs/ROLE_PERMISSIONS_REFERENCE.md`
+
+---
+
+**🎉 M1A v1.0.0 - Production Ready!**
 
 **Last Updated:** November 26, 2024

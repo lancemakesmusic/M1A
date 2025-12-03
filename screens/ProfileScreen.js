@@ -382,7 +382,15 @@ export default function ProfileScreen() {
         <Text style={[styles.dimText, { color: theme.subtext }]}>Let&apos;s set up your profile to get started.</Text>
         <TouchableOpacity
           style={[styles.editButton, { backgroundColor: theme.primary }]}
-          onPress={() => navigation.navigate('ProfileEdit')}
+          onPress={() => {
+            // Ensure we're navigating within the ProfileStackNavigator
+            if (navigation.getParent()?.getState()?.routes) {
+              navigation.navigate('ProfileEdit');
+            } else {
+              // Fallback: navigate to ProfileTab first, then ProfileEdit
+              navigation.navigate('Profile', { screen: 'ProfileEdit' });
+            }
+          }}
           activeOpacity={0.85}
         >
           <Text style={styles.editText}>Get started</Text>
@@ -446,7 +454,15 @@ export default function ProfileScreen() {
             )}
             <TouchableOpacity 
               style={styles.coverEditButton}
-              onPress={() => navigation.navigate('ProfileEdit')}
+              onPress={() => {
+            // Ensure we're navigating within the ProfileStackNavigator
+            if (navigation.getParent()?.getState()?.routes) {
+              navigation.navigate('ProfileEdit');
+            } else {
+              // Fallback: navigate to ProfileTab first, then ProfileEdit
+              navigation.navigate('Profile', { screen: 'ProfileEdit' });
+            }
+          }}
             >
               <Ionicons name="camera" size={20} color={theme.primary} />
             </TouchableOpacity>
@@ -474,7 +490,15 @@ export default function ProfileScreen() {
               )}
               <TouchableOpacity 
                 style={[styles.avatarEditButton, { backgroundColor: theme.primary }]}
-                onPress={() => navigation.navigate('ProfileEdit')}
+                onPress={() => {
+            // Ensure we're navigating within the ProfileStackNavigator
+            if (navigation.getParent()?.getState()?.routes) {
+              navigation.navigate('ProfileEdit');
+            } else {
+              // Fallback: navigate to ProfileTab first, then ProfileEdit
+              navigation.navigate('Profile', { screen: 'ProfileEdit' });
+            }
+          }}
               >
                 <Ionicons name="camera" size={16} color="#fff" />
               </TouchableOpacity>
@@ -576,7 +600,15 @@ export default function ProfileScreen() {
           <View style={styles.actionButtons}>
             <TouchableOpacity 
               style={[styles.primaryButton, { backgroundColor: theme.primary }]}
-              onPress={() => navigation.navigate('ProfileEdit')}
+              onPress={() => {
+            // Ensure we're navigating within the ProfileStackNavigator
+            if (navigation.getParent()?.getState()?.routes) {
+              navigation.navigate('ProfileEdit');
+            } else {
+              // Fallback: navigate to ProfileTab first, then ProfileEdit
+              navigation.navigate('Profile', { screen: 'ProfileEdit' });
+            }
+          }}
             >
               <Text style={styles.primaryButtonText}>Edit Profile</Text>
             </TouchableOpacity>

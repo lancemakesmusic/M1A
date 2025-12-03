@@ -80,3 +80,4 @@ SVG files can be converted to raster formats using:
 - Gradients are defined for smooth color transitions
 - Files are compatible with all modern browsers and design software
 
+

@@ -490,6 +490,100 @@ class RoleManagementService {
   }
 
   /**
+   * Deactivate user account
+   * SECURITY: Only admin@merkabaent.com can deactivate users
+   * @param {string} requesterId - ID of the admin (must be admin@merkabaent.com)
+   * @param {string} userId - ID of user to deactivate
+   * @returns {Promise<Object>} Deactivation result
+   */
+  async deactivateUser(requesterId, userId) {
+    try {
+      // Verify requester has permission
+      const requesterDoc = await getDoc(doc(db, 'users', requesterId));
+      if (!requesterDoc.exists()) {
+        throw new Error('Requester not found');
+      }
+
+      const requesterData = requesterDoc.data();
+
+      // SECURITY: Only admin@merkabaent.com can deactivate users
+      if (requesterData.email !== 'admin@merkabaent.com') {
+        throw new Error('Only admin@merkabaent.com can deactivate user accounts');
+      }
+
+      // Cannot deactivate admin@merkabaent.com
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (!userDoc.exists()) {
+        throw new Error('User not found');
+      }
+
+      const userData = userDoc.data();
+      if (userData.email === 'admin@merkabaent.com') {
+        throw new Error('Cannot deactivate admin@merkabaent.com account');
+      }
+
+      await updateDoc(doc(db, 'users', userId), {
+        accountStatus: 'inactive',
+        deactivatedAt: serverTimestamp(),
+        deactivatedBy: requesterId,
+      });
+
+      return {
+        success: true,
+        userId,
+        message: 'User account deactivated',
+      };
+    } catch (error) {
+      console.error('Error deactivating user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reactivate user account
+   * SECURITY: Only admin@merkabaent.com can reactivate users
+   * @param {string} requesterId - ID of the admin (must be admin@merkabaent.com)
+   * @param {string} userId - ID of user to reactivate
+   * @returns {Promise<Object>} Reactivation result
+   */
+  async reactivateUser(requesterId, userId) {
+    try {
+      // Verify requester has permission
+      const requesterDoc = await getDoc(doc(db, 'users', requesterId));
+      if (!requesterDoc.exists()) {
+        throw new Error('Requester not found');
+      }
+
+      const requesterData = requesterDoc.data();
+
+      // SECURITY: Only admin@merkabaent.com can reactivate users
+      if (requesterData.email !== 'admin@merkabaent.com') {
+        throw new Error('Only admin@merkabaent.com can reactivate user accounts');
+      }
+
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (!userDoc.exists()) {
+        throw new Error('User not found');
+      }
+
+      await updateDoc(doc(db, 'users', userId), {
+        accountStatus: 'active',
+        reactivatedAt: serverTimestamp(),
+        reactivatedBy: requesterId,
+      });
+
+      return {
+        success: true,
+        userId,
+        message: 'User account reactivated',
+      };
+    } catch (error) {
+      console.error('Error reactivating user:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Deactivate employee account
    * @param {string} masterAdminId - ID of the master admin
    * @param {string} employeeId - ID of employee to deactivate

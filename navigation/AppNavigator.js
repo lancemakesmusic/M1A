@@ -5,8 +5,17 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../contexts/ThemeContext';
 
 // Screens
+import AdminAnalyticsScreen from '../screens/AdminAnalyticsScreen';
+import AdminCalendarManagementScreen from '../screens/AdminCalendarManagementScreen';
 import AdminControlCenterScreen from '../screens/AdminControlCenterScreen';
+import AdminEmployeeManagementScreen from '../screens/AdminEmployeeManagementScreen';
+import AdminEventCreationScreen from '../screens/AdminEventCreationScreen';
+import AdminMenuManagementScreen from '../screens/AdminMenuManagementScreen';
+import AdminMessagingScreen from '../screens/AdminMessagingScreen';
+import AdminOrderManagementScreen from '../screens/AdminOrderManagementScreen';
+import AdminServiceManagementScreen from '../screens/AdminServiceManagementScreen';
 import AdminSetupScreen from '../screens/AdminSetupScreen';
+import AdminSystemSettingsScreen from '../screens/AdminSystemSettingsScreen';
 import AdminUserManagementScreen from '../screens/AdminUserManagementScreen';
 import AutoPosterScreen from '../screens/AutoPosterScreen';
 import BarCategoryScreen from '../screens/BarCategoryScreen';
@@ -122,6 +131,51 @@ function HomeStackNavigator() {
       <Stack.Screen
         name="AdminUserManagement"
         component={AdminUserManagementScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminServiceManagement"
+        component={AdminServiceManagementScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminCalendarManagement"
+        component={AdminCalendarManagementScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminEventCreation"
+        component={AdminEventCreationScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminMessaging"
+        component={AdminMessagingScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminEmployeeManagement"
+        component={AdminEmployeeManagementScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminMenuManagement"
+        component={AdminMenuManagementScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminOrderManagement"
+        component={AdminOrderManagementScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminAnalytics"
+        component={AdminAnalyticsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="AdminSystemSettings"
+        component={AdminSystemSettingsScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen

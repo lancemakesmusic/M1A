@@ -1,0 +1,14 @@
+[AUDIT] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA | Action: Script started | Details: verify-google-drive.ps1
+[2025-12-01 12:15:50] [AUDIT] Audit: Script started by MERKABA_MEDIA\admin on MERKABA_MEDIA
+[2025-12-01 12:15:50] [INFO] Starting Google Drive verification
+[2025-12-01 12:15:50] [INFO] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA
+[2025-12-01 12:15:50] [INFO] Log file: C:\Users\admin\M1A\logs\verify-google-drive_20251201_121550.log
+[2025-12-01 12:15:50] [INFO] Checking Python installation
+[2025-12-01 12:15:50] [INFO] Checking Python packages
+[2025-12-01 12:15:50] [INFO] Checking environment variables
+[2025-12-01 12:15:50] [INFO] Reading service account details
+[2025-12-01 12:15:51] [INFO] Service account validated: m1alive@m1alive.iam.gserviceaccount.com
+[AUDIT] User: MERKABA_MEDIA\admin | Computer: MERKABA_MEDIA | Action: Service account verified | Details: Email: m1alive@m1alive.iam.gserviceaccount.com
+[2025-12-01 12:15:51] [AUDIT] Audit: Service account verified by MERKABA_MEDIA\admin on MERKABA_MEDIA
+[2025-12-01 12:15:51] [INFO] Testing folder creation
+[2025-12-01 12:15:51] [INFO] Executing test script: C:\Users\admin\M1A\test_drive_temp.py

@@ -20,10 +20,11 @@ TikTokApi==6.1.0
 
 # Additional utilities
 aiofiles==23.2.1
-asyncio==3.4.3
+# asyncio is part of standard library, don't install
 psycopg2-binary==2.9.9
 redis==5.0.1
 stripe==7.0.0
 PyJWT==2.8.0
 httpx==0.25.0
 firebase-admin==6.2.0
+requests==2.31.0

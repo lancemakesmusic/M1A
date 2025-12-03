@@ -1,9 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useAuth } from './AuthContext';
+import { useRole } from './RoleContext';
 
 const M1APersonalizationContext = createContext();
 
 export function M1APersonalizationProvider({ children }) {
+  const { user } = useAuth();
+  const { isAdminEmail } = useRole();
+  
+  // Check if this is an admin email (admins can still have personas)
+  const isAdmin = isAdminEmail;
+  
   const [userPersona, setUserPersona] = useState(null);
   const [preferences, setPreferences] = useState({
     primaryFocus: [],
@@ -18,7 +26,7 @@ export function M1APersonalizationProvider({ children }) {
   // Load saved data on app start
   useEffect(() => {
     loadPersonalizationData();
-  }, []);
+  }, [isAdmin, user]);
 
   const loadPersonalizationData = async () => {
     try {
@@ -26,14 +34,47 @@ export function M1APersonalizationProvider({ children }) {
       const savedPreferences = await AsyncStorage.getItem('m1a_preferences');
       const savedOnboarded = await AsyncStorage.getItem('m1a_onboarded');
 
-      if (savedPersona) {
-        setUserPersona(JSON.parse(savedPersona));
+      // SPECIAL: admin@merkabaent.com is ALWAYS venue_owner (exclusive)
+      if (user?.email === 'admin@merkabaent.com') {
+        // Force venue_owner persona for admin@merkabaent.com
+        const venueOwnerPersona = {
+          id: 'venue_owner',
+          title: 'Venue Owner',
+          subtitle: 'Venue & Space Management',
+          description: 'Maximize your venue potential with booking management and client coordination tools',
+          icon: 'business',
+          color: '#9B59B6',
+          gradient: ['#9B59B6', '#B370CF'],
+          features: [
+            'Booking Management',
+            'Space Configuration',
+            'Client Communication',
+            'Revenue Analytics',
+            'Maintenance Scheduling',
+            'Staff Coordination'
+          ],
+          primaryActions: ['Manage Bookings', 'View Calendar', 'Track Revenue', 'Client Portal']
+        };
+        setUserPersona(venueOwnerPersona);
+        // Auto-save to AsyncStorage
+        await AsyncStorage.setItem('m1a_user_persona', JSON.stringify(venueOwnerPersona));
+        setIsOnboarded(true);
+        await AsyncStorage.setItem('m1a_onboarded', JSON.stringify(true));
+      } else {
+        // Regular users and other admins can have personas
+        if (savedPersona) {
+          setUserPersona(JSON.parse(savedPersona));
+        }
+        if (savedOnboarded) {
+          setIsOnboarded(JSON.parse(savedOnboarded));
+        } else if (isAdmin) {
+          // Other admins are auto-onboarded if no persona selected yet
+          setIsOnboarded(true);
+        }
       }
+      
       if (savedPreferences) {
         setPreferences(JSON.parse(savedPreferences));
-      }
-      if (savedOnboarded) {
-        setIsOnboarded(JSON.parse(savedOnboarded));
       }
     } catch (error) {
       console.error('Error loading personalization data:', error);
@@ -43,9 +84,19 @@ export function M1APersonalizationProvider({ children }) {
   };
 
   const savePersona = async (persona) => {
+    // SECURITY: admin@merkabaent.com must remain as venue_owner
+    if (user?.email === 'admin@merkabaent.com' && persona.id !== 'venue_owner') {
+      console.warn('🔒 admin@merkabaent.com must remain as venue_owner. Persona change blocked.');
+      return;
+    }
+    
+    // Admins can have personas - they get both admin and persona features
     try {
       setUserPersona(persona);
       await AsyncStorage.setItem('m1a_user_persona', JSON.stringify(persona));
+      // Mark as onboarded when persona is saved
+      await AsyncStorage.setItem('m1a_onboarded', JSON.stringify(true));
+      setIsOnboarded(true);
     } catch (error) {
       console.error('Error saving persona:', error);
     }
@@ -62,6 +113,11 @@ export function M1APersonalizationProvider({ children }) {
   };
 
   const completeOnboarding = async () => {
+    // SECURITY: Admin accounts are always onboarded
+    if (isAdmin) {
+      setIsOnboarded(true);
+      return;
+    }
     try {
       setIsOnboarded(true);
       await AsyncStorage.setItem('m1a_onboarded', JSON.stringify(true));
@@ -71,6 +127,7 @@ export function M1APersonalizationProvider({ children }) {
   };
 
   const resetPersonalization = async () => {
+    // Admins can reset personalization like regular users
     try {
       setUserPersona(null);
       setPreferences({
