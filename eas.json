@@ -30,6 +30,7 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "production",
+        "EXPO_PUBLIC_API_BASE_URL": "https://m1a-backend-83002254287.us-central1.run.app",
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDOEDqVKGBxpCFpQliBiIdNX5ebhWdmhHQ",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "m1alive.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "m1alive",
