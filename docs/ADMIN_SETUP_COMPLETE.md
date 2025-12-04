@@ -175,3 +175,5 @@ await setupFirstAdmin('admin@merkabaent.com');
 The admin role system is fully implemented and ready to use. Once you set admin@merkabaent.com as admin in Firestore, you can immediately start managing users!
 
 
+
+

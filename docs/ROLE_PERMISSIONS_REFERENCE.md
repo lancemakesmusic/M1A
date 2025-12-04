@@ -251,3 +251,5 @@ const { userRole, hasPermission } = useRole();
 6. **Role Protection**: Master admin role cannot be changed or revoked
 
 
+
+
