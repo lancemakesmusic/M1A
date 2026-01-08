@@ -2,7 +2,7 @@
   "expo": {
     "name": "M1A",
     "slug": "m1a",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "m1a",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.merkabaent.m1a",
-      "buildNumber": "11",
+      "buildNumber": "13",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "M1A needs access to your photo library to upload profile photos and cover images.",
         "NSCameraUsageDescription": "M1A needs access to your camera to take photos for your profile.",
@@ -53,7 +53,12 @@
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "meta": {
+        "og:image": "./assets/images/splash-icon.png",
+        "twitter:image": "./assets/images/splash-icon.png",
+        "twitter:card": "summary_large_image"
+      }
     },
     "plugins": [
       [

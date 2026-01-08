@@ -227,6 +227,145 @@ async def check_availability(
             "warning": True
         }
 
+async def create_calendar_event_internal(event_data: dict, userId: str) -> dict:
+    """
+    Internal function to create calendar event (called from webhook, no auth required)
+    event_data should be a dict with the same fields as CalendarEventRequest
+    """
+    if not ADMIN_CALENDAR_ID:
+        return {
+            "success": False,
+            "error": "Admin calendar ID not configured"
+        }
+    
+    results = {
+        "admin_calendar": {"success": False, "error": None},
+        "user_calendar": {"success": False, "error": None, "skipped": True}
+    }
+    
+    try:
+        # Get calendar service
+        calendar_service = get_calendar_service()
+        
+        # Check availability BEFORE creating event
+        try:
+            freebusy_request = {
+                'timeMin': event_data.get('startTime'),
+                'timeMax': event_data.get('endTime'),
+                'items': [{'id': ADMIN_CALENDAR_ID}]
+            }
+            
+            freebusy_result = calendar_service.freebusy().query(body=freebusy_request).execute()
+            calendar_busy = freebusy_result.get('calendars', {}).get(ADMIN_CALENDAR_ID, {}).get('busy', [])
+            
+            if calendar_busy:
+                return {
+                    "success": False,
+                    "error": f"Time slot is already booked. Conflicts: {len(calendar_busy)} existing event(s)."
+                }
+        except Exception as e:
+            print(f"⚠️ Availability check error (proceeding): {e}")
+        
+        # Prepare event data
+        event = {
+            'summary': event_data.get('title', 'Service Booking'),
+            'description': event_data.get('description', ''),
+            'start': {
+                'dateTime': event_data.get('startTime'),
+                'timeZone': 'America/New_York',
+            },
+            'end': {
+                'dateTime': event_data.get('endTime'),
+                'timeZone': 'America/New_York',
+            },
+            'location': event_data.get('location', 'Merkaba Venue'),
+            'reminders': {
+                'useDefault': False,
+                'overrides': [
+                    {'method': 'email', 'minutes': 24 * 60},
+                    {'method': 'popup', 'minutes': 10},
+                ],
+            },
+        }
+        
+        # Add attendees if provided
+        if event_data.get('attendees'):
+            event['attendees'] = [
+                {'email': attendee.get('email')} for attendee in event_data.get('attendees', [])
+            ]
+        
+        # Create event in admin's calendar
+        try:
+            admin_event = calendar_service.events().insert(
+                calendarId=ADMIN_CALENDAR_ID,
+                body=event
+            ).execute()
+            
+            results["admin_calendar"] = {
+                "success": True,
+                "eventId": admin_event.get('id'),
+                "htmlLink": admin_event.get('htmlLink'),
+                "message": "Event created in admin calendar"
+            }
+            print(f"✅ Created event in admin calendar: {admin_event.get('id')}")
+        except HttpError as e:
+            error_msg = e.content.decode() if hasattr(e, 'content') else str(e)
+            results["admin_calendar"] = {
+                "success": False,
+                "error": f"Failed to create event in admin calendar: {error_msg}"
+            }
+            print(f"❌ Error creating event in admin calendar: {error_msg}")
+        
+        # Try to create in user's calendar if token available
+        user_calendar_token = get_user_calendar_token(userId)
+        if user_calendar_token:
+            try:
+                from google.oauth2.credentials import Credentials
+                user_credentials = Credentials(token=user_calendar_token)
+                user_calendar_service = build('calendar', 'v3', credentials=user_credentials)
+                
+                user_event = user_calendar_service.events().insert(
+                    calendarId='primary',
+                    body=event
+                ).execute()
+                
+                results["user_calendar"] = {
+                    "success": True,
+                    "eventId": user_event.get('id'),
+                    "htmlLink": user_event.get('htmlLink'),
+                    "message": "Event created in user calendar",
+                    "skipped": False
+                }
+                print(f"✅ Created event in user calendar: {user_event.get('id')}")
+            except Exception as e:
+                results["user_calendar"] = {
+                    "success": False,
+                    "error": f"Failed to create event in user calendar: {str(e)}",
+                    "skipped": False
+                }
+                print(f"⚠️ Error creating event in user calendar: {e}")
+        
+        if results["admin_calendar"]["success"]:
+            return {
+                "success": True,
+                "results": results,
+                "message": "Calendar events created successfully"
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to create calendar events",
+                "results": results
+            }
+            
+    except Exception as e:
+        print(f"❌ Error creating calendar events: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 @router.post("/create-event")
 async def create_calendar_event(
     event_data: CalendarEventRequest,

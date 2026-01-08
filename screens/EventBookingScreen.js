@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -20,6 +22,7 @@ import BookingCalendar from '../components/BookingCalendar';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { db, isFirebaseReady } from '../firebase';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackError, trackEventBookingCompleted, trackFunnelStep } from '../services/AnalyticsService';
 import { scheduleEventReminder, sendBookingReminder, sendEventNotification } from '../services/NotificationService';
@@ -138,6 +141,8 @@ export default function EventBookingScreen({ navigation }) {
     const [showTimePicker, setShowTimePicker] = useState(false);
     const [showGuestPicker, setShowGuestPicker] = useState(false);
     const [showCalendar, setShowCalendar] = useState(false);
+    const [showVenuePicker, setShowVenuePicker] = useState(false);
+    const [customVenueInput, setCustomVenueInput] = useState('');
     const [availabilityError, setAvailabilityError] = useState('');
     const [paymentStep, setPaymentStep] = useState('none'); // 'none', 'processing', 'success', 'failed'
     const [paymentError, setPaymentError] = useState(null);
@@ -163,6 +168,7 @@ export default function EventBookingScreen({ navigation }) {
         // Step 3: Event Details
         specialRequirements: '',
         isWeekday: false,
+        venueLocation: 'Merkaba Venue', // Default venue location
         
         // Step 4: Services
         barPackage: 'No Bar – (Free)',
@@ -679,6 +685,7 @@ export default function EventBookingScreen({ navigation }) {
                     notes: formData.notes || null,
                     totalCost: totalCost,
                     isWeekday: formData.isWeekday || false,
+                    venueLocation: formData.venueLocation || 'Merkaba Venue',
                 };
 
                 const response = await fetch(`${API_BASE_URL}/api/event-booking`, {
@@ -743,45 +750,94 @@ export default function EventBookingScreen({ navigation }) {
                 
                 try {
                     // Check if Stripe is configured
-                    if (StripeService.isConfigured()) {
-                        // Create payment intent for deposit
-                        const paymentIntent = await StripeService.createPaymentIntent(
-                            depositAmount,
-                            'usd',
-                            {
-                                orderType: 'event_booking',
-                                bookingId: backendResult.bookingId || 'pending',
-                                eventType: formData.eventType,
-                                depositAmount: depositAmount,
-                                totalAmount: totalCost,
-                                userId: user?.uid || 'anonymous',
-                            },
-                            [{
-                                id: 'event_booking_deposit',
-                                name: `Event Booking Deposit - ${formData.eventType}`,
-                                price: depositAmount,
-                                quantity: 1,
-                            }]
+                    if (!StripeService.isConfigured()) {
+                        throw new Error(
+                            'Payment processing is not configured. Please contact support or configure Stripe keys. ' +
+                            'Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY in your environment variables.'
                         );
-                        
-                        paymentResult = {
-                            success: true,
-                            paymentIntentId: paymentIntent.id,
-                            clientSecret: paymentIntent.client_secret,
-                        };
-                        setPaymentIntentId(paymentIntent.id);
-                        setPaymentStep('success');
-                    } else {
-                        // Stripe not configured - use mock payment for demo
-                        console.log('Stripe not configured, using mock payment for deposit');
-                        await new Promise(resolve => setTimeout(resolve, 1500));
-                        paymentResult = {
-                            success: true,
-                            paymentIntentId: `mock_${Date.now()}`,
-                            clientSecret: null,
-                        };
-                        setPaymentStep('success');
                     }
+
+                    // Save order to Firestore with PENDING status first
+                    // This ensures we have an order ID before redirecting to Stripe
+                    const orderId = backendResult.bookingId || `event_${Date.now()}`;
+                    
+                    // Prepare order items for Stripe Checkout
+                    const orderItems = [{
+                        id: 'event_booking_deposit',
+                        name: `Event Booking Deposit - ${formData.eventType}`,
+                        price: depositAmount,
+                        quantity: 1,
+                    }];
+
+                    // Create success and cancel URLs for Stripe Checkout redirect
+                    const baseUrl = Linking.createURL('/');
+                    const successUrl = `${baseUrl}payment-success?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`;
+                    const cancelUrl = `${baseUrl}payment-cancel?orderId=${orderId}`;
+
+                    // Create Stripe Checkout Session
+                    const checkoutResult = await StripeService.createCheckoutSession(
+                        depositAmount,
+                        'usd',
+                        {
+                            type: 'event_booking',
+                            orderType: 'event_booking',
+                            bookingId: orderId,
+                            eventType: formData.eventType,
+                            depositAmount: depositAmount,
+                            totalAmount: totalCost,
+                            userId: user?.uid || 'anonymous',
+                        },
+                        orderItems,
+                        successUrl,
+                        cancelUrl
+                    );
+
+                    if (!checkoutResult.success || !checkoutResult.url) {
+                        throw new Error(checkoutResult.error || 'Failed to create checkout session. Please try again.');
+                    }
+
+                    // Update order with checkout session ID (if order exists in Firestore)
+                    try {
+                        if (isFirebaseReady() && db && backendResult.bookingId) {
+                            const { doc, updateDoc } = await import('firebase/firestore');
+                            const orderRef = doc(db, 'eventOrders', backendResult.bookingId);
+                            await updateDoc(orderRef, {
+                                checkoutSessionId: checkoutResult.sessionId,
+                                updatedAt: serverTimestamp(),
+                            });
+                            console.log('✅ Updated order with checkout session ID');
+                        }
+                    } catch (updateError) {
+                        console.warn('Failed to update order with checkout session ID:', updateError);
+                        // Continue anyway - order will still be processed via webhook
+                    }
+
+                    // Open Stripe Checkout in browser
+                    console.log('Opening Stripe Checkout:', checkoutResult.url);
+                    
+                    // Use WebBrowser for better UX - opens in-app browser
+                    const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
+                        showTitle: true,
+                        toolbarColor: theme.primary,
+                        enableBarCollapsing: false,
+                    });
+
+                    // If user closes browser without completing payment
+                    if (result.type === 'cancel') {
+                        setPaymentStep('none');
+                        setPaymentError('Payment was canceled. You can try again.');
+                        setIsSubmitting(false);
+                        return;
+                    }
+
+                    // Payment completed - webhook will handle the rest
+                    paymentResult = {
+                        success: true,
+                        paymentIntentId: checkoutResult.sessionId,
+                        clientSecret: null,
+                    };
+                    setPaymentIntentId(checkoutResult.sessionId);
+                    setPaymentStep('success');
                 } catch (paymentError) {
                     console.error('Error processing payment:', paymentError);
                     setPaymentStep('failed');
@@ -1258,8 +1314,13 @@ export default function EventBookingScreen({ navigation }) {
             <View style={styles.eventDetailsForm}>
                 <View style={styles.inputGroup}>
                     <Text style={[styles.label, { color: theme.text }]}>Duration</Text>
-                    <View style={styles.durationSelector}>
-              {[2, 3, 4, 5, 6, 7, 8].map((hours) => (
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.durationScrollView}
+                      contentContainerStyle={styles.durationSelector}
+                    >
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 24].map((hours) => (
                 <TouchableOpacity
                   key={hours}
                   style={[
@@ -1277,8 +1338,95 @@ export default function EventBookingScreen({ navigation }) {
                   </Text>
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
           </View>
+
+                <View style={styles.inputGroup}>
+                    <Text style={[styles.label, { color: theme.text }]}>Venue Location</Text>
+                    <TouchableOpacity
+                        style={[styles.modernPickerButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                        onPress={() => setShowVenuePicker(true)}
+                    >
+                        <View style={styles.pickerContent}>
+                            <View style={[styles.pickerIconContainer, { backgroundColor: 'rgba(0, 122, 255, 0.1)' }]}>
+                                <Ionicons name="location" size={20} color="#007AFF" />
+                            </View>
+                            <View style={styles.pickerTextContainer}>
+                                <Text style={[styles.pickerMainText, { color: theme.text }]}>
+                                    {formData.venueLocation || 'Merkaba Venue'}
+                                </Text>
+                                <Text style={[styles.pickerSubText, { color: theme.subtext }]}>
+                                    Tap to change venue location
+                                </Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
+                        </View>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Venue Picker Modal */}
+                <Modal
+                    visible={showVenuePicker}
+                    transparent={true}
+                    animationType="slide"
+                    onRequestClose={() => setShowVenuePicker(false)}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={[styles.modernPickerModal, { backgroundColor: theme.cardBackground }]}>
+                            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+                                <Text style={[styles.modalTitle, { color: theme.text }]}>Select Venue</Text>
+                                <TouchableOpacity onPress={() => setShowVenuePicker(false)}>
+                                    <Ionicons name="close" size={24} color={theme.text} />
+                                </TouchableOpacity>
+                            </View>
+                            <ScrollView style={styles.pickerWrapper}>
+                                <TouchableOpacity
+                                    style={[styles.modernPickerButton, { backgroundColor: theme.background, borderColor: theme.border }]}
+                                    onPress={() => {
+                                        updateFormData('venueLocation', 'Merkaba Venue');
+                                        setShowVenuePicker(false);
+                                    }}
+                                >
+                                    <View style={styles.pickerContent}>
+                                        <View style={[styles.pickerIconContainer, { backgroundColor: 'rgba(0, 122, 255, 0.1)' }]}>
+                                            <Ionicons name="location" size={20} color="#007AFF" />
+                                        </View>
+                                        <View style={styles.pickerTextContainer}>
+                                            <Text style={[styles.pickerMainText, { color: theme.text }]}>Merkaba Venue</Text>
+                                            <Text style={[styles.pickerSubText, { color: theme.subtext }]}>Primary venue location</Text>
+                                        </View>
+                                        {formData.venueLocation === 'Merkaba Venue' && (
+                                            <Ionicons name="checkmark" size={20} color={theme.primary} />
+                                        )}
+                                    </View>
+                                </TouchableOpacity>
+                                
+                                <View style={[styles.inputGroup, { marginTop: 16 }]}>
+                                    <Text style={[styles.label, { color: theme.text }]}>Or Enter Custom Venue</Text>
+                                    <TextInput
+                                        style={[styles.textInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
+                                        value={customVenueInput}
+                                        onChangeText={setCustomVenueInput}
+                                        placeholder="Enter venue name or address"
+                                        placeholderTextColor={theme.subtext}
+                                    />
+                                    <TouchableOpacity
+                                        style={[styles.pickerConfirmButton, { backgroundColor: theme.primary, marginTop: 12 }]}
+                                        onPress={() => {
+                                            if (customVenueInput.trim()) {
+                                                updateFormData('venueLocation', customVenueInput.trim());
+                                                setCustomVenueInput('');
+                                                setShowVenuePicker(false);
+                                            }
+                                        }}
+                                    >
+                                        <Text style={styles.pickerConfirmText}>Use Custom Venue</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        </View>
+                    </View>
+                </Modal>
 
                 <View style={styles.inputGroup}>
                     <Text style={[styles.label, { color: theme.text }]}>Special Requirements</Text>
@@ -1729,14 +1877,19 @@ export default function EventBookingScreen({ navigation }) {
                             </>
                         ) : (
                             <>
-                                <Text style={[styles.navButtonText, { color: '#fff' }]}>
+                                <Text 
+                                    style={[styles.navButtonText, { color: '#fff' }]}
+                                    numberOfLines={2}
+                                    adjustsFontSizeToFit={true}
+                                    minimumFontScale={0.75}
+                                >
                                     {currentStep === totalSteps 
                                         ? (requiresDeposit && depositAmount > 0 
-                                            ? `Pay Deposit $${depositAmount.toFixed(2)} & Submit` 
+                                            ? `Pay $${depositAmount.toFixed(2)} Deposit & Submit` 
                                             : 'Submit Booking')
                                         : 'Next'}
-            </Text>
-                                <Ionicons name="arrow-forward" size={20} color="#fff" />
+                                </Text>
+                                <Ionicons name="arrow-forward" size={20} color="#fff" style={{ marginLeft: 4 }} />
                             </>
                         )}
           </TouchableOpacity>
@@ -2131,15 +2284,20 @@ const styles = StyleSheet.create({
     eventDetailsForm: {
         marginBottom: 30,
     },
+    durationScrollView: {
+        marginHorizontal: -4, // Allow horizontal scroll to edge
+    },
     durationSelector: {
         flexDirection: 'row',
         gap: 8,
+        paddingHorizontal: 4,
     },
     durationButton: {
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
         borderWidth: 1,
+        minWidth: 60, // Ensure buttons are wide enough
     },
     durationButtonText: {
         fontSize: 14,
@@ -2353,8 +2511,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: 16,
-    borderRadius: 8,
-        gap: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        gap: 4,
+        minHeight: 52,
     },
     backButton: {
         borderWidth: 1,
@@ -2365,6 +2525,8 @@ const styles = StyleSheet.create({
     navButtonText: {
         fontSize: 16,
         fontWeight: '600',
+        textAlign: 'center',
+        flexShrink: 1,
     },
     pickerContainer: {
         position: 'absolute',

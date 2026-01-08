@@ -598,27 +598,91 @@ async def get_dashboard_stats(userId: Optional[str] = None, persona: Optional[st
                 "success": False,
                 "error": "userId is required"
             }
-        
-        # In production, query from database
-        # For now, return zero stats (real data will come from Firestore on frontend)
-        stats = {
-            "totalEvents": 0,
-            "upcomingEvents": 0,
-            "completedTasks": 0,
-            "revenue": 0,
-        }
-        
-        # TODO: Query real data from database/Firestore
-        # - Count event bookings for userId
-        # - Count upcoming events (eventDate >= today)
-        # - Count completed tasks
-        # - Sum revenue from completed bookings
-        
-        return {
-            "success": True,
-            "stats": stats,
-            "persona": persona or "promoter"
-        }
+        # Prefer computing stats from in-memory bookings (development)
+        try:
+            now = datetime.now()
+            # Filter bookings for user
+            user_bookings = [b for b in event_bookings if b.get("userId") == userId]
+
+            # If there are no bookings for this user in the backend store, mark as placeholder
+            if len(user_bookings) == 0:
+                stats = {
+                    "totalEvents": 0,
+                    "upcomingEvents": 0,
+                    "completedTasks": 0,
+                    "revenue": 0,
+                }
+                return {
+                    "success": True,
+                    "stats": stats,
+                    "persona": persona or "promoter",
+                    "placeholder": True,
+                    "source": "backend"
+                }
+
+            total_events = len(user_bookings)
+
+            # Count upcoming events (eventDate in ISO or YYYY-MM-DD format)
+            upcoming = 0
+            completed_tasks = 0
+            revenue = 0.0
+
+            for b in user_bookings:
+                # Parse eventDate if possible
+                event_date_str = b.get("eventDate") or b.get("createdAt")
+                try:
+                    # Try ISO parse
+                    event_dt = datetime.fromisoformat(event_date_str)
+                except Exception:
+                    try:
+                        event_dt = datetime.strptime(event_date_str, "%Y-%m-%d")
+                    except Exception:
+                        event_dt = None
+
+                if event_dt and event_dt >= now:
+                    upcoming += 1
+
+                status = b.get("status")
+                if status and status.lower() == "completed":
+                    completed_tasks += 1
+
+                # Sum revenue from totalCost/total/subtotal fields if present
+                total_cost = b.get("totalCost") or b.get("total") or b.get("subtotal") or 0
+                try:
+                    revenue += float(total_cost)
+                except Exception:
+                    pass
+
+            stats = {
+                "totalEvents": total_events,
+                "upcomingEvents": upcoming,
+                "completedTasks": completed_tasks,
+                "revenue": round(revenue, 2),
+            }
+
+            return {
+                "success": True,
+                "stats": stats,
+                "persona": persona or "promoter",
+                "placeholder": False,
+                "source": "backend"
+            }
+        except Exception as e:
+            # If any error computing backend stats, return placeholder so frontend can fallback
+            stats = {
+                "totalEvents": 0,
+                "upcomingEvents": 0,
+                "completedTasks": 0,
+                "revenue": 0,
+            }
+            return {
+                "success": True,
+                "stats": stats,
+                "persona": persona or "promoter",
+                "placeholder": True,
+                "source": "backend",
+                "error": f"Error computing backend stats: {str(e)}"
+            }
     except Exception as e:
         return {
             "success": False,

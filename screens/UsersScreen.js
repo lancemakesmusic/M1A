@@ -25,7 +25,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackFeatureUsage, trackSearch } from '../services/AnalyticsService';
-import { getAvatarUrl } from '../utils/photoUtils';
+import { getAvatarUrl, hasAvatar, getAvatarSource } from '../utils/photoUtils';
+import M1ALogo from '../components/M1ALogo';
 
 const { width } = Dimensions.get('window');
 
@@ -233,18 +234,52 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
       const params = {
         conversationId,
         userId: user.id,
-        userName: user.displayName || user.name || 'User',
-        avatar: getAvatarUrl(user),
+        userName: user.displayName || user.name || user.username || 'User',
+        avatar: getAvatarUrl(user) || null,
         isOnline: user.isOnline || false,
       };
 
-      const navigated =
-        tryNavigate('Messages', params) ||
-        tryNavigate('MainApp', { screen: 'Messages', params }) ||
-        tryNavigate('MessagesDrawer', params);
+      // Try multiple navigation paths to ensure we reach Messages screen
+      let navigated = false;
+      
+      // Try direct navigation first
+      try {
+        navigation.navigate('Messages', params);
+        navigated = true;
+      } catch (e) {
+        // Try nested navigation
+        try {
+          navigation.navigate('MainApp', {
+            screen: 'Messages',
+            params: params
+          });
+          navigated = true;
+        } catch (e2) {
+          // Try drawer navigation
+          try {
+            navigation.navigate('MessagesDrawer', params);
+            navigated = true;
+          } catch (e3) {
+            // Last resort: try common navigation patterns
+            const navChain = getNavigatorChain();
+            for (const navInstance of navChain) {
+              try {
+                if (canNavigate(navInstance, 'Messages')) {
+                  navInstance.navigate('Messages', params);
+                  navigated = true;
+                  break;
+                }
+              } catch (err) {
+                // Continue trying
+              }
+            }
+          }
+        }
+      }
 
       if (!navigated) {
         console.warn('Unable to navigate to Messages screen');
+        Alert.alert('Navigation Error', 'Unable to open messages. Please try navigating to Messages manually.');
       }
     } catch (error) {
       console.error('handleMessagePress error:', error);
@@ -288,10 +323,16 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
           onPress={() => handleUserPress(item)}
           activeOpacity={0.8}
         >
-          <Image
-            source={{ uri: getAvatarUrl(item) || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=400&fit=crop&crop=face' }}
-            style={styles.avatar}
-          />
+          {hasAvatar(item) ? (
+            <Image
+              source={getAvatarSource(item)}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: theme.cardBackground, justifyContent: 'center', alignItems: 'center' }]}>
+              <M1ALogo size={styles.avatar.width || 50} variant="icon" color={theme.primary} />
+            </View>
+          )}
           {item.isOnline && (
             <View style={[styles.onlineIndicator, { backgroundColor: '#34C759' }]} />
           )}

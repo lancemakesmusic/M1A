@@ -6,15 +6,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
+import { addDoc, collection, doc, serverTimestamp, Timestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -22,7 +21,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
@@ -140,44 +139,111 @@ export default function AdminEventCreationScreen({ navigation, route }) {
       setLoading(true);
       let photoUrl = formData.photoUrl;
 
-      // Upload new photo if selected
+      // Upload new photo if selected (make it optional - don't fail if upload fails)
       if (formData.photo && !formData.photoUrl) {
-        photoUrl = await uploadImage(formData.photo.uri);
+        try {
+          photoUrl = await uploadImage(formData.photo.uri);
+          console.log('✅ Image uploaded successfully:', photoUrl);
+        } catch (imageError) {
+          console.warn('⚠️ Image upload failed, continuing without image:', imageError);
+          // Continue without image - photoUrl will remain null
+          Alert.alert(
+            'Image Upload Failed',
+            'The event will be created without an image. You can add one later.',
+            [{ text: 'Continue', style: 'default' }]
+          );
+        }
       }
 
+      // Convert dates to Firestore Timestamps
+      const startDateTimestamp = formData.startDate instanceof Date 
+        ? Timestamp.fromDate(formData.startDate) 
+        : formData.startDate;
+      const endDateTimestamp = formData.endDate instanceof Date 
+        ? Timestamp.fromDate(formData.endDate) 
+        : formData.endDate;
+      const startTimeTimestamp = formData.startTime instanceof Date 
+        ? Timestamp.fromDate(formData.startTime) 
+        : formData.startTime;
+      const endTimeTimestamp = formData.endTime instanceof Date 
+        ? Timestamp.fromDate(formData.endTime) 
+        : formData.endTime;
+      const earlyBirdEndDateTimestamp = formData.earlyBirdEndDate instanceof Date 
+        ? Timestamp.fromDate(formData.earlyBirdEndDate) 
+        : formData.earlyBirdEndDate;
+
+      // Base event data
       const eventData = {
         title: formData.title.trim(),
-        description: formData.description.trim(),
-        photoUrl,
-        startDate: formData.startDate,
-        endDate: formData.endDate,
-        startTime: formData.startTime,
-        endTime: formData.endTime,
-        location: formData.location.trim(),
+        description: formData.description.trim() || '',
+        photoUrl: photoUrl || null,
+        startDate: startDateTimestamp,
+        endDate: endDateTimestamp,
+        startTime: startTimeTimestamp,
+        endTime: endTimeTimestamp,
+        location: formData.location.trim() || '',
         ticketPrice: formData.ticketPrice ? parseFloat(formData.ticketPrice) : 0,
         earlyBirdPrice: formData.earlyBirdPrice ? parseFloat(formData.earlyBirdPrice) : null,
-        earlyBirdEndDate: formData.earlyBirdPrice ? formData.earlyBirdEndDate : null,
+        earlyBirdEndDate: formData.earlyBirdPrice ? earlyBirdEndDateTimestamp : null,
         vipPrice: formData.vipPrice ? parseFloat(formData.vipPrice) : null,
-        capacity: formData.capacity ? parseInt(formData.capacity) : null,
-        isPublic: formData.isPublic,
-        ticketsEnabled: formData.ticketsEnabled,
-        discountEnabled: formData.discountEnabled,
+        capacity: formData.capacity ? parseInt(formData.capacity, 10) : null,
+        isPublic: formData.isPublic !== false, // Default to true
+        ticketsEnabled: formData.ticketsEnabled !== false, // Default to true
+        discountEnabled: formData.discountEnabled || false,
         discountPercent: formData.discountEnabled && formData.discountPercent ? parseFloat(formData.discountPercent) : null,
         discountCode: formData.discountEnabled ? formData.discountCode.trim().toUpperCase() : null,
-        category: formData.category,
-        createdBy: user.uid,
-        createdAt: serverTimestamp(),
+        category: formData.category || 'performance',
         updatedAt: serverTimestamp(),
-        isAdminCreated: true,
       };
 
-      await addDoc(collection(db, 'publicEvents'), eventData);
-      Alert.alert('Success', 'Event created successfully!', [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+      // Only add creation fields if creating new event
+      if (!editingEvent) {
+        eventData.createdBy = user.uid;
+        eventData.createdAt = serverTimestamp();
+        eventData.isAdminCreated = true;
+      }
+
+      console.log('📝 Saving event with data:', {
+        ...eventData,
+        startDate: startDateTimestamp,
+        endDate: endDateTimestamp,
+        isEditing: !!editingEvent,
+      });
+
+      // Determine collection name (use same collection as original event if editing)
+      const collectionName = editingEvent?.collection || 'publicEvents';
+      const eventId = editingEvent?.id;
+
+      if (editingEvent && eventId) {
+        // Update existing event
+        await updateDoc(doc(db, collectionName, eventId), {
+          ...eventData,
+          updatedAt: serverTimestamp(),
+        });
+        console.log('✅ Event updated successfully');
+        Alert.alert('Success', 'Event updated successfully!', [
+          { text: 'OK', onPress: () => navigation.goBack() },
+        ]);
+      } else {
+        // Create new event
+        await addDoc(collection(db, collectionName), eventData);
+        console.log('✅ Event created successfully');
+        Alert.alert('Success', 'Event created successfully!', [
+          { text: 'OK', onPress: () => navigation.goBack() },
+        ]);
+      }
     } catch (error) {
-      console.error('Error creating event:', error);
-      Alert.alert('Error', 'Failed to create event');
+      console.error('❌ Error creating event:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack,
+      });
+      Alert.alert(
+        'Error', 
+        `Failed to create event: ${error.message || 'Unknown error'}\n\nCheck console for details.`,
+        [{ text: 'OK' }]
+      );
     } finally {
       setLoading(false);
     }
@@ -201,7 +267,9 @@ export default function AdminEventCreationScreen({ navigation, route }) {
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={theme.text} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Create Public Event</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            {editingEvent ? 'Edit Event' : 'Create Public Event'}
+          </Text>
           <TouchableOpacity onPress={handleSave} style={styles.saveButton} disabled={loading}>
             {loading ? (
               <ActivityIndicator size="small" color={theme.primary} />
@@ -665,6 +733,15 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 });
+
+
+
+
+
+
+
+
+
 
 
 

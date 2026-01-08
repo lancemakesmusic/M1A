@@ -37,6 +37,7 @@ export default function ProfileEditScreen({ navigation }) {
   // Track if we just uploaded a photo to force navigation refresh
   const [justUploadedPhoto, setJustUploadedPhoto] = useState(false);
 
+  const [firstName, setFirstName] = useState(user?.firstName ?? user?.displayName?.split(' ')[0] ?? '');
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [username, setUsername] = useState(user?.username ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
@@ -361,17 +362,29 @@ export default function ProfileEditScreen({ navigation }) {
       }
     } catch (error) {
       console.error('Error checking username:', error);
-      setUsernameError('Unable to verify username availability');
+      // Provide more helpful error message based on error type
+      if (error.message?.includes('permission') || error.message?.includes('PERMISSION')) {
+        setUsernameError('Permission denied. Please check your connection and try again.');
+      } else if (error.message?.includes('network') || error.message?.includes('fetch') || error.message?.includes('Failed to fetch')) {
+        setUsernameError('Network error. Please check your connection and try again.');
+      } else {
+        setUsernameError('Unable to verify username availability. Please try again.');
+      }
     } finally {
       setCheckingUsername(false);
     }
   };
 
   const onSave = async () => {
+    const fname = firstName.trim();
     const name = displayName.trim();
     const uname = username.trim().toLowerCase();
     
     // Validation
+    if (!fname) {
+      Alert.alert('Missing info', 'First name is required.');
+      return;
+    }
     if (!name || !uname) {
       Alert.alert('Missing info', 'Display name and username are required.');
       return;
@@ -388,13 +401,28 @@ export default function ProfileEditScreen({ navigation }) {
     setCheckingUsername(true);
     
     try {
-      // Check username availability
-      const isAvailable = await checkUsernameAvailability(uname, user?.id);
-      if (!isAvailable) {
-        Alert.alert('Username Taken', 'This username is already taken. Please choose another.');
-        setSaving(false);
-        setCheckingUsername(false);
-        return;
+      // Check username availability (only if username changed)
+      if (uname !== (user?.username || '').toLowerCase()) {
+        try {
+          const isAvailable = await checkUsernameAvailability(uname, user?.id);
+          if (!isAvailable) {
+            Alert.alert('Username Taken', 'This username is already taken. Please choose another.');
+            setSaving(false);
+            setCheckingUsername(false);
+            return;
+          }
+        } catch (availabilityError) {
+          console.error('Username availability check error:', availabilityError);
+          // If it's a network/permission error, show helpful message
+          if (availabilityError.message?.includes('Permission') || availabilityError.message?.includes('Network')) {
+            Alert.alert('Unable to Verify Username', availabilityError.message || 'Please check your connection and try again.');
+            setSaving(false);
+            setCheckingUsername(false);
+            return;
+          }
+          // For other errors, still try to save (might be a false positive)
+          console.warn('Username check failed, but continuing with save:', availabilityError);
+        }
       }
       // Sanitize inputs
       const sanitizedBio = sanitizeText(bio);
@@ -412,6 +440,7 @@ export default function ProfileEditScreen({ navigation }) {
       };
       
       await updateUserProfile({
+        firstName: fname,
         displayName: name,
         username: uname,
         bio: sanitizedBio,
@@ -424,6 +453,18 @@ export default function ProfileEditScreen({ navigation }) {
         showOnlineStatus: !!showOnlineStatus,
         allowMessages: !!allowMessages,
       });
+      
+      // Update Firebase Auth displayName to firstName
+      try {
+        const { updateProfile: updateAuthProfile } = await import('firebase/auth');
+        await updateAuthProfile(auth.currentUser, {
+          displayName: fname,
+        });
+      } catch (authError) {
+        console.warn('Failed to update auth displayName:', authError);
+        // Don't fail profile save if this fails
+      }
+      
       navigation.goBack();
     } catch (e) {
       console.error('[Profile Save Error]', e);
@@ -538,6 +579,21 @@ export default function ProfileEditScreen({ navigation }) {
       </View>
 
       {/* Basic Fields */}
+      <View style={styles.inputGroup}>
+        <Text style={[styles.fieldLabel, { color: theme.text }]}>First Name *</Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border }]}
+          placeholder="Your first name"
+          placeholderTextColor={theme.subtext}
+          autoCapitalize="words"
+          value={firstName}
+          onChangeText={setFirstName}
+        />
+        <Text style={[styles.helperText, { color: theme.subtext }]}>
+          This will be used in greetings (e.g., "Hello, John")
+        </Text>
+      </View>
+
       <View style={styles.inputGroup}>
         <Text style={[styles.fieldLabel, { color: theme.text }]}>Display Name *</Text>
         <TextInput

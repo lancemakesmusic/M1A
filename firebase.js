@@ -244,6 +244,7 @@ export const createUserProfileIfMissing = async (uid, seed = {}) => {
 
   if (!snap.exists()) {
     const defaults = {
+      firstName: '',
       displayName: '',
       username: '',
       bio: '',
@@ -271,24 +272,48 @@ export const createUserProfileIfMissing = async (uid, seed = {}) => {
  * @returns {Promise<boolean>} True if username is available
  */
 export const checkUsernameAvailability = async (username, excludeUserId = null) => {
-  if (!username || !username.trim()) return false;
-  
-  const { collection, query, where, getDocs } = await import('firebase/firestore');
-  const normalizedUsername = username.trim().toLowerCase();
-  
-  const q = query(
-    collection(db, 'users'),
-    where('username', '==', normalizedUsername)
-  );
-  
-  const snapshot = await getDocs(q);
-  
-  // If checking for update, exclude current user
-  if (excludeUserId) {
-    return snapshot.empty || snapshot.docs.every(doc => doc.id === excludeUserId);
+  if (!username || !username.trim()) {
+    throw new Error('Username is required');
   }
   
-  return snapshot.empty;
+  try {
+    const { collection, query, where, getDocs } = await import('firebase/firestore');
+    
+    if (!isFirebaseReady() || !db) {
+      throw new Error('Firestore is not ready');
+    }
+    
+    const normalizedUsername = username.trim().toLowerCase();
+    
+    // Validate username format first
+    const validation = validateUsername(normalizedUsername);
+    if (!validation.valid) {
+      throw new Error(validation.error);
+    }
+    
+    const q = query(
+      collection(db, 'users'),
+      where('username', '==', normalizedUsername)
+    );
+    
+    const snapshot = await getDocs(q);
+    
+    // If checking for update, exclude current user
+    if (excludeUserId) {
+      return snapshot.empty || snapshot.docs.every(doc => doc.id === excludeUserId);
+    }
+    
+    return snapshot.empty;
+  } catch (error) {
+    console.error('checkUsernameAvailability error:', error);
+    // Re-throw with more context
+    if (error.message?.includes('permission') || error.message?.includes('PERMISSION')) {
+      throw new Error('Permission denied. Please check your connection and try again.');
+    } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+    throw error;
+  }
 };
 
 /* ------------------------------------------------------------------ */

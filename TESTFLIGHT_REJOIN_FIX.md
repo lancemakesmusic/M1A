@@ -139,3 +139,14 @@ After adding yourself as internal tester:
 - **TestFlight App**: Download from App Store if needed
 
 
+
+
+
+
+
+
+
+
+
+
+

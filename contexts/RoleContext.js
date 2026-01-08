@@ -288,6 +288,7 @@ export function RoleProvider({ children }) {
     isAdmin,
     isEmployee,
     isClient,
+    isAdminEmail, // Export isAdminEmail so components can check admin email
     refreshRole: loadUserRole,
   };
 

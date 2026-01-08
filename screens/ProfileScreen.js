@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { collection, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where } from 'firebase/firestore';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,25 +11,45 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import M1ALogo from '../components/M1ALogo';
 import ScrollIndicator from '../components/ScrollIndicator';
+import { useAuth } from '../contexts/AuthContext';
+import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
-import { Switch } from 'react-native';
 import { db, getPinnedPosts, isFirebaseReady, unpinPost, validateAndSanitizeUrl } from '../firebase';
 import { logError } from '../utils/logger';
 import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
 import { statsCache } from '../utils/statsCache';
-import M1ALogo from '../components/M1ALogo';
 
 export default function ProfileScreen() {
   const { user, loading, refreshUserProfile } = useContext(UserContext);
   const { theme, toggleTheme } = useTheme();
   const navigation = useNavigation();
+  const { isAdminEmail } = useRole();
+  const { user: authUser } = useAuth();
+  
+  // Check if current user is admin
+  // isAdminEmail is already checked in RoleContext, but we also verify email here for extra security
+  const isAdmin = isAdminEmail && authUser?.email === 'admin@merkabaent.com';
+  
+  // Debug logging
+  useEffect(() => {
+    if (authUser) {
+      console.log('🔍 ProfileScreen Admin Check:', {
+        email: authUser.email,
+        isAdminEmail,
+        isAdmin,
+        userRole: user?.role,
+      });
+    }
+  }, [authUser, isAdminEmail, isAdmin, user?.role]);
   
   // Check if we can go back (i.e., accessed from drawer)
   const canGoBack = navigation.canGoBack();
@@ -320,24 +340,103 @@ export default function ProfileScreen() {
     return num.toString();
   };
 
+  const showPostOptions = useCallback((post) => {
+    if (!post || !post.id) return;
+    
+    const isOwnPost = post.userId === user?.id;
+    
+    Alert.alert(
+      'Post Options',
+      'Choose an action',
+      [
+        ...(isOwnPost ? [
+          {
+            text: 'Delete Post',
+            style: 'destructive',
+            onPress: async () => {
+              Alert.alert(
+                'Delete Post',
+                'Are you sure you want to delete this post? This action cannot be undone.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+                          const postRef = doc(db, 'posts', post.id);
+                          await deleteDoc(postRef);
+                          // Remove from local state
+                          setPosts(prev => prev.filter(p => p.id !== post.id));
+                          // Reload stats
+                          await loadStats(true);
+                        }
+                      } catch (error) {
+                        console.error('Error deleting post:', error);
+                        Alert.alert('Error', 'Failed to delete post. Please try again.');
+                      }
+                    },
+                  },
+                ]
+              );
+            },
+          },
+          {
+            text: 'Edit Post',
+            onPress: () => {
+              // Navigate to edit post screen (if exists) or show alert
+              Alert.alert('Edit Post', 'Post editing feature coming soon.');
+            },
+          },
+        ] : []),
+        {
+          text: 'Share Post',
+          onPress: () => {
+            // Share functionality
+            Alert.alert('Share Post', 'Share feature coming soon.');
+          },
+        },
+        {
+          text: 'Report Post',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert('Report Post', 'Report feature coming soon.');
+          },
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [user?.id, loadStats]);
+
   const renderPost = ({ item }) => (
     <View style={[styles.postCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
       <View style={styles.postHeader}>
         <View style={styles.postUserInfo}>
-          <Image 
-            source={getAvatarSource(user) || { uri: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100' }}
-            style={styles.postAvatar}
-            key={getImageKey(user, 'post-avatar')}
-            onError={(error) => {
-              console.warn('Post avatar failed to load:', error.nativeEvent.error);
-            }}
-          />
+          {hasAvatar(user) ? (
+            <Image 
+              source={getAvatarSource(user)}
+              style={styles.postAvatar}
+              key={getImageKey(user, 'post-avatar')}
+              onError={(error) => {
+                console.warn('Post avatar failed to load:', error.nativeEvent.error);
+              }}
+            />
+          ) : (
+            <View style={[styles.postAvatar, { backgroundColor: theme.cardBackground, justifyContent: 'center', alignItems: 'center' }]}>
+              <M1ALogo size={styles.postAvatar.width || 40} variant="icon" color={theme.primary} />
+            </View>
+          )}
           <View>
             <Text style={[styles.postUserName, { color: theme.text }]}>{user?.displayName || 'User'}</Text>
             <Text style={[styles.postTime, { color: theme.subtext }]}>{item.timestamp}</Text>
           </View>
         </View>
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => showPostOptions(item)}>
           <Ionicons name="ellipsis-horizontal" size={20} color={theme.subtext} />
         </TouchableOpacity>
       </View>
@@ -484,8 +583,8 @@ export default function ProfileScreen() {
                   }}
                 />
               ) : (
-                <View style={[styles.placeholderAvatar, { backgroundColor: theme.primary }]}>
-                  <Text style={styles.avatarText}>👤</Text>
+                <View style={[styles.placeholderAvatar, { backgroundColor: theme.cardBackground }]}>
+                  <M1ALogo size={styles.avatar.width || 80} variant="icon" color={theme.primary} />
                 </View>
               )}
               <TouchableOpacity 
@@ -631,6 +730,21 @@ export default function ProfileScreen() {
               <Ionicons name="notifications-outline" size={20} color={theme.text} />
             </TouchableOpacity>
           </View>
+
+          {/* Admin Control Center Button (Admin Only) */}
+          {isAdmin && (
+            <TouchableOpacity 
+              style={[styles.adminButton, { backgroundColor: theme.primary + '20', borderColor: theme.primary }]}
+              onPress={() => navigation.navigate('AdminControlCenter')}
+            >
+              <Ionicons name="shield-checkmark" size={24} color={theme.primary} />
+              <View style={styles.adminButtonText}>
+                <Text style={[styles.adminButtonTitle, { color: theme.text }]}>Admin Control Center</Text>
+                <Text style={[styles.adminButtonSubtitle, { color: theme.subtext }]}>Manage users, events, and settings</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={theme.primary} />
+            </TouchableOpacity>
+          )}
 
           {/* Dark Mode Toggle */}
           <View style={[styles.darkModeSection, { borderTopColor: theme.border }]}>
@@ -1204,6 +1318,27 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  adminButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    gap: 12,
+  },
+  adminButtonText: {
+    flex: 1,
+  },
+  adminButtonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  adminButtonSubtitle: {
+    fontSize: 12,
   },
   darkModeSection: {
     padding: 20,

@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { collection, getDocs, orderBy, query, addDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
@@ -460,103 +462,114 @@ export default function BarMenuScreen({ navigation, route }) {
 
       // Check if Stripe is configured
       if (!StripeService.isConfigured()) {
-        // Fallback to mock payment for demo
-        console.log('Stripe not configured, using mock payment');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // Save order to Firestore
-        const orderId = await saveOrderToFirestore({
-          ...orderData,
-          paymentStatus: 'completed',
-          paymentMethod: 'mock',
-        });
-        
-        // Track analytics
-        await trackBarOrder({
-          id: orderId,
-          total: cartTotal,
-          items: cart,
-        });
-        
-        // Send notifications
-        await sendPaymentConfirmation({
-          id: orderId,
-          amount: cartTotal,
-        });
-        await sendOrderStatusUpdate({
-          id: orderId,
-          status: 'confirmed',
-        });
-        
-        setOrderNumber(orderId);
-        setCheckoutStep('confirmation');
-        
-        setTimeout(() => {
-          setCart([]);
-          setSpecialInstructions('');
-          setShowCheckout(false);
-          setCheckoutStep('cart');
-          setOrderNumber(null);
-        }, 5000);
+        throw new Error(
+          'Payment processing is not configured. Please contact support or configure Stripe keys. ' +
+          'Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY in your environment variables.'
+        );
+      }
+
+      // Save order to Firestore with PENDING status first
+      // This ensures we have an order ID before redirecting to Stripe
+      const orderId = await saveOrderToFirestore({
+        ...orderData,
+        paymentStatus: 'pending', // Will be updated to 'completed' via webhook
+        paymentMethod: 'stripe',
+      });
+
+      // Prepare order items for Stripe Checkout
+      const orderItems = cart.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+      }));
+
+      // Create success and cancel URLs for Stripe Checkout redirect
+      const baseUrl = Linking.createURL('/');
+      const successUrl = `${baseUrl}payment-success?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl}payment-cancel?orderId=${orderId}`;
+
+      // Create Stripe Checkout Session
+      const checkoutResult = await StripeService.createCheckoutSession(
+        cartTotal,
+        'usd',
+        {
+          type: 'bar',
+          orderType: 'bar',
+          userId: user.uid,
+          orderId: orderId,
+        },
+        orderItems,
+        successUrl,
+        cancelUrl
+      );
+
+      if (!checkoutResult.success || !checkoutResult.url) {
+        throw new Error(checkoutResult.error || 'Failed to create checkout session. Please try again.');
+      }
+
+      // Update order with checkout session ID
+      try {
+        if (isFirebaseReady() && db) {
+          const { doc, updateDoc } = await import('firebase/firestore');
+          const orderRef = doc(db, 'barOrders', orderId);
+          await updateDoc(orderRef, {
+            checkoutSessionId: checkoutResult.sessionId,
+            updatedAt: serverTimestamp(),
+          });
+          console.log('✅ Updated order with checkout session ID');
+        }
+      } catch (updateError) {
+        console.warn('Failed to update order with checkout session ID:', updateError);
+        // Continue anyway - order will still be processed via webhook
+      }
+
+      // Open Stripe Checkout in browser
+      console.log('Opening Stripe Checkout:', checkoutResult.url);
+      
+      // Use WebBrowser for better UX - opens in-app browser
+      const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
+        showTitle: true,
+        toolbarColor: theme.primary,
+        enableBarCollapsing: false,
+      });
+
+      // Note: After payment succeeds, Stripe will redirect to successUrl
+      // The webhook will handle:
+      // 1. Updating order status to 'completed'
+      // 2. Updating wallet balance
+      // 3. Sending confirmation notifications
+      
+      // If user closes browser without completing payment, they'll be redirected to cancelUrl
+      if (result.type === 'cancel') {
+        // User canceled - keep order as pending
+        setCheckoutStep('payment');
+        Alert.alert('Payment Canceled', 'Payment was canceled. You can try again.');
+        setProcessingPayment(false);
         return;
       }
 
-      // Process payment with Stripe
-      const result = await StripeService.processBarOrder(
-        cart,
-        cartTotal,
-        {
-          userId: user.uid,
-          email: user.email,
-        }
-      );
-
-      if (result.success) {
-        // Save order to Firestore
-        const orderId = await saveOrderToFirestore({
-          ...orderData,
-          paymentStatus: 'completed',
-          paymentMethod: 'stripe',
-          paymentIntentId: result.paymentIntentId,
-        });
-        
-        // Track analytics
-        await trackBarOrder({
-          id: orderId,
-          total: cartTotal,
-          items: cart,
-        });
-        
-        // Record positive action for rating prompt
-        await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.ORDER_COMPLETED, {
-          orderId,
-          total: cartTotal,
-          itemCount: cart.length,
-        });
-        
-        // Send notifications
-        await sendPaymentConfirmation({
-          id: orderId,
-          amount: cartTotal,
-        });
-        await sendOrderStatusUpdate({
-          id: orderId,
-          status: 'confirmed',
-        });
-        
-        setOrderNumber(orderId);
-        setCheckoutStep('confirmation');
-        
-        setTimeout(() => {
-          setCart([]);
-          setSpecialInstructions('');
-          setShowCheckout(false);
-          setCheckoutStep('cart');
-          setOrderNumber(null);
-        }, 5000);
-      } else {
-        throw new Error(result.error || 'Payment processing failed');
-      }
+      // Payment completed - webhook will handle the rest
+      // Show success message
+      setOrderNumber(orderId);
+      setCheckoutStep('confirmation');
+      
+      // Track analytics
+      await trackBarOrder({
+        id: orderId,
+        total: cartTotal,
+        items: cart,
+        status: 'pending', // Will be updated by webhook
+      });
+      
+      // Clear cart after successful checkout
+      setTimeout(() => {
+        setCart([]);
+        setSpecialInstructions('');
+        setShowCheckout(false);
+        setCheckoutStep('cart');
+        setOrderNumber(null);
+      }, 5000);
     } catch (error) {
       console.error('Payment error:', error);
       Alert.alert('Payment Failed', error.message || 'Please try again.');

@@ -1,31 +1,32 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ErrorRecovery from '../components/ErrorRecovery';
+import M1ALogo from '../components/M1ALogo';
 import ScrollIndicator from '../components/ScrollIndicator';
 import ServiceCardWithAnimation from '../components/ServiceCardWithAnimation';
 import TutorialOverlay from '../components/TutorialOverlay';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
+import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
-import M1ALogo from '../components/M1ALogo';
 
 export default function HomeScreen({ navigation }) {
   const { user: authUser, loading: authLoading } = useAuth();
   const { user: userProfile } = useContext(UserContext);
   const { theme } = useTheme();
+  const { isAdminEmail } = useRole();
   const { 
     userPersona, 
     getPersonaColor, 
@@ -34,6 +35,24 @@ export default function HomeScreen({ navigation }) {
     markTutorialComplete,
     getTutorialSteps
   } = useM1APersonalization();
+  
+  // Check if current user is admin
+  // isAdminEmail already checks if email is in admin list, so we can use it directly
+  // But we'll also verify email matches for extra security
+  const isAdmin = isAdminEmail || (authUser?.email === 'admin@merkabaent.com');
+  
+  // Debug logging for admin check
+  useEffect(() => {
+    if (authUser) {
+      console.log('🏠 HomeScreen Admin Check:', {
+        email: authUser.email,
+        isAdminEmail,
+        isAdmin,
+        checkResult: isAdminEmail || (authUser?.email === 'admin@merkabaent.com'),
+      });
+    }
+  }, [authUser, isAdminEmail, isAdmin]);
+  
   const [refreshing, setRefreshing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [error, setError] = useState(null);
@@ -517,9 +536,35 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.welcomeSection}>
           <Text style={[styles.welcomeText, { color: theme.subtext }]}>Hello,</Text>
           <Text style={[styles.userName, { color: theme.text }]}>
-            {userProfile?.displayName ? userProfile.displayName.split(' ')[0] : (authUser?.email?.split('@')[0] || 'Guest')}
+            {userProfile?.firstName || userProfile?.displayName?.split(' ')[0] || authUser?.displayName?.split(' ')[0] || (authUser?.email?.split('@')[0] || 'Guest')}
           </Text>
         </View>
+
+        {/* Admin Section (Admin Only) */}
+        {isAdmin && (
+          <View style={[styles.adminSection, { backgroundColor: theme.primary + '10', borderColor: theme.primary }]}>
+            <View style={styles.adminSectionHeader}>
+              <Ionicons name="shield-checkmark" size={24} color={theme.primary} />
+              <Text style={[styles.adminSectionTitle, { color: theme.text }]}>Admin Tools</Text>
+            </View>
+            <View style={styles.adminButtonsContainer}>
+              <TouchableOpacity
+                style={[styles.adminQuickButton, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                onPress={() => navigation.navigate('AdminEventCreation')}
+              >
+                <Ionicons name="add-circle" size={24} color="#fff" />
+                <Text style={styles.adminQuickButtonText}>Create Event</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.adminQuickButton, { backgroundColor: theme.cardBackground, borderColor: theme.primary }]}
+                onPress={() => navigation.navigate('AdminControlCenter')}
+              >
+                <Ionicons name="settings" size={24} color={theme.primary} />
+                <Text style={[styles.adminQuickButtonText, { color: theme.primary }]}>Control Center</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Services Section */}
         <View style={styles.servicesSection}>
@@ -821,6 +866,43 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 28,
     fontWeight: 'bold',
+  },
+  adminSection: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  adminSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  adminSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  adminButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  adminQuickButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 2,
+    gap: 8,
+  },
+  adminQuickButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
   servicesSection: {
     paddingHorizontal: 20,

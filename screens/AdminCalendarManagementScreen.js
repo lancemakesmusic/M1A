@@ -58,17 +58,31 @@ export default function AdminCalendarManagementScreen({ navigation }) {
           collection: 'events',
           ...doc.data(),
         })),
-        ...publicEventsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          collection: 'publicEvents',
-          ...doc.data(),
-        })),
+        ...publicEventsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            collection: 'publicEvents',
+            // Ensure title field exists (publicEvents uses 'title', events uses 'name')
+            title: data.title || data.name,
+            name: data.name || data.title,
+            ...data,
+          };
+        }),
       ];
 
       // Sort by date (most recent first)
+      // Handle both eventDate (from events collection) and startDate (from publicEvents)
       eventsData.sort((a, b) => {
-        const dateA = a.eventDate?.toDate ? a.eventDate.toDate() : new Date(a.eventDate || 0);
-        const dateB = b.eventDate?.toDate ? b.eventDate.toDate() : new Date(b.eventDate || 0);
+        const getDate = (item) => {
+          if (item.startDate?.toDate) return item.startDate.toDate();
+          if (item.startDate) return new Date(item.startDate);
+          if (item.eventDate?.toDate) return item.eventDate.toDate();
+          if (item.eventDate) return new Date(item.eventDate);
+          return new Date(0);
+        };
+        const dateA = getDate(a);
+        const dateB = getDate(b);
         return dateB - dateA;
       });
 
@@ -88,7 +102,17 @@ export default function AdminCalendarManagementScreen({ navigation }) {
   }, [loadEvents]);
 
   const handleEditEvent = (event) => {
-    navigation.navigate('EventBooking', { eventId: event.id, isAdminEdit: true });
+    // Navigate to AdminEventCreation with event data for editing
+    navigation.navigate('AdminEventCreation', { 
+      event: {
+        ...event,
+        // Ensure dates are properly formatted
+        startDate: event.startDate,
+        endDate: event.endDate,
+        startTime: event.startTime || event.startDate,
+        endTime: event.endTime || event.endDate,
+      }
+    });
   };
 
   const handleDeleteEvent = (event) => {
@@ -135,8 +159,14 @@ export default function AdminCalendarManagementScreen({ navigation }) {
 
   const formatDate = (date) => {
     if (!date) return 'No date';
-    const d = date.toDate ? date.toDate() : new Date(date);
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    try {
+      const d = date.toDate ? date.toDate() : new Date(date);
+      if (isNaN(d.getTime())) return 'Invalid date';
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (error) {
+      console.warn('Error formatting date:', error);
+      return 'Invalid date';
+    }
   };
 
   const renderEventItem = ({ item }) => (
@@ -156,10 +186,12 @@ export default function AdminCalendarManagementScreen({ navigation }) {
           </Text>
         )}
         <View style={styles.eventMeta}>
-          {item.startDate && (
+          {(item.startDate || item.eventDate) && (
             <View style={styles.metaItem}>
               <Ionicons name="calendar" size={16} color={theme.subtext} />
-              <Text style={[styles.metaText, { color: theme.subtext }]}>{formatDate(item.startDate)}</Text>
+              <Text style={[styles.metaText, { color: theme.subtext }]}>
+                {formatDate(item.startDate || item.eventDate)}
+              </Text>
             </View>
           )}
           {item.userEmail && (

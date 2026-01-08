@@ -46,3 +46,14 @@ npx eas-cli@latest submit --platform ios --profile production --latest
 ```
 
 
+
+
+
+
+
+
+
+
+
+
+

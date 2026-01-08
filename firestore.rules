@@ -1,6 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == 'admin@merkabaent.com';
+    }
+    
     // Users collection
     match /users/{userId} {
       // Allow users to read their own profile
@@ -10,31 +17,41 @@ service cloud.firestore {
       // Allow reading if user is following (for private profiles)
       allow read: if request.auth != null && 
         exists(/databases/$(database)/documents/followers/$(request.auth.uid + '_' + userId));
+      // Admin can read any user profile
+      allow read: if isAdmin();
       // Users can only write their own profile
       allow write: if request.auth != null && request.auth.uid == userId;
+      // Admin can write any user profile
+      allow write: if isAdmin();
     }
     
     // Posts collection
     match /posts/{postId} {
       allow read: if true; // Public read
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
     }
     
     // Wallet transactions
     match /walletTransactions/{transactionId} {
       // Users can only read their own transactions
       allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Admin can read all transactions
+      allow read: if isAdmin();
       
       // Users can create their own transactions
       allow create: if request.auth != null && 
         request.auth.uid == request.resource.data.userId &&
         request.resource.data.timestamp != null &&
         request.resource.data.amount != null;
+      // Admin can create transactions for any user (for store credit adjustments)
+      allow create: if isAdmin() &&
+        request.resource.data.userId != null &&
+        request.resource.data.amount != null;
       
       // Only allow status updates (for webhooks and user actions)
       allow update: if request.auth != null && 
-        request.auth.uid == resource.data.userId &&
+        (request.auth.uid == resource.data.userId || isAdmin()) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'error']);
       
       // Prevent transaction deletion
@@ -44,14 +61,21 @@ service cloud.firestore {
     // Services, events, etc.
     match /services/{serviceId} {
       allow read: if true; // Public read
-      allow create: if request.auth != null; // Authenticated users can create
-      allow update, delete: if request.auth != null; // Authenticated users can update/delete
+      allow create: if request.auth != null || isAdmin(); // Authenticated users or admin can create
+      allow update, delete: if request.auth != null || isAdmin(); // Authenticated users or admin can update/delete
     }
     
     match /events/{eventId} {
       allow read: if true; // Public read
-      allow create: if request.auth != null; // Authenticated users can create
-      allow update, delete: if request.auth != null; // Authenticated users can update/delete
+      allow create: if request.auth != null || isAdmin(); // Authenticated users or admin can create
+      allow update, delete: if request.auth != null || isAdmin(); // Authenticated users or admin can update/delete
+    }
+    
+    // Public events collection
+    match /publicEvents/{eventId} {
+      allow read: if true; // Public read
+      allow create: if request.auth != null || isAdmin(); // Authenticated users or admin can create
+      allow update, delete: if request.auth != null || isAdmin(); // Authenticated users or admin can update/delete
     }
     
     // Conversations
@@ -103,12 +127,30 @@ service cloud.firestore {
     
     // Service orders
     match /serviceOrders/{orderId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Users can read their own orders
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Admin can read all orders
+      allow read: if isAdmin();
+      // Users can create their own orders
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // Users can update their own orders
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Admin can update any order
+      allow update: if isAdmin();
     }
     
     // Bar orders
     match /barOrders/{orderId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Users can read their own orders
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Admin can read all orders
+      allow read: if isAdmin();
+      // Users can create their own orders
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // Users can update their own orders
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Admin can update any order
+      allow update: if isAdmin();
     }
     
     // RSVPs
@@ -125,23 +167,43 @@ service cloud.firestore {
       allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
     }
     
+    // Event orders (for Stripe payments)
+    match /eventOrders/{orderId} {
+      // Users can read their own orders
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Admin can read all orders
+      allow read: if isAdmin();
+      // Users can create their own orders
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // Users can update their own orders
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId;
+      // Admin can update any order
+      allow update: if isAdmin();
+    }
+    
     // Wallets
     match /wallets/{walletId} {
       // Users can only read their own wallet
       allow read: if request.auth != null && request.auth.uid == walletId;
+      // Admin can read all wallets
+      allow read: if isAdmin();
       
       // Users can create their own wallet (only with 0 balance)
       allow create: if request.auth != null && 
         request.auth.uid == walletId &&
         request.resource.data.balance == 0;
+      // Admin can create wallets for any user (for store credit purposes)
+      // Admins can set any balance when creating wallets
+      allow create: if isAdmin() &&
+        request.resource.data.userId == walletId;
       
       // Users can only update their own wallet
       // Balance updates must include transaction ID for audit
       // Only allow updates to balance, updatedAt, and lastTransactionId
       allow update: if request.auth != null && 
-        request.auth.uid == walletId &&
+        (request.auth.uid == walletId || isAdmin()) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTransactionId']) &&
-        request.resource.data.lastTransactionId != null;
+        (request.resource.data.lastTransactionId != null || isAdmin());
       
       // Prevent wallet deletion
       allow delete: if false;
@@ -186,7 +248,7 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow create: if request.auth != null && 
         request.resource.data.reporterId == request.auth.uid;
-      allow read: if false; // Only admins can read (handled server-side)
+      allow read: if isAdmin(); // Only admins can read reports
     }
     
     // Profile views collection
@@ -201,9 +263,10 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       allow read: if request.auth != null && 
         resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null; // System can create notifications
+      allow read: if isAdmin(); // Admin can read all notifications
+      allow create: if request.auth != null || isAdmin(); // System or admin can create notifications
       allow update: if request.auth != null && 
-        resource.data.userId == request.auth.uid;
+        (resource.data.userId == request.auth.uid || isAdmin());
     }
     
     // Allow collection group queries for followers (needed for aggregation)

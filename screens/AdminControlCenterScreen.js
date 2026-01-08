@@ -140,6 +140,14 @@ export default function AdminControlCenterScreen({ navigation }) {
       onPress: () => navigation.navigate('AdminCalendarManagement'),
     },
     {
+      id: 'events',
+      title: 'Create Event',
+      icon: 'add-circle',
+      color: '#FF6B6B',
+      description: 'Create public events with tickets, pricing, and photos',
+      onPress: () => navigation.navigate('AdminEventCreation'),
+    },
+    {
       id: 'messages',
       title: 'User Messaging',
       icon: 'chatbubbles',

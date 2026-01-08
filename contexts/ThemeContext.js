@@ -26,20 +26,20 @@ const lightTheme = {
 const darkTheme = {
   mode: 'dark',
   isDark: true,
-  background: '#000000', // Pure black
-  cardBackground: '#1a1a1a', // Dark charcoal
-  text: '#FFD700', // Gold text
-  subtext: '#C0C0C0', // Silver subtext
-  primary: '#FFD700', // Gold primary
-  secondary: '#C0C0C0', // Silver secondary
-  accent: '#FF6B35', // Orange accent
-  border: '#333333', // Dark border
-  success: '#28a745',
-  warning: '#ffc107',
-  error: '#dc3545',
-  info: '#17a2b8',
-  placeholder: '#888888',
-  shadow: 'rgba(255,215,0,0.1)', // Gold shadow
+  background: '#0a0a0a', // Very dark gray (softer than pure black)
+  cardBackground: '#1c1c1e', // iOS-style dark gray
+  text: '#ffffff', // Pure white for better contrast
+  subtext: '#98989d', // Light gray for secondary text
+  primary: '#0a84ff', // iOS blue (better than gold)
+  secondary: '#8e8e93', // Standard iOS gray
+  accent: '#ff3b30', // iOS red accent
+  border: '#38383a', // Subtle border
+  success: '#30d158', // iOS green
+  warning: '#ff9500', // iOS orange
+  error: '#ff3b30', // iOS red
+  info: '#5ac8fa', // iOS blue info
+  placeholder: '#6e6e73', // Medium gray placeholder
+  shadow: 'rgba(0,0,0,0.3)', // Dark shadow
 };
 
 export function ThemeProvider({ children }) {

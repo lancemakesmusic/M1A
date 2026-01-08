@@ -271,6 +271,66 @@ class StripeService {
   }
 
   /**
+   * Create a Stripe Checkout Session
+   */
+  async createCheckoutSession(amount, currency = 'usd', metadata = {}, orderItems = [], successUrl, cancelUrl) {
+    try {
+      // Validate inputs
+      if (!amount || typeof amount !== 'number' || amount <= 0) {
+        throw new Error('Invalid amount: must be a positive number');
+      }
+      if (!successUrl || !cancelUrl) {
+        throw new Error('Success and cancel URLs are required');
+      }
+
+      // Get Firebase auth token for authentication
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        throw new Error('User must be authenticated to create checkout session');
+      }
+      const idToken = await currentUser.getIdToken();
+
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+
+      const response = await fetch(`${API_BASE_URL}/api/payments/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          amount,
+          currency,
+          metadata,
+          orderItems,
+          successUrl,
+          cancelUrl,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to create checkout session: ${errorText || response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.error('Checkout session request timed out');
+        throw new Error('Request timed out. Please check your connection and try again.');
+      }
+      console.error('Error creating checkout session:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get Stripe publishable key
    */
   getPublishableKey() {

@@ -3,6 +3,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -18,6 +19,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -27,19 +29,18 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  Keyboard
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { auth, db, isFirebaseReady } from '../firebase';
 import { sendMessageNotification } from '../services/NotificationService';
-import { getAvatarUrl } from '../utils/photoUtils';
-
-const defaultAvatar =
-  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face';
+import { getAvatarUrl, hasAvatar, getAvatarSource } from '../utils/photoUtils';
+import M1ALogo from '../components/M1ALogo';
 
 export default function MessagesScreen() {
   const navigation = useNavigation();
@@ -47,6 +48,7 @@ export default function MessagesScreen() {
   const { theme } = useTheme();
   const { user } = useAuth();
   const { preferences: notificationPrefs } = useNotificationPreferences();
+  const insets = useSafeAreaInsets();
   
   // Check if we can go back (i.e., accessed from drawer)
   const canGoBack = navigation.canGoBack();
@@ -61,6 +63,7 @@ export default function MessagesScreen() {
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const listRef = useRef(null);
 
   const createOrGetConversation = useCallback(
@@ -195,15 +198,21 @@ export default function MessagesScreen() {
       }
 
       setMessages([]);
-      setSelectedConversation({
+      const conversation = {
         id: params.conversationId,
         name: displayName || 'User',
         avatar: avatarSource || defaultAvatar,
         isOnline,
         participantId,
-      });
+      };
+      setSelectedConversation(conversation);
+      
+      // Load messages for this conversation
+      if (params.conversationId) {
+        loadMessages(params.conversationId);
+      }
     },
-    [db, user?.uid]
+    [db, user?.uid, loadMessages]
   );
 
   const handleConversationSelect = useCallback(
@@ -225,30 +234,99 @@ export default function MessagesScreen() {
     setMessages([]);
   }, []);
 
+  const showMessageOptions = useCallback(() => {
+    if (!selectedConversation) return;
+    
+    Alert.alert(
+      'Conversation Options',
+      `Options for ${selectedConversation.name}`,
+      [
+        {
+          text: 'Delete Conversation',
+          style: 'destructive',
+          onPress: async () => {
+            Alert.alert(
+              'Delete Conversation',
+              'Are you sure you want to delete this conversation? This action cannot be undone.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      if (isFirebaseReady() && db && typeof db.collection !== 'function' && selectedConversation.id) {
+                        const conversationRef = doc(db, 'conversations', selectedConversation.id);
+                        await deleteDoc(conversationRef);
+                        closeConversation();
+                        // Reload conversations list
+                        await loadConversations();
+                      }
+                    } catch (error) {
+                      console.error('Error deleting conversation:', error);
+                      Alert.alert('Error', 'Failed to delete conversation. Please try again.');
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+        {
+          text: 'Block User',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert('Block User', 'This feature will be available soon.');
+          },
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [selectedConversation, closeConversation]);
+
   // Handle route params to start a chat with a specific user
   useEffect(() => {
-    if (route.params?.conversationId) {
-      openConversationFromParams(route.params);
-      navigation.setParams({});
-    } else if (route.params?.userId && user?.uid) {
-      openConversationFromParams({
-        ...route.params,
-        conversationId: [user.uid, route.params.userId].sort().join('_'),
-      });
+    if (route.params?.conversationId || route.params?.userId) {
+      if (route.params?.conversationId) {
+        openConversationFromParams(route.params);
+      } else if (route.params?.userId && user?.uid) {
+        // Create conversation ID from user IDs
+        const participantIds = [user.uid, route.params.userId].sort();
+        const conversationId = participantIds.join('_');
+        openConversationFromParams({
+          ...route.params,
+          conversationId,
+        });
+      }
+      // Clear params after handling to prevent re-triggering
       navigation.setParams({});
     }
   }, [navigation, openConversationFromParams, route.params, user?.uid]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      if (route.params?.conversationId) {
-        openConversationFromParams(route.params);
+      // Handle params when screen comes into focus
+      if (route.params?.conversationId || route.params?.userId) {
+        if (route.params?.conversationId) {
+          openConversationFromParams(route.params);
+        } else if (route.params?.userId && user?.uid) {
+          const participantIds = [user.uid, route.params.userId].sort();
+          const conversationId = participantIds.join('_');
+          openConversationFromParams({
+            ...route.params,
+            conversationId,
+          });
+        }
         navigation.setParams({});
       }
     });
 
     return unsubscribe;
-  }, [navigation, openConversationFromParams, route.params]);
+  }, [navigation, openConversationFromParams, route.params, user?.uid]);
 
   // Load real conversations from Firestore
   const loadConversations = useCallback(async () => {
@@ -481,17 +559,51 @@ export default function MessagesScreen() {
     );
   }
 
+  // Keyboard listeners to track keyboard height
+  useEffect(() => {
+    if (!selectedConversation) return;
+
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+        // Scroll to bottom when keyboard appears
+        setTimeout(() => {
+          listRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    );
+
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, [selectedConversation]);
+
   // If a conversation is selected, show the chat view
   if (selectedConversation) {
+    // Calculate keyboard offset - account for header and safe area
+    const headerHeight = Platform.OS === 'ios' ? 56 : 64;
+    const keyboardOffset = Platform.OS === 'ios' 
+      ? headerHeight + insets.top 
+      : headerHeight;
+
     return (
       <KeyboardAvoidingView
         behavior={Platform.select({ ios: 'padding', android: 'height' })}
         style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        keyboardVerticalOffset={keyboardOffset}
       >
         <SafeAreaView 
           style={[styles.safe, { backgroundColor: theme.background }]}
-          edges={['bottom', 'left', 'right']}
+          edges={['top', 'left', 'right']}
         >
           {/* Chat Header */}
           <View style={[styles.chatHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
@@ -516,7 +628,10 @@ export default function MessagesScreen() {
               <TouchableOpacity style={styles.headerActionButton}>
                 <Ionicons name="call" size={24} color={theme.text} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerActionButton}>
+              <TouchableOpacity 
+                style={styles.headerActionButton}
+                onPress={showMessageOptions}
+              >
                 <Ionicons name="ellipsis-vertical" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
@@ -527,7 +642,12 @@ export default function MessagesScreen() {
             ref={listRef}
             data={messages}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.messagesContainer}
+            contentContainerStyle={[
+              styles.messagesContainer,
+              { paddingBottom: keyboardHeight > 0 ? 10 : 16 }
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             renderItem={({ item }) => (
               <View style={[
                 item.senderId === auth.currentUser?.uid ? styles.bubbleMe : styles.bubbleOther,
@@ -559,33 +679,64 @@ export default function MessagesScreen() {
           />
 
           {/* Message Composer */}
-          <View style={[styles.composer, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-            <TouchableOpacity style={[styles.attachButton, { backgroundColor: theme.cardBackground }]}>
-              <Ionicons name="add" size={24} color={theme.text} />
-            </TouchableOpacity>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.cardBackground, color: theme.text, borderColor: theme.border }]}
-              placeholder="Type a message…"
-              placeholderTextColor={theme.subtext}
-              value={text}
-              onChangeText={setText}
-              onSubmitEditing={sendMessage}
-              returnKeyType="send"
-              multiline
-            />
-            <TouchableOpacity 
-              style={[styles.send, { backgroundColor: text.trim() ? theme.primary : theme.cardBackground }]} 
-              onPress={sendMessage} 
-              activeOpacity={0.8}
-              disabled={!text.trim()}
-            >
-              <Ionicons 
-                name="send" 
-                size={20} 
-                color={text.trim() ? '#fff' : theme.subtext} 
+          <SafeAreaView edges={['bottom']} style={{ backgroundColor: theme.background }}>
+            <View style={[
+              styles.composer, 
+              { 
+                backgroundColor: theme.background, 
+                borderTopColor: theme.border,
+                paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 8) : 8
+              }
+            ]}>
+              <TouchableOpacity 
+                style={[styles.attachButton, { backgroundColor: theme.cardBackground }]}
+                onPress={() => {
+                  // TODO: Add attachment functionality
+                  Alert.alert('Coming Soon', 'Attachment feature coming soon!');
+                }}
+              >
+                <Ionicons name="add" size={24} color={theme.text} />
+              </TouchableOpacity>
+              <TextInput
+                style={[
+                  styles.input, 
+                  { 
+                    backgroundColor: theme.cardBackground, 
+                    color: theme.text, 
+                    borderColor: theme.border,
+                    maxHeight: 100,
+                    minHeight: 40
+                  }
+                ]}
+                placeholder="Type a message…"
+                placeholderTextColor={theme.subtext}
+                value={text}
+                onChangeText={setText}
+                onSubmitEditing={sendMessage}
+                returnKeyType="send"
+                multiline
+                blurOnSubmit={false}
               />
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity 
+                style={[
+                  styles.send, 
+                  { 
+                    backgroundColor: text.trim() ? theme.primary : theme.cardBackground,
+                    opacity: text.trim() ? 1 : 0.5
+                  }
+                ]} 
+                onPress={sendMessage} 
+                activeOpacity={0.8}
+                disabled={!text.trim()}
+              >
+                <Ionicons 
+                  name="send" 
+                  size={20} 
+                  color={text.trim() ? '#fff' : theme.subtext} 
+                />
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
         </SafeAreaView>
       </KeyboardAvoidingView>
     );
@@ -980,7 +1131,11 @@ const styles = StyleSheet.create({
   input: { 
     flex: 1, 
     borderRadius: 20, 
-    paddingHorizontal: 15, 
+    paddingHorizontal: 15,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    marginHorizontal: 8,
+    fontSize: 16,
+    borderWidth: 1,
     paddingVertical: 12, 
     marginRight: 12,
     fontSize: 16,
@@ -991,6 +1146,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },

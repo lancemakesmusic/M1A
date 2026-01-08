@@ -4,20 +4,20 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query } from 'firebase/firestore';
+import { addDoc, collection, getDocs, query, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
@@ -26,6 +26,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
 import RoleManagementService from '../services/RoleManagementService';
+import WalletService from '../services/WalletService';
 
 export default function AdminUserManagementScreen({ navigation }) {
   const { user } = useAuth();
@@ -41,6 +42,12 @@ export default function AdminUserManagementScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
+  const [showWalletModal, setShowWalletModal] = useState(false);
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [walletAmount, setWalletAmount] = useState('');
+  const [walletNote, setWalletNote] = useState('');
+  const [loadingWallet, setLoadingWallet] = useState(false);
   const [upgradeRole, setUpgradeRole] = useState('employee');
   const [department, setDepartment] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -262,6 +269,95 @@ export default function AdminUserManagementScreen({ navigation }) {
     } finally {
       setProcessing(false);
     }
+  };
+
+  const loadWalletBalance = async (userId) => {
+    try {
+      setLoadingWallet(true);
+      const balance = await WalletService.getBalance(userId);
+      setWalletBalance(balance);
+    } catch (error) {
+      console.error('Error loading wallet balance:', error);
+      Alert.alert('Error', 'Failed to load wallet balance');
+      setWalletBalance(0);
+    } finally {
+      setLoadingWallet(false);
+    }
+  };
+
+  const handleOpenWalletModal = async (targetUser) => {
+    setSelectedUser(targetUser);
+    setShowAdminMenu(false);
+    setShowWalletModal(true);
+    setWalletAmount('');
+    setWalletNote('');
+    await loadWalletBalance(targetUser.id);
+  };
+
+  const handleAdjustWalletBalance = async () => {
+    if (!selectedUser) return;
+    
+    const amount = parseFloat(walletAmount);
+    if (isNaN(amount) || amount === 0) {
+      Alert.alert('Invalid Amount', 'Please enter a valid amount');
+      return;
+    }
+
+    if (!walletNote.trim()) {
+      Alert.alert('Note Required', 'Please enter a note explaining the balance adjustment (e.g., "Cash payment for event tickets")');
+      return;
+    }
+
+    Alert.alert(
+      'Confirm Balance Adjustment',
+      `${amount > 0 ? 'Add' : 'Deduct'} $${Math.abs(amount).toFixed(2)} ${amount > 0 ? 'to' : 'from'} ${selectedUser.displayName || selectedUser.email}'s wallet?\n\nNote: ${walletNote}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            try {
+              setProcessing(true);
+              
+              // Update wallet balance
+              await WalletService.updateBalance(selectedUser.id, amount);
+              
+              // Create transaction record for audit trail
+              const transactionId = `ADMIN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+              await addDoc(collection(db, 'walletTransactions'), {
+                userId: selectedUser.id,
+                amount: amount,
+                type: amount > 0 ? 'admin_credit' : 'admin_debit',
+                status: 'completed',
+                description: walletNote,
+                adminId: user.uid,
+                adminEmail: user.email,
+                transactionId: transactionId,
+                createdAt: serverTimestamp(),
+                paymentMethod: 'cash',
+                notes: `Admin adjustment by ${user.email}`,
+              });
+              
+              // Reload wallet balance
+              await loadWalletBalance(selectedUser.id);
+              
+              Alert.alert(
+                'Success',
+                `Wallet balance ${amount > 0 ? 'increased' : 'decreased'} by $${Math.abs(amount).toFixed(2)}`
+              );
+              
+              setWalletAmount('');
+              setWalletNote('');
+            } catch (error) {
+              console.error('Error adjusting wallet balance:', error);
+              Alert.alert('Error', error.message || 'Failed to adjust wallet balance');
+            } finally {
+              setProcessing(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const renderUserItem = ({ item }) => {
@@ -685,6 +781,20 @@ export default function AdminUserManagementScreen({ navigation }) {
                 </TouchableOpacity>
               )}
 
+              {/* Wallet Balance Adjustment */}
+              <TouchableOpacity
+                style={[styles.menuItem, { backgroundColor: '#34C75910', borderColor: '#34C759' }]}
+                onPress={() => handleOpenWalletModal(selectedUser)}
+              >
+                <Ionicons name="wallet" size={24} color="#34C759" />
+                <View style={styles.menuItemText}>
+                  <Text style={[styles.menuItemTitle, { color: theme.text }]}>Adjust Wallet Balance</Text>
+                  <Text style={[styles.menuItemSubtitle, { color: theme.subtext }]}>
+                    Add store credit for cash payments
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
               {/* Delete Account */}
               {selectedUser?.email !== 'admin@merkabaent.com' && (
                 <TouchableOpacity
@@ -703,6 +813,101 @@ export default function AdminUserManagementScreen({ navigation }) {
                   </View>
                 </TouchableOpacity>
               )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Wallet Balance Adjustment Modal */}
+      <Modal visible={showWalletModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.cardBackground }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                Adjust Wallet Balance
+              </Text>
+              <TouchableOpacity onPress={() => setShowWalletModal(false)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalContent}>
+              <View style={[styles.walletInfoContainer, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.walletInfoLabel, { color: theme.subtext }]}>User</Text>
+                <Text style={[styles.walletInfoValue, { color: theme.text }]}>
+                  {selectedUser?.displayName || selectedUser?.email}
+                </Text>
+              </View>
+
+              <View style={[styles.walletInfoContainer, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.walletInfoLabel, { color: theme.subtext }]}>Current Balance</Text>
+                {loadingWallet ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <Text style={[styles.walletInfoValue, { color: theme.primary, fontSize: 24, fontWeight: 'bold' }]}>
+                    ${walletBalance.toFixed(2)}
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={[styles.inputLabel, { color: theme.text }]}>
+                  Amount {walletAmount && parseFloat(walletAmount) > 0 ? '(Add)' : walletAmount && parseFloat(walletAmount) < 0 ? '(Deduct)' : ''}
+                </Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
+                  placeholder="Enter amount (positive to add, negative to deduct)"
+                  placeholderTextColor={theme.subtext}
+                  keyboardType="decimal-pad"
+                  value={walletAmount}
+                  onChangeText={(text) => {
+                    // Allow negative sign, decimal point, and numbers
+                    const cleaned = text.replace(/[^0-9.-]/g, '');
+                    setWalletAmount(cleaned);
+                  }}
+                />
+                {walletAmount && !isNaN(parseFloat(walletAmount)) && (
+                  <Text style={[styles.previewText, { color: parseFloat(walletAmount) > 0 ? '#34C759' : '#FF3B30' }]}>
+                    New balance: ${(walletBalance + parseFloat(walletAmount)).toFixed(2)}
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Reason / Note *</Text>
+                <TextInput
+                  style={[styles.textArea, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
+                  placeholder="e.g., Cash payment for event tickets, Refund for cancelled order"
+                  placeholderTextColor={theme.subtext}
+                  multiline
+                  numberOfLines={3}
+                  value={walletNote}
+                  onChangeText={setWalletNote}
+                />
+                <Text style={[styles.inputHint, { color: theme.subtext }]}>
+                  Required: Explain why the balance is being adjusted
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.submitButton,
+                  {
+                    backgroundColor: processing ? theme.subtext : theme.primary,
+                    opacity: processing ? 0.6 : 1,
+                  },
+                ]}
+                onPress={handleAdjustWalletBalance}
+                disabled={processing}
+              >
+                {processing ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.submitButtonText}>
+                    {walletAmount && parseFloat(walletAmount) > 0 ? 'Add Credit' : walletAmount && parseFloat(walletAmount) < 0 ? 'Deduct Balance' : 'Adjust Balance'}
+                  </Text>
+                )}
+              </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
@@ -968,6 +1173,85 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  adminMenuModal: {
+    width: '90%',
+    maxWidth: 500,
+    borderRadius: 16,
+    maxHeight: '80%',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    gap: 12,
+  },
+  menuItemText: {
+    flex: 1,
+  },
+  menuItemTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  menuItemSubtitle: {
+    fontSize: 12,
+  },
+  adminMenuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 4,
+  },
+  walletInfoContainer: {
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+  },
+  walletInfoLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  walletInfoValue: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  previewText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  textArea: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  inputHint: {
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  submitButton: {
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

@@ -1,284 +1,121 @@
-# 🚀 Next Steps After Deployment
+# Next Steps After Firebase Authentication ✅
 
-## ✅ What's Done
+## ✅ Step 1: Deploy Firestore Rules
 
-- ✅ Backend deployed to Google Cloud Run
-- ✅ Service is running and healthy
-- ✅ Frontend `.env` file updated
-- ✅ API endpoints tested
+**You're currently in:** `C:\Users\admin\M1A\autoposter-backend`
 
----
-
-## 📱 Rebuild Frontend App
-
-The frontend needs to be rebuilt to use the new Cloud Run API URL.
-
-### For iOS:
-
-```bash
-eas build --platform ios --profile production
-```
-
-### For Android:
-
-```bash
-eas build --platform android --profile production
-```
-
-### For Both:
-
-```bash
-eas build --platform all --profile production
-```
-
-**Note:** The build process will:
-- Use the updated `EXPO_PUBLIC_API_BASE_URL` from `.env`
-- Create a new app binary with the Cloud Run backend URL
-- Take 10-20 minutes depending on platform
-
----
-
-## 🧪 Test API Endpoints
-
-### Health Check
-
-```bash
-curl https://m1a-backend-83002254287.us-central1.run.app/api/health
-```
-
-Expected response:
-```json
-{
-  "status": "ok",
-  "message": "API is running"
-}
-```
-
-### Root Endpoint
-
-```bash
-curl https://m1a-backend-83002254287.us-central1.run.app/
-```
-
-Expected response:
-```json
-{
-  "message": "M1Autoposter API",
-  "version": "1.0.0"
-}
-```
-
-### Test from PowerShell
-
+**Run these commands:**
 ```powershell
-# Health check
-Invoke-RestMethod -Uri "https://m1a-backend-83002254287.us-central1.run.app/api/health" -Method Get
-
-# Root endpoint
-Invoke-RestMethod -Uri "https://m1a-backend-83002254287.us-central1.run.app/" -Method Get
+cd C:\Users\admin\M1A
+firebase deploy --only firestore:rules
 ```
+
+**Expected Output:**
+```
+✔  Deploy complete!
+```
+
+**Wait:** 1-2 minutes for rules to propagate
 
 ---
 
-## 🔧 Add Environment Variables (Optional)
+## ✅ Step 2: Start Backend Server
 
-If you need to add more environment variables to Cloud Run:
-
-### Single Variable
-
-```bash
-gcloud run services update m1a-backend \
-  --region us-central1 \
-  --update-env-vars "KEY=VALUE"
+**In the SAME terminal (after rules deploy):**
+```powershell
+cd C:\Users\admin\M1A\autoposter-backend
+python start_backend.py
 ```
 
-### Multiple Variables
-
-```bash
-gcloud run services update m1a-backend \
-  --region us-central1 \
-  --update-env-vars "KEY1=VALUE1,KEY2=VALUE2,KEY3=VALUE3"
+**OR open a NEW terminal:**
+```powershell
+cd C:\Users\admin\M1A\autoposter-backend
+python start_backend.py
 ```
 
-### Common Variables to Add
+**Keep this terminal open!**
 
-**Stripe Keys:**
-```bash
-gcloud run services update m1a-backend \
-  --region us-central1 \
-  --update-env-vars "STRIPE_SECRET_KEY=sk_live_...,STRIPE_WEBHOOK_SECRET=whsec_..."
-```
-
-**Firebase Admin SDK:**
-```bash
-# First, create a secret
-gcloud secrets create firebase-service-account --data-file=firebase-service-account.json
-
-# Then attach it
-gcloud run services update m1a-backend \
-  --region us-central1 \
-  --update-secrets GOOGLE_APPLICATION_CREDENTIALS=firebase-service-account:latest
-```
-
-**CORS Origins (for production):**
-```bash
-gcloud run services update m1a-backend \
-  --region us-central1 \
-  --update-env-vars "CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com"
-```
+**Verify Backend:**
+- Open browser: http://localhost:8001/api/payments/health
+- Should return: `{"status":"healthy","stripe_configured":true}`
 
 ---
 
-## 📊 Monitor Your Backend
+## ✅ Step 3: Start Expo App
 
-### View Logs via CLI
-
-```bash
-# Last 50 log entries
-gcloud run services logs read m1a-backend --region us-central1 --limit 50
-
-# Follow logs in real-time
-gcloud run services logs tail m1a-backend --region us-central1
-
-# Filter logs
-gcloud run services logs read m1a-backend --region us-central1 --filter "severity>=ERROR"
+**Open a NEW PowerShell terminal:**
+```powershell
+cd C:\Users\admin\M1A
+npx expo start --clear
 ```
 
-### View in Console
+**Important:** 
+- Run from project ROOT: `C:\Users\admin\M1A`
+- NOT from `autoposter-backend` directory
 
-- **Service Overview:** https://console.cloud.google.com/run/detail/us-central1/m1a-backend
-- **Logs:** https://console.cloud.google.com/run/detail/us-central1/m1a-backend/logs
-- **Metrics:** https://console.cloud.google.com/run/detail/us-central1/m1a-backend/metrics
-- **Revisions:** https://console.cloud.google.com/run/detail/us-central1/m1a-backend/revisions
+**Expected Output:**
+- QR code appears
+- Metro bundler starts
+- Options: Press `a` (Android), `i` (iOS), or scan QR code
 
 ---
 
-## 🔄 Update Deployment
+## Quick Command Sequence
 
-If you need to update the backend code:
-
-```bash
+### Current Terminal (or New Terminal 1):
+```powershell
+cd C:\Users\admin\M1A
+firebase deploy --only firestore:rules
 cd autoposter-backend
-gcloud run deploy m1a-backend \
-  --source . \
-  --region us-central1 \
-  --platform managed \
-  --allow-unauthenticated \
-  --port 8080 \
-  --memory 512Mi \
-  --timeout 300 \
-  --set-env-vars "GOOGLE_BUSINESS_CALENDAR_ID=c_b55ae9eeff88509c47f0e3c0e5bd39621524b7d989f012d3cac18f0ed4a35fbb@group.calendar.google.com"
+python start_backend.py
+```
+
+### New Terminal 2 (for Expo):
+```powershell
+cd C:\Users\admin\M1A
+npx expo start --clear
 ```
 
 ---
 
-## 🎯 Verify Everything Works
+## After All Services Are Running
 
-### 1. Test Backend Health
-
-```bash
-curl https://m1a-backend-83002254287.us-central1.run.app/api/health
-```
-
-### 2. Test from Frontend
-
-After rebuilding the app:
-1. Open the app
-2. Try making a booking
-3. Check if calendar events are created
-4. Verify payments work
-
-### 3. Check Logs
-
-Monitor logs for any errors:
-```bash
-gcloud run services logs read m1a-backend --region us-central1 --limit 20
-```
+1. **Scan QR code** with Expo Go app (iOS/Android)
+2. **Test checkout screens:**
+   - Bar Menu
+   - Service Booking
+   - Event Booking
+   - Bar Menu Category
+3. **Use test card:** `4242 4242 4242 4242`
+4. **Verify:**
+   - Orders complete successfully
+   - Transactions appear in Wallet Screen
+   - Calendar events created (for services/events)
 
 ---
 
-## 🔐 Security Checklist
+## Troubleshooting
 
-- [ ] Add CORS restrictions for production
-- [ ] Add Firebase Admin SDK credentials (if needed)
-- [ ] Add Stripe keys (if needed)
-- [ ] Review Cloud Run IAM permissions
-- [ ] Set up monitoring alerts
-- [ ] Configure custom domain (optional)
+### If rules deploy fails:
+- Make sure you're in project root: `cd C:\Users\admin\M1A`
+- Check you're authenticated: `firebase projects:list`
 
----
+### If backend won't start:
+- Check Python: `python --version`
+- Check you're in correct directory: `cd C:\Users\admin\M1A\autoposter-backend`
+- Check `.env` file exists
 
-## 📈 Scaling & Performance
-
-Cloud Run automatically:
-- ✅ Scales to zero when not in use (saves money)
-- ✅ Scales up based on traffic
-- ✅ Handles up to 1000 concurrent requests per instance
-- ✅ Provides 2 million free requests per month
-
-### Adjust Resources (if needed)
-
-```bash
-# Increase memory
-gcloud run services update m1a-backend \
-  --region us-central1 \
-  --memory 1Gi
-
-# Increase CPU
-gcloud run services update m1a-backend \
-  --region us-central1 \
-  --cpu 2
-
-# Increase timeout
-gcloud run services update m1a-backend \
-  --region us-central1 \
-  --timeout 600
-```
+### If Expo won't start:
+- Make sure you're in project ROOT: `cd C:\Users\admin\M1A`
+- NOT in `autoposter-backend` directory
+- Check Node.js: `node --version`
 
 ---
 
-## 🆘 Troubleshooting
+## Status Check
 
-### Service Not Responding
-
-1. Check logs:
-   ```bash
-   gcloud run services logs read m1a-backend --region us-central1
-   ```
-
-2. Check service status:
-   ```bash
-   gcloud run services describe m1a-backend --region us-central1
-   ```
-
-3. Test health endpoint:
-   ```bash
-   curl https://m1a-backend-83002254287.us-central1.run.app/api/health
-   ```
-
-### Frontend Can't Connect
-
-1. Verify `.env` file has correct URL:
-   ```
-   EXPO_PUBLIC_API_BASE_URL=https://m1a-backend-83002254287.us-central1.run.app
-   ```
-
-2. Rebuild the app (environment variables are baked in at build time)
-
-3. Check CORS settings if getting CORS errors
-
----
-
-## 🎉 You're All Set!
-
-Your backend is now:
-- ✅ Running 24/7 in the cloud
-- ✅ Auto-scaling based on traffic
-- ✅ Accessible from anywhere
-- ✅ Production-ready
-
-The app will work even when your laptop is off! 🚀
-
-
-
-
+✅ Firebase authenticated
+⏳ Deploy Firestore rules (next step)
+⏳ Start backend server
+⏳ Start Expo app
+⏳ Test checkout screens

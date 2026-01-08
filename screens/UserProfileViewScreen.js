@@ -23,11 +23,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { blockUser, db, getFollowers, getFollowing, isBlocked, isFirebaseReady, isFollowing, isMuted, muteUser, reportUser, trackProfileView, unmuteUser } from '../firebase';
+import { blockUser, db, followUser, getFollowers, getFollowing, isBlocked, isFirebaseReady, isFollowing, isMuted, muteUser, reportUser, trackProfileView, unfollowUser, unmuteUser } from '../firebase';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick } from '../services/AnalyticsService';
 import { logError } from '../utils/logger';
 import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
+import M1ALogo from '../components/M1ALogo';
 
 export default function UserProfileViewScreen({ route, navigation }) {
   const { theme } = useTheme();
@@ -290,10 +291,9 @@ export default function UserProfileViewScreen({ route, navigation }) {
                   key={getImageKey(user, 'avatar')}
                 />
               ) : (
-                <Image
-                  source={{ uri: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=400&fit=crop&crop=face' }}
-                  style={styles.avatar}
-                />
+                <View style={[styles.avatar, { backgroundColor: theme.cardBackground, justifyContent: 'center', alignItems: 'center' }]}>
+                  <M1ALogo size={styles.avatar.width || 120} variant="icon" color={theme.primary} />
+                </View>
               )}
               {user.isOnline && (
                 <View style={[styles.onlineBadge, { backgroundColor: '#34C759' }]} />
@@ -358,6 +358,58 @@ export default function UserProfileViewScreen({ route, navigation }) {
             <Ionicons name="chatbubble-outline" size={20} color="#fff" />
             <Text style={styles.primaryButtonText}>Message</Text>
           </TouchableOpacity>
+          {currentUser?.uid && user?.id && currentUser.uid !== user.id && (
+            <TouchableOpacity
+              style={[
+                styles.secondaryButton,
+                {
+                  borderColor: theme.primary,
+                  backgroundColor: isFollowingUser ? theme.primary : 'transparent',
+                }
+              ]}
+              onPress={async () => {
+                if (updatingFollow) return;
+                setUpdatingFollow(true);
+                try {
+                  if (isFollowingUser) {
+                    await unfollowUser(user.id);
+                    setIsFollowingUser(false);
+                    await loadStats(); // Refresh stats
+                    trackButtonClick('unfollow_user', 'UserProfileViewScreen');
+                  } else {
+                    await followUser(user.id);
+                    setIsFollowingUser(true);
+                    await loadStats(); // Refresh stats
+                    trackButtonClick('follow_user', 'UserProfileViewScreen');
+                  }
+                } catch (error) {
+                  logError('Error toggling follow:', error);
+                  Alert.alert('Error', 'Failed to update follow status. Please try again.');
+                } finally {
+                  setUpdatingFollow(false);
+                }
+              }}
+              disabled={updatingFollow}
+            >
+              {updatingFollow ? (
+                <ActivityIndicator size="small" color={isFollowingUser ? "#fff" : theme.primary} />
+              ) : (
+                <>
+                  <Ionicons 
+                    name={isFollowingUser ? "checkmark" : "add"} 
+                    size={20} 
+                    color={isFollowingUser ? "#fff" : theme.primary} 
+                  />
+                  <Text style={[
+                    styles.secondaryButtonText,
+                    { color: isFollowingUser ? "#fff" : theme.primary }
+                  ]}>
+                    {isFollowingUser ? 'Following' : 'Follow'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.secondaryButton, { borderColor: theme.primary }]}
             onPress={() => {

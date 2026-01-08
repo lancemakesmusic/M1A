@@ -28,6 +28,7 @@ import { trackButtonClick, trackFeatureUsage, trackSearch } from '../services/An
 import { sendDiscountNotification } from '../services/NotificationService';
 import ReviewService from '../services/ReviewService';
 import SharingService from '../services/SharingService';
+import SMSService from '../services/SMSService';
 import UsersScreen from './UsersScreen';
 
 const { width } = Dimensions.get('window');
@@ -161,28 +162,30 @@ export default function ExploreScreen() {
         }
 
         // Load events from Firestore (future events only)
-        // Try with index first, fallback to simple query if index not ready
-        let eventsQuery;
-        try {
-          eventsQuery = firestoreQuery(
-            firestoreCollection(db, 'events'),
-            where('eventDate', '>=', now),
-            firestoreOrderBy('eventDate', 'asc'),
-            firestoreLimit(20)
-          );
-        } catch (indexError) {
-          // If index not ready, use simple query without orderBy
-          console.warn('Events index not ready, using simple query:', indexError);
-          eventsQuery = firestoreQuery(
-            firestoreCollection(db, 'events'),
-            where('eventDate', '>=', now),
-            firestoreLimit(20)
-          );
-        }
+        // Load from both 'events' and 'publicEvents' collections
         let eventsData = [];
+        
+        // Load from 'events' collection
         try {
+          let eventsQuery;
+          try {
+            eventsQuery = firestoreQuery(
+              firestoreCollection(db, 'events'),
+              where('eventDate', '>=', now),
+              firestoreOrderBy('eventDate', 'asc'),
+              firestoreLimit(20)
+            );
+          } catch (indexError) {
+            // If index not ready, use simple query without orderBy
+            console.warn('Events index not ready, using simple query:', indexError);
+            eventsQuery = firestoreQuery(
+              firestoreCollection(db, 'events'),
+              where('eventDate', '>=', now),
+              firestoreLimit(20)
+            );
+          }
           const eventsSnapshot = await getDocs(eventsQuery);
-          eventsData = eventsSnapshot.docs.map(doc => {
+          const eventsFromCollection = eventsSnapshot.docs.map(doc => {
             const data = doc.data();
             // Ensure eventDate exists and is valid
             if (!data.eventDate) {
@@ -192,12 +195,107 @@ export default function ExploreScreen() {
             return {
               id: doc.id,
               ...data,
+              // Normalize image field - use image if exists, otherwise photoUrl or photo
+              image: data.image || data.photoUrl || data.photo || null,
               category: 'Events',
             };
-          }).filter(item => item !== null); // Remove null items
+          }).filter(item => item !== null);
+          eventsData = [...eventsData, ...eventsFromCollection];
         } catch (eventsError) {
           console.error('Events query failed:', eventsError);
-          eventsData = [];
+        }
+        
+        // Load from 'publicEvents' collection (admin-created events)
+        try {
+          let publicEventsQuery;
+          try {
+            // Try to query by startDate if it exists
+            publicEventsQuery = firestoreQuery(
+              firestoreCollection(db, 'publicEvents'),
+              where('startDate', '>=', now),
+              firestoreOrderBy('startDate', 'asc'),
+              firestoreLimit(20)
+            );
+          } catch (indexError) {
+            // If index not ready, use simple query without orderBy
+            console.warn('PublicEvents index not ready, using simple query:', indexError);
+            publicEventsQuery = firestoreQuery(
+              firestoreCollection(db, 'publicEvents'),
+              where('startDate', '>=', now),
+              firestoreLimit(20)
+            );
+          }
+          const publicEventsSnapshot = await getDocs(publicEventsQuery);
+          const publicEventsFromCollection = publicEventsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            // Convert publicEvents format to match events format
+            const startDate = data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || new Date());
+            const eventDate = startDate;
+            
+            return {
+              id: doc.id,
+              name: data.title,
+              description: data.description,
+              image: data.photoUrl || data.photo || null, // Use image field for consistency
+              photo: data.photoUrl, // Keep photo for backward compatibility
+              eventDate: eventDate,
+              location: data.location,
+              price: data.ticketPrice || 0,
+              ticketPrice: data.ticketPrice,
+              earlyBirdPrice: data.earlyBirdPrice,
+              vipPrice: data.vipPrice,
+              capacity: data.capacity,
+              isPublic: data.isPublic,
+              ticketsEnabled: data.ticketsEnabled,
+              discountEnabled: data.discountEnabled,
+              discountPercent: data.discountPercent,
+              discountCode: data.discountCode,
+              eventCategory: data.category || 'performance',
+              isAdminCreated: data.isAdminCreated,
+              category: 'Events',
+            };
+          });
+          eventsData = [...eventsData, ...publicEventsFromCollection];
+        } catch (publicEventsError) {
+          console.error('PublicEvents query failed:', publicEventsError);
+          // Fallback: try loading all publicEvents without date filter
+          try {
+            const allPublicEventsSnapshot = await getDocs(firestoreCollection(db, 'publicEvents'));
+            const allPublicEvents = allPublicEventsSnapshot.docs.map(doc => {
+              const data = doc.data();
+              const startDate = data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || new Date());
+              // Only include future events - compare with now timestamp
+              const nowDate = now.toDate ? now.toDate() : new Date(now.seconds * 1000);
+              if (startDate < nowDate) {
+                return null;
+              }
+              return {
+                id: doc.id,
+                name: data.title,
+                description: data.description,
+                image: data.photoUrl || data.photo || null, // Use image field for consistency
+                photo: data.photoUrl, // Keep photo for backward compatibility
+                eventDate: startDate,
+                location: data.location,
+                price: data.ticketPrice || 0,
+                ticketPrice: data.ticketPrice,
+                earlyBirdPrice: data.earlyBirdPrice,
+                vipPrice: data.vipPrice,
+                capacity: data.capacity,
+                isPublic: data.isPublic,
+                ticketsEnabled: data.ticketsEnabled,
+                discountEnabled: data.discountEnabled,
+                discountPercent: data.discountPercent,
+                discountCode: data.discountCode,
+                eventCategory: data.category || 'performance',
+                isAdminCreated: data.isAdminCreated,
+                category: 'Events',
+              };
+            }).filter(item => item !== null);
+            eventsData = [...eventsData, ...allPublicEvents];
+          } catch (fallbackError) {
+            console.error('PublicEvents fallback query failed:', fallbackError);
+          }
         }
 
         // Combine all items
@@ -347,53 +445,143 @@ export default function ExploreScreen() {
   };
 
   const handleRSVPSubmit = async () => {
-    if (!rsvpData.name || !rsvpData.email) {
-      Alert.alert('Missing Information', 'Please fill in your name and email.');
-      return;
+    const isPhoneOnlyRSVP = selectedRSVPItem?.phoneOnlyRSVP || 
+                            selectedRSVPItem?.name?.includes('New Year');
+
+    // Validation based on event type
+    if (isPhoneOnlyRSVP) {
+      if (!rsvpData.phone || rsvpData.phone.trim().length < 10) {
+        Alert.alert('Missing Information', 'Please enter a valid phone number.');
+        return;
+      }
+    } else {
+      if (!rsvpData.name || !rsvpData.email) {
+        Alert.alert('Missing Information', 'Please fill in your name and email.');
+        return;
+      }
     }
 
     try {
+      // Generate ticket ID and QR code data
+      const ticketId = `TICKET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const qrCodeData = JSON.stringify({
+        ticketId,
+        eventId: selectedRSVPItem.id,
+        eventName: selectedRSVPItem.name,
+        phone: rsvpData.phone,
+        date: selectedRSVPItem.eventDate?.toDate?.()?.toISOString() || new Date('2025-12-31T20:00:00').toISOString(),
+      });
+
       // Save RSVP to Firestore
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
         // Real Firestore
         const { collection, addDoc, serverTimestamp } = require('firebase/firestore');
-        await addDoc(collection(db, 'rsvps'), {
+        const rsvpDoc = await addDoc(collection(db, 'rsvps'), {
           eventId: selectedRSVPItem.id,
           eventName: selectedRSVPItem.name,
           userId: userPersona?.id || 'anonymous',
           persona: userPersona?.id || null,
           personaName: userPersona?.title || null,
-          name: rsvpData.name,
-          email: rsvpData.email,
-          phone: rsvpData.phone || '',
+          name: isPhoneOnlyRSVP ? '' : rsvpData.name,
+          email: isPhoneOnlyRSVP ? '' : rsvpData.email,
+          phone: rsvpData.phone,
           guestCount: rsvpData.guestCount,
           specialRequests: rsvpData.specialRequests || '',
           status: 'confirmed',
+          ticketId,
+          qrCodeData,
           createdAt: serverTimestamp(),
         });
+
+        // Send SMS with QR code for phone-only RSVP events
+        if (isPhoneOnlyRSVP && rsvpData.phone) {
+          // Format phone number (ensure E.164 format)
+          let formattedPhone = rsvpData.phone.replace(/\D/g, ''); // Remove non-digits
+          if (!formattedPhone.startsWith('1') && formattedPhone.length === 10) {
+            formattedPhone = '1' + formattedPhone; // Add US country code
+          }
+          if (!formattedPhone.startsWith('+')) {
+            formattedPhone = '+' + formattedPhone;
+          }
+
+          // Generate QR code image URL (we'll create this on backend)
+          const qrCodeUrl = `${process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001'}/api/qr-code/${ticketId}`;
+
+          // Send SMS
+          const smsResult = await SMSService.sendRSVPConfirmation(
+            formattedPhone,
+            selectedRSVPItem.name,
+            ticketId,
+            qrCodeUrl
+          );
+
+          if (smsResult.success) {
+            Alert.alert(
+              'RSVP Confirmed!',
+              `Your RSVP for ${selectedRSVPItem.name} has been confirmed! A confirmation text with your ticket QR code has been sent to ${rsvpData.phone}.`,
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    setShowRSVPModal(false);
+                    setRsvpData({
+                      name: '',
+                      email: '',
+                      phone: '',
+                      guestCount: 1,
+                      specialRequests: '',
+                    });
+                  },
+                },
+              ]
+            );
+          } else {
+            // RSVP saved but SMS failed
+            Alert.alert(
+              'RSVP Confirmed!',
+              `Your RSVP has been confirmed, but we couldn't send the confirmation text. Please save your ticket ID: ${ticketId}`,
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    setShowRSVPModal(false);
+                    setRsvpData({
+                      name: '',
+                      email: '',
+                      phone: '',
+                      guestCount: 1,
+                      specialRequests: '',
+                    });
+                  },
+                },
+              ]
+            );
+          }
+        } else {
+          // Regular RSVP confirmation
+          Alert.alert(
+            'RSVP Confirmed!',
+            `Thank you ${rsvpData.name}! Your RSVP for ${selectedRSVPItem.name} has been confirmed. We'll send you more details via email.`,
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  setShowRSVPModal(false);
+                  setRsvpData({
+                    name: '',
+                    email: '',
+                    phone: '',
+                    guestCount: 1,
+                    specialRequests: '',
+                  });
+                },
+              },
+            ]
+          );
+        }
       } else {
         throw new Error('Firestore not ready');
       }
-
-      Alert.alert(
-        'RSVP Confirmed!',
-        `Thank you ${rsvpData.name}! Your RSVP for ${selectedRSVPItem.name} has been confirmed. We'll send you more details via email.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              setShowRSVPModal(false);
-              setRsvpData({
-                name: '',
-                email: '',
-                phone: '',
-                guestCount: 1,
-                specialRequests: '',
-              });
-            },
-          },
-        ]
-      );
     } catch (error) {
       console.error('Error submitting RSVP:', error);
       Alert.alert('Error', 'Failed to submit RSVP. Please try again.');
@@ -416,11 +604,17 @@ export default function ExploreScreen() {
     >
       {/* Image */}
       <View style={styles.imageContainer}>
-        <Image
-          source={{ uri: item.image }}
-          style={styles.serviceImage}
-          resizeMode="cover"
-        />
+        {item.image ? (
+          <Image
+            source={{ uri: item.image }}
+            style={styles.serviceImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[styles.serviceImage, { backgroundColor: theme.border, justifyContent: 'center', alignItems: 'center' }]}>
+            <Ionicons name="image-outline" size={40} color={theme.subtext} />
+          </View>
+        )}
         <View style={styles.imageOverlay}>
           {item.isRSVP ? (
             <View style={[styles.priceBadge, { backgroundColor: '#FF6B35' }]}>
@@ -720,32 +914,38 @@ export default function ExploreScreen() {
                 </View>
               )}
 
-              <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: theme.text }]}>Name *</Text>
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
-                  placeholder="Your full name"
-                  placeholderTextColor={theme.subtext}
-                  value={rsvpData.name}
-                  onChangeText={(text) => setRsvpData({ ...rsvpData, name: text })}
-                />
-              </View>
+              {(!selectedRSVPItem?.phoneOnlyRSVP && !selectedRSVPItem?.name?.includes('New Year')) && (
+                <>
+                  <View style={styles.formGroup}>
+                    <Text style={[styles.formLabel, { color: theme.text }]}>Name *</Text>
+                    <TextInput
+                      style={[styles.formInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+                      placeholder="Your full name"
+                      placeholderTextColor={theme.subtext}
+                      value={rsvpData.name}
+                      onChangeText={(text) => setRsvpData({ ...rsvpData, name: text })}
+                    />
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={[styles.formLabel, { color: theme.text }]}>Email *</Text>
+                    <TextInput
+                      style={[styles.formInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+                      placeholder="your@email.com"
+                      placeholderTextColor={theme.subtext}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      value={rsvpData.email}
+                      onChangeText={(text) => setRsvpData({ ...rsvpData, email: text })}
+                    />
+                  </View>
+                </>
+              )}
 
               <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: theme.text }]}>Email *</Text>
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
-                  placeholder="your@email.com"
-                  placeholderTextColor={theme.subtext}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  value={rsvpData.email}
-                  onChangeText={(text) => setRsvpData({ ...rsvpData, email: text })}
-                />
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: theme.text }]}>Phone</Text>
+                <Text style={[styles.formLabel, { color: theme.text }]}>
+                  Phone {(selectedRSVPItem?.phoneOnlyRSVP || selectedRSVPItem?.name?.includes('New Year')) ? '*' : ''}
+                </Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
                   placeholder="(555) 123-4567"
@@ -754,6 +954,11 @@ export default function ExploreScreen() {
                   value={rsvpData.phone}
                   onChangeText={(text) => setRsvpData({ ...rsvpData, phone: text })}
                 />
+                {(selectedRSVPItem?.phoneOnlyRSVP || selectedRSVPItem?.name?.includes('New Year')) && (
+                  <Text style={[styles.helperText, { color: theme.subtext }]}>
+                    You'll receive a confirmation text with your ticket QR code
+                  </Text>
+                )}
               </View>
 
               <View style={styles.formGroup}>

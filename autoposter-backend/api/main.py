@@ -26,7 +26,7 @@ except Exception:
     pass  # Error loading .env, continue anyway
 
 # Initialize FastAPI app FIRST (before any imports that might fail)
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, APIRouter
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -56,7 +56,7 @@ try:
     import httpx
     JWT_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ JWT/httpx not available: {e}")
+    print(f"WARNING: JWT/httpx not available: {e}")
     JWT_AVAILABLE = False
     jwt = None
     httpx = None
@@ -66,14 +66,8 @@ try:
     from scripts import db
     from scripts.secure_config_loader import load_client_config, save_client_config
     SCRIPTS_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ Scripts not available: {e}")
-    SCRIPTS_AVAILABLE = False
-    db = None
-    load_client_config = None
-    save_client_config = None
-except Exception as e:
-    print(f"⚠️ Error loading scripts: {e}")
+except (ImportError, Exception) as e:
+    print(f"WARNING: Scripts not available: {e}")
     SCRIPTS_AVAILABLE = False
     db = None
     load_client_config = None
@@ -91,11 +85,11 @@ if not ALLOWED_ORIGINS:
     if os.getenv("K_SERVICE") or os.getenv("ENVIRONMENT", "development").lower() == "production":
         # Cloud Run / Production: allow all origins (Cloud Run handles CORS at platform level)
         # For stricter control, set CORS_ALLOWED_ORIGINS environment variable
-        print("ℹ️ Running on Cloud Run. Allowing all origins (Cloud Run handles CORS).")
+        print("INFO: Running on Cloud Run. Allowing all origins (Cloud Run handles CORS).")
         ALLOWED_ORIGINS = ["*"]
     else:
         # Development: allow all origins (with warning)
-        print("⚠️ WARNING: CORS_ALLOWED_ORIGINS not set. Allowing all origins (development only).")
+        print("WARNING: CORS_ALLOWED_ORIGINS not set. Allowing all origins (development only).")
         ALLOWED_ORIGINS = ["*"]
 
 app.add_middleware(
@@ -112,7 +106,7 @@ try:
     import httpx
     JWT_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ JWT/httpx not available: {e}")
+    print(f"WARNING: JWT/httpx not available: {e}")
     JWT_AVAILABLE = False
     jwt = None
     httpx = None
@@ -123,7 +117,7 @@ try:
     from scripts.secure_config_loader import load_client_config, save_client_config
     SCRIPTS_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ Scripts not available: {e}")
+    print(f"WARNING: Scripts not available: {e}")
     SCRIPTS_AVAILABLE = False
     db = None
 
@@ -289,10 +283,56 @@ try:
     from api.payments import router as payments_router
     app.include_router(payments_router)
     print("[OK] Payment routes loaded successfully")
-except ImportError as e:
+except (ImportError, Exception) as e:
     print(f"[WARN] Payment routes not available: {e}")
-except Exception as e:
-    print(f"[ERROR] Failed to load payment routes: {e}")
+    import traceback
+    traceback.print_exc()
+
+# Include Stripe products sync endpoint
+try:
+    from api.stripe_products import sync_stripe_products_to_firestore, get_stripe_products
+    from api.payments import get_firestore_client
+    
+    stripe_products_router = APIRouter(prefix="/api/stripe", tags=["stripe"])
+    
+    @stripe_products_router.post("/sync-products")
+    async def sync_products(user: dict = Depends(verify_token)):
+        """Sync Stripe products to Firestore"""
+        try:
+            db = get_firestore_client()
+            if not db:
+                raise HTTPException(status_code=503, detail="Firestore not available")
+            
+            result = sync_stripe_products_to_firestore(db)
+            return result
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to sync products: {str(e)}")
+    
+    @stripe_products_router.get("/products")
+    async def list_products(user: dict = Depends(verify_token)):
+        """List all Stripe products"""
+        try:
+            products = get_stripe_products(active_only=True)
+            return {
+                "success": True,
+                "products": [
+                    {
+                        "id": p["id"],
+                        "name": p.get("name", ""),
+                        "description": p.get("description", ""),
+                        "active": p.get("active", True),
+                        "metadata": p.get("metadata", {}),
+                    }
+                    for p in products
+                ]
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to list products: {str(e)}")
+    
+    app.include_router(stripe_products_router)
+    print("[OK] Stripe products sync routes loaded")
+except (ImportError, Exception) as e:
+    print(f"[WARN] Stripe products sync not available: {e}")
     import traceback
     traceback.print_exc()
 
@@ -311,10 +351,8 @@ try:
     from api.app_store_notifications import router as app_store_router
     app.include_router(app_store_router)
     print("[OK] App Store notification routes loaded successfully")
-except ImportError as e:
+except (ImportError, Exception) as e:
     print(f"[WARN] App Store notification routes not available: {e}")
-except Exception as e:
-    print(f"[ERROR] Failed to load App Store notification routes: {e}")
     import traceback
     traceback.print_exc()
 
@@ -323,10 +361,18 @@ try:
     from api.google_drive import router as google_drive_router
     app.include_router(google_drive_router)
     print("[OK] Google Drive routes loaded successfully")
-except ImportError as e:
+except (ImportError, Exception) as e:
     print(f"[WARN] Google Drive routes not available: {e}")
-except Exception as e:
-    print(f"[ERROR] Failed to load Google Drive routes: {e}")
+    import traceback
+    traceback.print_exc()
+
+# SMS routes
+try:
+    from api.sms import router as sms_router
+    app.include_router(sms_router)
+    print("[OK] SMS routes loaded successfully")
+except (ImportError, Exception) as e:
+    print(f"[WARN] SMS routes not available: {e}")
     import traceback
     traceback.print_exc()
 
@@ -371,4 +417,27 @@ if ROBUST_API_AVAILABLE and robust_api:
         import traceback
         traceback.print_exc()
 
-print("✅ FastAPI app initialized successfully")
+# Import admin verification utilities
+try:
+    from api.auth_utils import verify_admin
+    ADMIN_VERIFICATION_AVAILABLE = True
+except ImportError:
+    ADMIN_VERIFICATION_AVAILABLE = False
+    print("[WARN] Admin verification utilities not available")
+
+# Example admin endpoint (for demonstration)
+if ADMIN_VERIFICATION_AVAILABLE:
+    @app.get("/api/admin/health")
+    async def admin_health_check(admin_user: dict = Depends(verify_admin)):
+        """
+        Admin-only health check endpoint
+        Demonstrates how to use verify_admin dependency
+        """
+        return {
+            "status": "ok",
+            "message": "Admin access verified",
+            "admin_email": admin_user.get("email"),
+            "admin_user_id": admin_user.get("userId")
+        }
+
+print("OK: FastAPI app initialized successfully")

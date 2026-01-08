@@ -83,3 +83,14 @@ After fixing:
 - App Store Connect: https://appstoreconnect.apple.com/apps/6755367017/testflight/ios
 
 
+
+
+
+
+
+
+
+
+
+
+

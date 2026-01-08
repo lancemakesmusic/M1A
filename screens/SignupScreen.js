@@ -25,6 +25,7 @@ import M1ALogo from '../components/M1ALogo';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
+  const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -49,6 +50,13 @@ export default function SignupScreen({ navigation }) {
 
   const validateForm = () => {
     const newErrors = {};
+    
+    // First name validation
+    if (!firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+    } else if (firstName.trim().length < 2) {
+      newErrors.firstName = 'First name must be at least 2 characters';
+    }
     
     // Email validation
     if (!email.trim()) {
@@ -109,12 +117,38 @@ export default function SignupScreen({ navigation }) {
       // Create user profile in Firestore
       try {
         const { createUserProfileIfMissing } = await import('../firebase');
-        const username = email.split('@')[0]; // Use email prefix as default username
+        // Generate username from email - sanitize dots and special characters
+        let username = email.split('@')[0].toLowerCase();
+        // Replace dots and invalid characters with underscores
+        username = username.replace(/[^a-zA-Z0-9_-]/g, '_');
+        // Remove leading/trailing underscores
+        username = username.replace(/^_+|_+$/g, '');
+        // Ensure minimum length (add numbers if too short)
+        if (username.length < 3) {
+          username = username + Math.floor(Math.random() * 1000);
+        }
+        // Ensure it doesn't start with number (add prefix if needed)
+        if (/^\d/.test(username)) {
+          username = 'user_' + username;
+        }
+        const trimmedFirstName = firstName.trim();
         await createUserProfileIfMissing(userCredential.user.uid, {
           email: email,
-          displayName: username,
+          firstName: trimmedFirstName,
+          displayName: trimmedFirstName, // Use firstName as displayName
           username: username,
         });
+        
+        // Update Firebase Auth displayName
+        try {
+          const { updateProfile } = await import('firebase/auth');
+          await updateProfile(userCredential.user, {
+            displayName: trimmedFirstName,
+          });
+        } catch (updateError) {
+          logWarn('Failed to update auth displayName:', updateError);
+          // Don't fail signup if this fails
+        }
         
         // Note: Google Drive folder will be created after persona selection
         // This ensures we have the username and persona context
@@ -185,6 +219,34 @@ export default function SignupScreen({ navigation }) {
           )}
 
           <View style={styles.form}>
+            <View style={styles.inputContainer}>
+              <Text style={[styles.label, { color: theme.text }]}>First Name</Text>
+              <TextInput
+                style={[
+                  styles.input, 
+                  { 
+                    color: theme.text, 
+                    borderColor: errors.firstName ? theme.error : theme.border,
+                    backgroundColor: theme.cardBackground
+                  }
+                ]}
+                placeholder="Enter your first name"
+                placeholderTextColor={theme.subtext}
+                autoCapitalize="words"
+                autoCorrect={false}
+                value={firstName}
+                onChangeText={(text) => {
+                  setFirstName(text);
+                  if (errors.firstName) {
+                    setErrors(prev => ({ ...prev, firstName: '' }));
+                  }
+                }}
+              />
+              {errors.firstName && (
+                <Text style={[styles.fieldError, { color: theme.error }]}>{errors.firstName}</Text>
+              )}
+            </View>
+
             <View style={styles.inputContainer}>
               <Text style={[styles.label, { color: theme.text }]}>Email</Text>
               <TextInput

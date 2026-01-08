@@ -5,6 +5,8 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { addDoc, collection, getDocs, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -268,7 +270,15 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
         // Continue with payment even if backend fails (for demo purposes)
       }
 
-      // Process payment with Stripe
+      // Check if Stripe is configured
+      if (!StripeService.isConfigured()) {
+        throw new Error(
+          'Payment processing is not configured. Please contact support or configure Stripe keys. ' +
+          'Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY in your environment variables.'
+        );
+      }
+
+      // Prepare order items for Stripe Checkout
       const orderItems = cart.map(item => ({
         id: item.id,
         name: item.name,
@@ -276,34 +286,8 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
         quantity: item.quantity,
       }));
 
-      // Check if Stripe is configured
-      if (!StripeService.isConfigured()) {
-        // Fallback to mock payment for demo
-        console.log('Stripe not configured, using mock payment');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } else {
-        // Create payment intent
-        const result = await StripeService.createPaymentIntent(
-          cartTotal.total,
-          'usd',
-          {
-            type: 'bar_order',
-            category: categoryDisplayName,
-            userId: user?.uid || 'anonymous',
-          },
-          orderItems
-        );
-
-        if (!result.success || !result.paymentIntentId) {
-          throw new Error(result.error || 'Payment processing failed');
-        }
-
-        // Payment intent created successfully
-        // In production, you would use Stripe Payment Sheet here
-        await new Promise(resolve => setTimeout(resolve, 1500));
-      }
-
-      // Save order to Firestore
+      // Save order to Firestore with PENDING status first
+      // This ensures we have an order ID before redirecting to Stripe
       const orderData = {
         userId: user?.uid || 'anonymous',
         items: cart,
@@ -314,10 +298,9 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
         category: categoryDisplayName,
         specialInstructions: specialInstructions.trim() || null,
         status: 'pending',
-        paymentStatus: 'completed',
-        paymentMethod: StripeService.isConfigured() ? 'stripe' : 'mock',
+        paymentStatus: 'pending', // Will be updated to 'completed' via webhook
+        paymentMethod: 'stripe',
         backendOrderId: backendResult.orderId || null,
-        createdAt: new Date(),
       };
 
       let orderId;
@@ -330,17 +313,73 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
       } else {
         throw new Error('Firestore not ready');
       }
+
+      // Create success and cancel URLs for Stripe Checkout redirect
+      const baseUrl = Linking.createURL('/');
+      const successUrl = `${baseUrl}payment-success?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl}payment-cancel?orderId=${orderId}`;
+
+      // Create Stripe Checkout Session
+      const checkoutResult = await StripeService.createCheckoutSession(
+        cartTotal.total,
+        'usd',
+        {
+          type: 'bar',
+          orderType: 'bar',
+          category: categoryDisplayName,
+          userId: user?.uid || 'anonymous',
+          orderId: orderId,
+        },
+        orderItems,
+        successUrl,
+        cancelUrl
+      );
+
+      if (!checkoutResult.success || !checkoutResult.url) {
+        throw new Error(checkoutResult.error || 'Failed to create checkout session. Please try again.');
+      }
+
+      // Update order with checkout session ID
+      try {
+        if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+          const { doc, updateDoc } = await import('firebase/firestore');
+          const orderRef = doc(db, 'barOrders', orderId);
+          await updateDoc(orderRef, {
+            checkoutSessionId: checkoutResult.sessionId,
+            updatedAt: serverTimestamp(),
+          });
+          console.log('✅ Updated order with checkout session ID');
+        }
+      } catch (updateError) {
+        console.warn('Failed to update order with checkout session ID:', updateError);
+        // Continue anyway - order will still be processed via webhook
+      }
+
+      // Open Stripe Checkout in browser
+      console.log('Opening Stripe Checkout:', checkoutResult.url);
+      
+      // Use WebBrowser for better UX - opens in-app browser
+      const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
+        showTitle: true,
+        toolbarColor: theme.primary,
+        enableBarCollapsing: false,
+      });
+
+      // If user closes browser without completing payment
+      if (result.type === 'cancel') {
+        setCheckoutStep('payment');
+        Alert.alert('Payment Canceled', 'Payment was canceled. You can try again.');
+        setProcessingPayment(false);
+        return;
+      }
+
+      // Payment completed - webhook will handle the rest
       setOrderNumber(orderId);
-
-      // Send notifications
-      await sendPaymentConfirmation(user?.email || 'customer@example.com', cartTotal.total, orderId);
-      await sendOrderStatusUpdate(user?.email || 'customer@example.com', 'pending', orderId);
-
-      // Record positive action
-      RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.ORDER_COMPLETED);
-
-      setCheckoutStep('confirmation');
+      
+      // Track analytics
       trackFeatureUsage('bar_order_completed', { orderTotal: cartTotal.total, itemCount: cart.length });
+      
+      setCheckoutStep('confirmation');
     } catch (error) {
       console.error('Payment error:', error);
       Alert.alert('Payment Failed', error.message || 'Please try again.');

@@ -4,7 +4,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -51,11 +51,13 @@ export default function AdminAnalyticsScreen({ navigation }) {
     try {
       setLoading(true);
       // Load analytics from various collections
-      const [usersSnapshot, ordersSnapshot, servicesSnapshot, eventsSnapshot] = await Promise.all([
+      // Note: eventBookings query requires index - handled gracefully
+      const [usersSnapshot, ordersSnapshot, servicesSnapshot, eventsSnapshot, publicEventsSnapshot] = await Promise.all([
         getDocs(collection(db, 'users')).catch(() => ({ size: 0, docs: [] })),
         getDocs(collection(db, 'orders')).catch(() => ({ size: 0, docs: [] })),
         getDocs(collection(db, 'services')).catch(() => ({ size: 0, docs: [] })),
         getDocs(collection(db, 'events')).catch(() => ({ size: 0, docs: [] })),
+        getDocs(collection(db, 'publicEvents')).catch(() => ({ size: 0, docs: [] })),
       ]);
 
       const totalUsers = usersSnapshot.size || 0;
@@ -66,7 +68,8 @@ export default function AdminAnalyticsScreen({ navigation }) {
         return sum + (order.total || order.amount || 0);
       }, 0);
       const totalServices = servicesSnapshot.size || 0;
-      const totalEvents = eventsSnapshot.size || 0;
+      // Combine events from both collections
+      const totalEvents = (eventsSnapshot.size || 0) + (publicEventsSnapshot.size || 0);
 
       setAnalytics({
         totalUsers,
@@ -287,6 +290,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+
+
+
+
+
+
+
+
+
+
 
 
 

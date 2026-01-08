@@ -98,39 +98,22 @@ const nyeEventDate = new Date('2025-12-31T20:00:00');
 const events = [
   {
     name: 'New Year\'s Eve Celebration',
-    description: 'Ring in the New Year with live music, performances, and celebration!',
+    description: 'Ring in the New Year with live music, performances, and celebration! Free RSVP event on December 31, 2025.',
     eventDate: Timestamp.fromDate(nyeEventDate),
     startTime: '8:00 PM',
     endTime: '1:00 AM',
     location: 'Merkaba Venue',
-    price: 50,
+    price: 0, // Free event
     capacity: 500,
     available: true,
-    isRSVP: false, // Regular booking event, not RSVP
+    isRSVP: true, // Free RSVP event - phone number only required
     category: 'Performance',
     image: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800',
     features: ['Live performances', 'DJ sets', 'Champagne toast', 'Food & drinks'],
     popularity: 95,
     rating: 4.9,
-    reviews: 45
-  },
-  {
-    name: 'Holiday Showcase',
-    description: 'Special holiday showcase featuring local artists',
-    eventDate: Timestamp.fromDate(new Date('2025-12-20T19:00:00')),
-    startTime: '7:00 PM',
-    endTime: '11:00 PM',
-    location: 'Merkaba Venue',
-    price: 25,
-    capacity: 300,
-    available: true,
-    isRSVP: false,
-    category: 'Showcase',
-    image: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800',
-    features: ['Multiple artists', 'Holiday theme', 'Food available'],
-    popularity: 60,
-    rating: 4.5,
-    reviews: 12
+    reviews: 45,
+    phoneOnlyRSVP: true // Only phone number required for this event
   }
 ];
 

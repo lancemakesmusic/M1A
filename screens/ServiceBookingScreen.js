@@ -5,6 +5,8 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -60,6 +62,10 @@ export default function ServiceBookingScreen({ route, navigation }) {
     contactName: user?.displayName || '',
     contactEmail: user?.email || '',
     contactPhone: '',
+    // Event-specific fields
+    ticketType: 'regular', // 'regular', 'earlyBird', 'vip'
+    discountCode: '',
+    discountApplied: false,
   });
   
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -248,15 +254,45 @@ export default function ServiceBookingScreen({ route, navigation }) {
     );
   }
 
+  // Check if early bird pricing is available
+  const isEarlyBirdAvailable = useMemo(() => {
+    if (item.category !== 'Events' || !item.earlyBirdPrice || !item.earlyBirdEndDate) {
+      return false;
+    }
+    const now = new Date();
+    const earlyBirdEnd = item.earlyBirdEndDate?.toDate ? item.earlyBirdEndDate.toDate() : new Date(item.earlyBirdEndDate);
+    return now < earlyBirdEnd;
+  }, [item.category, item.earlyBirdPrice, item.earlyBirdEndDate]);
+
   const subtotal = useMemo(() => {
-    // Check if this is a recording time deal
+    // Handle events differently
+    if (item.category === 'Events') {
+      // Determine ticket price based on selected type
+      let ticketPrice = item.ticketPrice || 0;
+      
+      if (formData.ticketType === 'vip' && item.vipPrice) {
+        ticketPrice = item.vipPrice;
+      } else if (formData.ticketType === 'earlyBird' && isEarlyBirdAvailable && item.earlyBirdPrice) {
+        ticketPrice = item.earlyBirdPrice;
+      }
+      
+      // Apply discount if valid code entered
+      let finalPrice = ticketPrice;
+      if (formData.discountApplied && item.discountPercent) {
+        finalPrice = ticketPrice * (1 - item.discountPercent / 100);
+      }
+      
+      return finalPrice * formData.quantity;
+    }
+    
+    // Services use existing logic
     if (item.isDeal && item.dealHours && item.dealPrice) {
       // For deals, price is fixed regardless of quantity
       // Quantity represents number of deal packages
       return item.dealPrice * formData.quantity;
     }
-    return item.price * formData.quantity;
-  }, [item.price, item.isDeal, item.dealHours, item.dealPrice, formData.quantity]);
+    return (item.price || 0) * formData.quantity;
+  }, [item, formData.quantity, formData.ticketType, formData.discountApplied, isEarlyBirdAvailable]);
 
   const tax = useMemo(() => {
     return subtotal * TAX_RATE;
@@ -271,7 +307,9 @@ export default function ServiceBookingScreen({ route, navigation }) {
   }, [subtotal, tax, serviceFee]);
 
   const onDateChange = (event, date) => {
-    setShowDatePicker(Platform.OS === 'ios');
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
     if (date) {
       setSelectedDate(date);
       const formattedDate = date.toLocaleDateString('en-US', {
@@ -281,11 +319,16 @@ export default function ServiceBookingScreen({ route, navigation }) {
         day: 'numeric',
       });
       setFormData({ ...formData, serviceDate: formattedDate });
+      if (Platform.OS === 'ios') {
+        // Don't close modal here - let user tap "Done" button
+      }
     }
   };
 
   const onTimeChange = (event, time) => {
-    setShowTimePicker(Platform.OS === 'ios');
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false);
+    }
     if (time) {
       setSelectedTime(time);
       const formattedTime = time.toLocaleTimeString('en-US', {
@@ -294,7 +337,28 @@ export default function ServiceBookingScreen({ route, navigation }) {
         hour12: true,
       });
       setFormData({ ...formData, serviceTime: formattedTime });
+      if (Platform.OS === 'ios') {
+        // Don't close modal here - let user tap "Done" button
+      }
     }
+  };
+
+  // Validate discount code for events
+  const validateDiscountCode = () => {
+    if (item.category === 'Events' && item.discountEnabled && formData.discountCode.trim()) {
+      const enteredCode = formData.discountCode.trim().toUpperCase();
+      const validCode = item.discountCode?.trim().toUpperCase();
+      
+      if (enteredCode === validCode) {
+        setFormData(prev => ({ ...prev, discountApplied: true }));
+        return true;
+      } else {
+        Alert.alert('Invalid Discount Code', 'The discount code you entered is not valid.');
+        setFormData(prev => ({ ...prev, discountApplied: false }));
+        return false;
+      }
+    }
+    return true;
   };
 
   const validateForm = () => {
@@ -318,6 +382,15 @@ export default function ServiceBookingScreen({ route, navigation }) {
       Alert.alert('Invalid Quantity', 'Quantity must be at least 1.');
       return false;
     }
+    // Validate discount code if entered
+    if (!validateDiscountCode()) {
+      return false;
+    }
+    // For events, ensure ticket price is valid
+    if (item.category === 'Events' && (!item.ticketPrice || item.ticketPrice === 0)) {
+      Alert.alert('Invalid Event', 'This event does not have a valid ticket price.');
+      return false;
+    }
     return true;
   };
 
@@ -326,11 +399,48 @@ export default function ServiceBookingScreen({ route, navigation }) {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
         // Real Firestore
         try {
-          const orderRef = await addDoc(collection(db, 'serviceOrders'), {
+          // Determine collection based on item category
+          const collectionName = item.category === 'Events' ? 'eventOrders' : 'serviceOrders';
+          
+          // Add event-specific fields for events
+          const orderDataWithEventFields = item.category === 'Events' ? {
             ...orderData,
+            eventId: item.id,
+            eventName: item.name,
+            ticketType: formData.ticketType || 'regular',
+            ticketPrice: formData.ticketType === 'vip' ? (item.vipPrice || item.ticketPrice) :
+                        formData.ticketType === 'earlyBird' ? (item.earlyBirdPrice || item.ticketPrice) :
+                        (item.ticketPrice || 0),
+            discountCode: formData.discountCode || null,
+            discountApplied: formData.discountApplied || false,
+            discountPercent: formData.discountApplied && item.discountPercent ? item.discountPercent : null,
+          } : orderData;
+          
+          const orderRef = await addDoc(collection(db, collectionName), {
+            ...orderDataWithEventFields,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
+          
+          // Create guest list entry for events
+          if (item.category === 'Events') {
+            const ticketId = `TICKET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            await addDoc(collection(db, 'eventBookings'), {
+              eventId: item.id,
+              eventName: item.name,
+              userId: user.uid,
+              userEmail: user.email,
+              userName: formData.contactName,
+              ticketType: formData.ticketType || 'regular',
+              quantity: formData.quantity,
+              orderId: orderRef.id,
+              status: 'confirmed',
+              ticketId: ticketId,
+              createdAt: serverTimestamp(),
+            });
+            console.log('✅ Guest list entry created in eventBookings');
+          }
+          
           return orderRef.id;
         } catch (firestoreError) {
           console.error('Firestore save failed:', firestoreError);
@@ -383,6 +493,25 @@ export default function ServiceBookingScreen({ route, navigation }) {
       };
       const API_BASE_URL = getApiBaseUrl();
       
+      // Calculate unit price for order data
+      let unitPriceForOrder = item.price || 0;
+      if (item.category === 'Events') {
+        // Use ticket price based on selected type
+        if (formData.ticketType === 'vip' && item.vipPrice) {
+          unitPriceForOrder = item.vipPrice;
+        } else if (formData.ticketType === 'earlyBird' && isEarlyBirdAvailable && item.earlyBirdPrice) {
+          unitPriceForOrder = item.earlyBirdPrice;
+        } else {
+          unitPriceForOrder = item.ticketPrice || 0;
+        }
+        // Apply discount if valid
+        if (formData.discountApplied && item.discountPercent) {
+          unitPriceForOrder = unitPriceForOrder * (1 - item.discountPercent / 100);
+        }
+      } else if (item.isDeal) {
+        unitPriceForOrder = item.dealPrice;
+      }
+
       const orderData = {
         userId: user.uid,
         userEmail: user.email,
@@ -390,7 +519,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
         serviceName: item.name,
         serviceCategory: item.category,
         quantity: formData.quantity,
-        unitPrice: item.isDeal ? item.dealPrice : item.price,
+        unitPrice: unitPriceForOrder,
         subtotal,
         tax,
         serviceFee,
@@ -547,162 +676,125 @@ export default function ServiceBookingScreen({ route, navigation }) {
         );
       }
 
-      // Process payment with Stripe
+      // Process payment with Stripe Checkout Session
+      // Calculate unit price based on item type
+      let unitPrice = item.price || 0;
+      if (item.category === 'Events') {
+        // Use ticket price based on selected type
+        if (formData.ticketType === 'vip' && item.vipPrice) {
+          unitPrice = item.vipPrice;
+        } else if (formData.ticketType === 'earlyBird' && isEarlyBirdAvailable && item.earlyBirdPrice) {
+          unitPrice = item.earlyBirdPrice;
+        } else {
+          unitPrice = item.ticketPrice || 0;
+        }
+        // Apply discount if valid
+        if (formData.discountApplied && item.discountPercent) {
+          unitPrice = unitPrice * (1 - item.discountPercent / 100);
+        }
+      } else if (item.isDeal) {
+        unitPrice = item.dealPrice;
+      }
+      
       const orderItems = [{
         id: item.id,
         name: item.name,
-        price: item.isDeal ? item.dealPrice : item.price,
+        price: unitPrice,
         quantity: formData.quantity,
         isDeal: item.isDeal || false,
         dealHours: item.isDeal ? item.dealHours * formData.quantity : null,
+        ticketType: item.category === 'Events' ? formData.ticketType : null,
+        discountApplied: item.category === 'Events' ? formData.discountApplied : false,
       }];
 
-      const result = await StripeService.createPaymentIntent(
+      // Save order to Firestore with PENDING payment status first
+      // This ensures we have an order ID before redirecting to Stripe
+      const orderId = await saveOrderToFirestore({
+        ...orderData,
+        paymentStatus: 'pending', // Will be updated to 'completed' via webhook
+        paymentMethod: 'stripe',
+        backendBookingId: backendResult.bookingId || null,
+      });
+
+      // Create success and cancel URLs for Stripe Checkout redirect
+      const baseUrl = Linking.createURL('/');
+      const successUrl = `${baseUrl}payment-success?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl}payment-cancel?orderId=${orderId}`;
+
+      // Create Stripe Checkout Session
+      const checkoutResult = await StripeService.createCheckoutSession(
         total,
         'usd',
         {
-          type: 'service_booking',
+          type: item.category === 'Events' ? 'event_booking' : 'service_booking',
+          orderType: item.category === 'Events' ? 'event_booking' : 'service_booking',
           serviceId: item.id,
           serviceName: item.name,
+          eventId: item.category === 'Events' ? item.id : null,
+          eventName: item.category === 'Events' ? item.name : null,
           userId: user.uid,
+          orderId: orderId,
+          ticketType: item.category === 'Events' ? formData.ticketType : null,
+          discountCode: item.category === 'Events' && formData.discountApplied ? formData.discountCode : null,
         },
-        orderItems
+        orderItems,
+        successUrl,
+        cancelUrl
       );
 
-      if (!result.success || !result.paymentIntentId) {
-        throw new Error(result.error || 'Failed to create payment intent. Please try again.');
+      if (!checkoutResult.success || !checkoutResult.url) {
+        throw new Error(checkoutResult.error || 'Failed to create checkout session. Please try again.');
       }
 
-      // Payment intent created successfully
-      // For production: Use Stripe Payment Sheet or redirect to Stripe Checkout
-      // For now, we'll save the order as pending and require manual confirmation
-      // In production, implement Stripe Payment Sheet here:
-      // 1. Install @stripe/stripe-react-native
-      // 2. Use initPaymentSheet and presentPaymentSheet
-      // 3. Confirm payment on backend after user completes payment sheet
-      
-      // Save order to Firestore with pending payment status
-      const orderId = await saveOrderToFirestore({
-        ...orderData,
-        paymentStatus: 'pending',
-        paymentMethod: 'stripe',
-        paymentIntentId: result.paymentIntentId,
-        clientSecret: result.clientSecret,
-        backendBookingId: backendResult.bookingId || null,
-      });
-
-      // IMPORTANT: In production, payment should be confirmed via:
-      // 1. Stripe Payment Sheet (mobile) or
-      // 2. Stripe Checkout (web) or
-      // 3. Backend webhook after payment succeeds
-      
-      // For now, we'll mark as completed after a short delay
-      // TODO: Replace this with actual payment confirmation
-      console.warn('⚠️ Payment confirmation not fully implemented. Payment intent created but not confirmed.');
-      console.warn('⚠️ In production, implement Stripe Payment Sheet or Checkout for payment confirmation.');
-      
-      // Simulate payment confirmation (REMOVE IN PRODUCTION)
-      // In production, this should only happen after Stripe webhook confirms payment
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Update order status to completed (in production, this happens via webhook)
-      await saveOrderToFirestore({
-        ...orderData,
-        paymentStatus: 'completed',
-        paymentMethod: 'stripe',
-        paymentIntentId: result.paymentIntentId,
-        backendBookingId: backendResult.bookingId || null,
-      });
-        
-      // Create calendar events via backend after payment confirmation
-      let calendarResult = { success: false };
+      // Update order with checkout session ID
       try {
-        if (formData.serviceDate && formData.serviceTime) {
-          // Parse service date and time to create start/end dates
-          const serviceDateStr = formData.serviceDate;
-          const serviceTimeStr = formData.serviceTime;
-          
-          // Parse date (format: "Monday, January 1, 2024")
-          const dateMatch = serviceDateStr.match(/(\w+), (\w+) (\d+), (\d+)/);
-          if (dateMatch) {
-            const [, , monthName, day, year] = dateMatch;
-            const monthMap = {
-              'January': 0, 'February': 1, 'March': 2, 'April': 3, 'May': 4, 'June': 5,
-              'July': 6, 'August': 7, 'September': 8, 'October': 9, 'November': 10, 'December': 11
-            };
-            const month = monthMap[monthName] || 0;
-            
-            // Parse time (format: "6:00 PM" or "18:00")
-            let startHour, startMinute;
-            if (serviceTimeStr.includes('AM') || serviceTimeStr.includes('PM')) {
-              const timeParts = serviceTimeStr.replace(/[AP]M/i, '').trim().split(':');
-              startHour = parseInt(timeParts[0]);
-              startMinute = parseInt(timeParts[1] || 0);
-              if (serviceTimeStr.toUpperCase().includes('PM') && startHour !== 12) {
-                startHour += 12;
-              } else if (serviceTimeStr.toUpperCase().includes('AM') && startHour === 12) {
-                startHour = 0;
-              }
-            } else {
-              const timeParts = serviceTimeStr.split(':');
-              startHour = parseInt(timeParts[0]);
-              startMinute = parseInt(timeParts[1] || 0);
-            }
-            
-            const startDate = new Date(parseInt(year), month, parseInt(day), startHour, startMinute);
-            
-            // Calculate end date based on service duration
-            const durationHours = item.isDeal && item.dealHours ? item.dealHours * formData.quantity : formData.quantity;
-            const endDate = new Date(startDate);
-            endDate.setHours(startDate.getHours() + durationHours);
-            
-            // Create calendar event via backend
-            const idToken = await user.getIdToken();
-            const eventTitle = `${item.name} - ${formData.contactName}`;
-            const eventDescription = `Service: ${item.name}\n` +
-              `Quantity: ${formData.quantity}\n` +
-              (item.isDeal && item.dealHours ? `Hours: ${item.dealHours * formData.quantity}\n` : '') +
-              `Total Cost: $${total.toFixed(2)}\n` +
-              `Contact: ${formData.contactEmail} | ${formData.contactPhone || 'N/A'}\n` +
-              (formData.specialRequests ? `Special Requests: ${formData.specialRequests}\n` : '') +
-              `Order ID: ${orderId}`;
-            
-            const calendarEventData = {
-              title: eventTitle,
-              description: eventDescription,
-              startTime: startDate.toISOString(),
-              endTime: endDate.toISOString(),
-              location: 'Merkaba Venue',
-              attendees: [{ email: formData.contactEmail }],
-              bookingId: backendResult.bookingId || orderId,
-              bookingType: 'service',
-              userEmail: formData.contactEmail,
-            };
-            
-            const calendarResponse = await fetch(`${API_BASE_URL}/api/calendar/create-event`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${idToken}`,
-              },
-              body: JSON.stringify(calendarEventData),
-            });
-            
-            if (calendarResponse.ok) {
-              const calendarData = await calendarResponse.json();
-              calendarResult = calendarData;
-              console.log('✅ Calendar events created:', calendarData);
-            } else {
-              const errorData = await calendarResponse.json().catch(() => ({}));
-              console.warn('⚠️ Calendar event creation failed:', errorData);
-              calendarResult = { success: false, error: errorData.detail || 'Calendar sync failed' };
-            }
-          }
+        if (isFirebaseReady() && db) {
+          // Using Firestore v9 syntax
+          const { doc, updateDoc } = await import('firebase/firestore');
+          // Use correct collection based on item category
+          const collectionName = item.category === 'Events' ? 'eventOrders' : 'serviceOrders';
+          const orderRef = doc(db, collectionName, orderId);
+          await updateDoc(orderRef, {
+            checkoutSessionId: checkoutResult.sessionId,
+            updatedAt: serverTimestamp(),
+          });
+          console.log('✅ Updated order with checkout session ID');
         }
-      } catch (calendarError) {
-        console.error('Error creating calendar events:', calendarError);
-        calendarResult = { success: false, error: calendarError.message };
+      } catch (updateError) {
+        console.warn('Failed to update order with checkout session ID:', updateError);
+        // Continue anyway - order will still be processed via webhook
       }
+
+      // Open Stripe Checkout in browser
+      console.log('Opening Stripe Checkout:', checkoutResult.url);
+      
+      // Use WebBrowser for better UX - opens in-app browser
+      const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
+        showTitle: true,
+        toolbarColor: theme.primary,
+        enableBarCollapsing: false,
+      });
+
+      // Note: After payment succeeds, Stripe will redirect to successUrl
+      // The webhook will handle:
+      // 1. Updating order status to 'completed'
+      // 2. Creating calendar events in Google Calendar
+      // 3. Updating wallet balance
+      
+      // If user closes browser without completing payment, they'll be redirected to cancelUrl
+      // For now, we'll show success message - the webhook will update status when payment completes
+      if (result.type === 'cancel') {
+        // User canceled - keep order as pending
+        setPaymentStep('payment');
+        setPaymentError('Payment was canceled. You can try again.');
+        setProcessingPayment(false);
+        return;
+      }
+
+      // Payment completed - webhook will handle the rest
+      // Show success message
+      setOrderNumber(orderId);
+      setPaymentStep('success');
       
       // OLD CODE - Keep for reference but now using backend
       /*let calendarResult = { success: false };
@@ -857,11 +949,26 @@ export default function ServiceBookingScreen({ route, navigation }) {
                   <Text style={[styles.summaryText, { color: theme.subtext }]}>
                     {item.name} x{formData.quantity}
                     {item.isDeal && ` (${item.dealHours * formData.quantity} hours)`}
+                    {item.category === 'Events' && formData.ticketType && (
+                      <Text style={{ color: theme.subtext }}>
+                        {' '}({formData.ticketType === 'vip' ? 'VIP' : formData.ticketType === 'earlyBird' ? 'Early Bird' : 'Regular'})
+                      </Text>
+                    )}
                   </Text>
                   <Text style={[styles.summaryText, { color: theme.text }]}>
                     ${subtotal.toFixed(2)}
                   </Text>
                 </View>
+                {item.category === 'Events' && formData.discountApplied && item.discountPercent && (
+                  <View style={styles.summaryRow}>
+                    <Text style={[styles.summaryText, { color: '#34C759' }]}>
+                      Discount ({item.discountPercent}% OFF)
+                    </Text>
+                    <Text style={[styles.summaryText, { color: '#34C759' }]}>
+                      -${((subtotal / (1 - item.discountPercent / 100)) - subtotal).toFixed(2)}
+                    </Text>
+                  </View>
+                )}
                 {item.isDeal && item.regularPrice && (
                   <View style={styles.summaryRow}>
                     <Text style={[styles.summaryText, { color: theme.subtext, textDecorationLine: 'line-through' }]}>
@@ -1147,6 +1254,141 @@ export default function ServiceBookingScreen({ route, navigation }) {
             )}
           </View>
 
+          {/* Event Ticket Type Selection */}
+          {item.category === 'Events' && item.ticketsEnabled && (
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: theme.text }]}>Ticket Type *</Text>
+              <View style={styles.ticketTypeContainer}>
+                {/* Regular Ticket */}
+                <TouchableOpacity
+                  style={[
+                    styles.ticketTypeOption,
+                    { 
+                      backgroundColor: formData.ticketType === 'regular' ? theme.primary + '20' : theme.cardBackground,
+                      borderColor: formData.ticketType === 'regular' ? theme.primary : theme.border,
+                    }
+                  ]}
+                  onPress={() => setFormData({ ...formData, ticketType: 'regular' })}
+                >
+                  <View style={styles.ticketTypeHeader}>
+                    <Text style={[styles.ticketTypeName, { color: theme.text }]}>Regular</Text>
+                    <Text style={[styles.ticketTypePrice, { color: theme.primary }]}>
+                      ${(item.ticketPrice || 0).toFixed(2)}
+                    </Text>
+                  </View>
+                  {formData.ticketType === 'regular' && (
+                    <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Early Bird Ticket */}
+                {isEarlyBirdAvailable && item.earlyBirdPrice && (
+                  <TouchableOpacity
+                    style={[
+                      styles.ticketTypeOption,
+                      { 
+                        backgroundColor: formData.ticketType === 'earlyBird' ? theme.primary + '20' : theme.cardBackground,
+                        borderColor: formData.ticketType === 'earlyBird' ? theme.primary : theme.border,
+                      }
+                    ]}
+                    onPress={() => setFormData({ ...formData, ticketType: 'earlyBird' })}
+                  >
+                    <View style={styles.ticketTypeHeader}>
+                      <View style={styles.ticketTypeBadge}>
+                        <Text style={[styles.ticketTypeBadgeText, { color: '#FF9500' }]}>EARLY BIRD</Text>
+                      </View>
+                      <Text style={[styles.ticketTypeName, { color: theme.text }]}>Early Bird</Text>
+                      <Text style={[styles.ticketTypePrice, { color: '#FF9500' }]}>
+                        ${(item.earlyBirdPrice || 0).toFixed(2)}
+                      </Text>
+                    </View>
+                    {item.earlyBirdEndDate && (
+                      <Text style={[styles.ticketTypeSubtext, { color: theme.subtext }]}>
+                        Ends {item.earlyBirdEndDate?.toDate ? item.earlyBirdEndDate.toDate().toLocaleDateString() : 'soon'}
+                      </Text>
+                    )}
+                    {formData.ticketType === 'earlyBird' && (
+                      <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {/* VIP Ticket */}
+                {item.vipPrice && (
+                  <TouchableOpacity
+                    style={[
+                      styles.ticketTypeOption,
+                      { 
+                        backgroundColor: formData.ticketType === 'vip' ? theme.primary + '20' : theme.cardBackground,
+                        borderColor: formData.ticketType === 'vip' ? theme.primary : theme.border,
+                      }
+                    ]}
+                    onPress={() => setFormData({ ...formData, ticketType: 'vip' })}
+                  >
+                    <View style={styles.ticketTypeHeader}>
+                      <View style={styles.ticketTypeBadge}>
+                        <Text style={[styles.ticketTypeBadgeText, { color: '#FFD700' }]}>VIP</Text>
+                      </View>
+                      <Text style={[styles.ticketTypeName, { color: theme.text }]}>VIP</Text>
+                      <Text style={[styles.ticketTypePrice, { color: '#FFD700' }]}>
+                        ${(item.vipPrice || 0).toFixed(2)}
+                      </Text>
+                    </View>
+                    {formData.ticketType === 'vip' && (
+                      <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Discount Code Input */}
+          {item.category === 'Events' && item.discountEnabled && (
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: theme.text }]}>Discount Code</Text>
+              <View style={styles.discountContainer}>
+                <TextInput
+                  style={[
+                    styles.discountInput,
+                    { 
+                      backgroundColor: theme.cardBackground,
+                      borderColor: formData.discountApplied ? '#34C759' : theme.border,
+                      color: theme.text,
+                    }
+                  ]}
+                  placeholder="Enter discount code"
+                  placeholderTextColor={theme.subtext}
+                  value={formData.discountCode}
+                  onChangeText={(text) => {
+                    setFormData(prev => ({ 
+                      ...prev, 
+                      discountCode: text.toUpperCase(),
+                      discountApplied: false // Reset when code changes
+                    }));
+                  }}
+                  autoCapitalize="characters"
+                />
+                {formData.discountApplied && (
+                  <View style={styles.discountApplied}>
+                    <Ionicons name="checkmark-circle" size={20} color="#34C759" />
+                    <Text style={[styles.discountAppliedText, { color: '#34C759' }]}>
+                      {item.discountPercent}% OFF
+                    </Text>
+                  </View>
+                )}
+              </View>
+              {formData.discountCode && !formData.discountApplied && (
+                <TouchableOpacity
+                  style={[styles.applyDiscountButton, { backgroundColor: theme.primary }]}
+                  onPress={validateDiscountCode}
+                >
+                  <Text style={styles.applyDiscountButtonText}>Apply Code</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: theme.text }]}>Contact Name *</Text>
             <TextInput
@@ -1232,23 +1474,98 @@ export default function ServiceBookingScreen({ route, navigation }) {
 
       {/* Date Picker */}
       {showDatePicker && (
-        <DateTimePicker
-          value={selectedDate}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          minimumDate={new Date()}
-          onChange={onDateChange}
-        />
+        Platform.OS === 'ios' ? (
+          <Modal
+            visible={showDatePicker}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setShowDatePicker(false)}
+          >
+            <View style={styles.pickerModalOverlay}>
+              <View style={[styles.pickerModalContent, { backgroundColor: theme.cardBackground }]}>
+                <View style={[styles.pickerModalHeader, { borderBottomColor: theme.border }]}>
+                  <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                    <Text style={[styles.pickerModalButton, { color: theme.primary }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.pickerModalTitle, { color: theme.text }]}>Select Date</Text>
+                  <TouchableOpacity onPress={() => {
+                    setShowDatePicker(false);
+                    onDateChange(null, selectedDate);
+                  }}>
+                    <Text style={[styles.pickerModalButton, { color: theme.primary }]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={selectedDate}
+                  mode="date"
+                  display="spinner"
+                  minimumDate={new Date()}
+                  onChange={onDateChange}
+                  textColor={theme.text}
+                  themeVariant={theme.isDark ? 'dark' : 'light'}
+                  style={{ backgroundColor: theme.cardBackground }}
+                />
+              </View>
+            </View>
+          </Modal>
+        ) : (
+          <DateTimePicker
+            value={selectedDate}
+            mode="date"
+            display="default"
+            minimumDate={new Date()}
+            onChange={onDateChange}
+            textColor={theme.text}
+            themeVariant={theme.isDark ? 'dark' : 'light'}
+          />
+        )
       )}
 
       {/* Time Picker */}
       {showTimePicker && (
-        <DateTimePicker
-          value={selectedTime}
-          mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onTimeChange}
-        />
+        Platform.OS === 'ios' ? (
+          <Modal
+            visible={showTimePicker}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setShowTimePicker(false)}
+          >
+            <View style={styles.pickerModalOverlay}>
+              <View style={[styles.pickerModalContent, { backgroundColor: theme.cardBackground }]}>
+                <View style={[styles.pickerModalHeader, { borderBottomColor: theme.border }]}>
+                  <TouchableOpacity onPress={() => setShowTimePicker(false)}>
+                    <Text style={[styles.pickerModalButton, { color: theme.primary }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.pickerModalTitle, { color: theme.text }]}>Select Time</Text>
+                  <TouchableOpacity onPress={() => {
+                    setShowTimePicker(false);
+                    onTimeChange(null, selectedTime);
+                  }}>
+                    <Text style={[styles.pickerModalButton, { color: theme.primary }]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={selectedTime}
+                  mode="time"
+                  display="spinner"
+                  onChange={onTimeChange}
+                  textColor={theme.text}
+                  themeVariant={theme.isDark ? 'dark' : 'light'}
+                  style={{ backgroundColor: theme.cardBackground }}
+                />
+              </View>
+            </View>
+          </Modal>
+        ) : (
+          <DateTimePicker
+            value={selectedTime}
+            mode="time"
+            display="default"
+            onChange={onTimeChange}
+            textColor={theme.text}
+            themeVariant={theme.isDark ? 'dark' : 'light'}
+          />
+        )
       )}
 
       {renderPaymentModal()}
@@ -1739,5 +2056,112 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  pickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  pickerModalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+    maxHeight: '50%',
+  },
+  pickerModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  pickerModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  pickerModalButton: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  ticketTypeContainer: {
+    gap: 12,
+    marginTop: 8,
+  },
+  ticketTypeOption: {
+    borderWidth: 2,
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  ticketTypeHeader: {
+    flex: 1,
+  },
+  ticketTypeBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 149, 0, 0.1)',
+    marginBottom: 4,
+  },
+  ticketTypeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  ticketTypeName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  ticketTypePrice: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  ticketTypeSubtext: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  discountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  discountInput: {
+    flex: 1,
+    borderWidth: 2,
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  discountApplied: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#34C75920',
+  },
+  discountAppliedText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  applyDiscountButton: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  applyDiscountButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -1,19 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as Linking from 'expo-linking';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert,
-  Dimensions,
-  FlatList,
-  Modal,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    Dimensions,
+    FlatList,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import FeatureRecommendations from '../components/FeatureRecommendations';
@@ -212,9 +211,12 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
 
         if (response.ok) {
           const data = await response.json();
-          if (data.success && data.stats) {
+          // If backend explicitly marks response as placeholder, fall back to Firestore
+          if (data.success && data.stats && !data.placeholder) {
             setStats(data.stats);
             return;
+          } else {
+            console.log('Backend dashboard stats placeholder or unavailable, falling back to Firestore', data.error || 'placeholder');
           }
         }
       } catch (apiError) {
