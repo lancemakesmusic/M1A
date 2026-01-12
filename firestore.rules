@@ -30,6 +30,36 @@ service cloud.firestore {
       allow read: if true; // Public read
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow update, delete: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Comments subcollection
+      match /comments/{commentId} {
+        allow read: if true; // Public read
+        allow create: if request.auth != null && 
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.text != null;
+        allow update, delete: if request.auth != null && 
+          (resource.data.userId == request.auth.uid || isAdmin());
+      }
+      
+      // Reactions subcollection
+      match /reactions/{reactionId} {
+        allow read: if true; // Public read
+        allow create: if request.auth != null && 
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.type != null;
+        allow update, delete: if request.auth != null && 
+          (resource.data.userId == request.auth.uid || isAdmin());
+      }
+      
+      // Poll votes subcollection
+      match /pollVotes/{voteId} {
+        allow read: if true; // Public read
+        allow create: if request.auth != null && 
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.optionIndex != null;
+        allow update, delete: if request.auth != null && 
+          (resource.data.userId == request.auth.uid || isAdmin());
+      }
     }
     
     // Wallet transactions

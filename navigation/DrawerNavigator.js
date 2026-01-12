@@ -1,14 +1,10 @@
 // navigation/DrawerNavigator.js
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
-import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawer';
+import { View, StyleSheet } from 'react-native';
+import { createDrawerNavigator } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
-import { useContext } from 'react';
-import { UserContext } from '../contexts/UserContext';
-import { auth } from '../firebase';
-import { getAvatarSource, getImageKey } from '../utils/photoUtils';
-import M1ALogo from '../components/M1ALogo';
+import CustomDrawerContent from '../components/CustomDrawerContent';
 
 // Import the main Tab Navigator
 import AppNavigator from './AppNavigator';
@@ -32,92 +28,6 @@ import UsersScreen from '../screens/UsersScreen';
 
 const Drawer = createDrawerNavigator();
 
-// Custom Drawer Content with user info and logout
-function CustomDrawerContent(props) {
-  const { theme } = useTheme();
-  const { user } = useContext(UserContext);
-  const navigation = props.navigation;
-
-  const handleLogout = async () => {
-    try {
-      await auth.signOut();
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
-
-  // Get avatar source using utility function for consistency
-  const avatarSource = getAvatarSource(user);
-  const avatarKey = getImageKey(user, 'drawer-avatar');
-
-  return (
-    <View style={[styles.drawerContainer, { backgroundColor: theme.background }]}>
-      <DrawerContentScrollView
-        {...props}
-        contentContainerStyle={styles.drawerContent}
-        showsVerticalScrollIndicator={true}
-        bounces={false}
-      >
-        {/* Brand Header */}
-        <View style={[styles.brandHeader, { borderBottomColor: theme.border }]}>
-          <M1ALogo size={48} variant="icon" style={styles.brandLogo} />
-        </View>
-
-        {/* User Info Section */}
-        <View style={[styles.userSection, { borderBottomColor: theme.border }]}>
-          <View style={[styles.avatarContainer, { backgroundColor: theme.primary + '20' }]}>
-            {avatarSource ? (
-              <Image
-                source={avatarSource}
-                style={styles.avatarImage}
-                key={avatarKey}
-                onError={(error) => {
-                  console.warn('Drawer avatar image failed to load:', error.nativeEvent.error);
-                }}
-                onLoad={() => {
-                  console.log('✅ Drawer avatar loaded successfully');
-                }}
-              />
-            ) : (
-              <Ionicons name="person" size={32} color={theme.primary} />
-            )}
-          </View>
-          <Text 
-            style={[styles.userName, { color: theme.text }]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
-            {user?.displayName || user?.username || 'User'}
-          </Text>
-          <Text 
-            style={[styles.userEmail, { color: theme.subtext }]}
-            numberOfLines={1}
-            ellipsizeMode="middle"
-          >
-            {user?.email || auth.currentUser?.email || ''}
-          </Text>
-        </View>
-
-        {/* Drawer Items */}
-        <View style={styles.drawerItemsContainer}>
-          <DrawerItemList {...props} />
-        </View>
-      </DrawerContentScrollView>
-
-      {/* Logout Button - Fixed at bottom */}
-      <View style={[styles.logoutSection, { borderTopColor: theme.border }]}>
-        <TouchableOpacity
-          style={[styles.logoutButton, { backgroundColor: theme.cardBackground }]}
-          onPress={handleLogout}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="log-out-outline" size={22} color="#FF3B30" />
-          <Text style={[styles.logoutText, { color: '#FF3B30' }]}>Logout</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
 
 export default function DrawerNavigator() {
   const { theme } = useTheme();

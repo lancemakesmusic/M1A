@@ -58,6 +58,8 @@ export default function ProfileEditScreen({ navigation }) {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadType, setUploadType] = useState(null); // 'avatar' or 'cover'
 
   // Cache-busting to force <Image> refresh after upload
   const [cacheBust, setCacheBust] = useState(Date.now());
@@ -127,11 +129,15 @@ export default function ProfileEditScreen({ navigation }) {
       
       setUploadingAvatar(true);
       setIsUploading(true);
+      setUploadType('avatar');
+      setUploadProgress(0);
       
       console.log('[Avatar Upload] Starting upload...', localUri);
       
-      // Upload to Firebase Storage
-      const downloadURL = await uploadImageAsync(localUri, 'avatars', 1024);
+      // Upload to Firebase Storage with progress tracking
+      const downloadURL = await uploadImageAsync(localUri, 'avatars', 1024, (progress) => {
+        setUploadProgress(progress);
+      });
       
       console.log('[Avatar Upload] Upload complete, URL:', downloadURL);
       
@@ -219,6 +225,8 @@ export default function ProfileEditScreen({ navigation }) {
     } finally {
       setUploadingAvatar(false);
       setIsUploading(false);
+      setUploadProgress(0);
+      setUploadType(null);
     }
   };
 
@@ -249,11 +257,15 @@ export default function ProfileEditScreen({ navigation }) {
       
       setUploadingCover(true);
       setIsUploading(true);
+      setUploadType('cover');
+      setUploadProgress(0);
       
       console.log('[Cover Upload] Starting upload...', localUri);
       
-      // Upload to Firebase Storage
-      const downloadURL = await uploadImageAsync(localUri, 'covers', 1200);
+      // Upload to Firebase Storage with progress tracking
+      const downloadURL = await uploadImageAsync(localUri, 'covers', 1200, (progress) => {
+        setUploadProgress(progress);
+      });
       
       console.log('[Cover Upload] Upload complete, URL:', downloadURL);
       
@@ -331,6 +343,8 @@ export default function ProfileEditScreen({ navigation }) {
     } finally {
       setUploadingCover(false);
       setIsUploading(false);
+      setUploadProgress(0);
+      setUploadType(null);
     }
   };
 
@@ -511,6 +525,22 @@ export default function ProfileEditScreen({ navigation }) {
           {uploadingAvatar ? (
             <View style={[styles.avatarPlaceholder, { backgroundColor: theme.cardBackground }]}>
               <ActivityIndicator size="large" color={theme.primary} />
+              {uploadProgress > 0 && (
+                <View style={styles.progressOverlay}>
+                  <Text style={[styles.progressText, { color: theme.text }]}>{uploadProgress}%</Text>
+                  <View style={[styles.progressBarContainer, { backgroundColor: theme.border }]}>
+                    <View 
+                      style={[
+                        styles.progressBar, 
+                        { 
+                          width: `${uploadProgress}%`, 
+                          backgroundColor: theme.primary 
+                        }
+                      ]} 
+                    />
+                  </View>
+                </View>
+              )}
             </View>
           ) : displayAvatarUrl ? (
             <View style={styles.avatarContainer}>
@@ -534,7 +564,9 @@ export default function ProfileEditScreen({ navigation }) {
             </View>
           )}
           <Text style={[styles.avatarLabel, { color: theme.primary }]}>
-            {uploadingAvatar ? 'Uploading…' : 'Change Profile Photo'}
+            {uploadingAvatar 
+              ? (uploadProgress > 0 ? `Uploading… ${uploadProgress}%` : 'Uploading…') 
+              : 'Change Profile Photo'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -550,7 +582,25 @@ export default function ProfileEditScreen({ navigation }) {
           {uploadingCover ? (
             <View style={[styles.coverPlaceholder, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
               <ActivityIndicator size="large" color={theme.primary} />
-              <Text style={[styles.coverPlaceholderText, { color: theme.subtext }]}>Uploading...</Text>
+              {uploadProgress > 0 && (
+                <>
+                  <Text style={[styles.coverPlaceholderText, { color: theme.text, fontWeight: '600', marginTop: 8 }]}>
+                    {uploadProgress}%
+                  </Text>
+                  <View style={[styles.progressBarContainer, { backgroundColor: theme.border, marginTop: 8, width: '80%' }]}>
+                    <View 
+                      style={[
+                        styles.progressBar, 
+                        { 
+                          width: `${uploadProgress}%`, 
+                          backgroundColor: theme.primary 
+                        }
+                      ]} 
+                    />
+                  </View>
+                </>
+              )}
+              <Text style={[styles.coverPlaceholderText, { color: theme.subtext, marginTop: 8 }]}>Uploading...</Text>
             </View>
           ) : displayCoverUrl ? (
             <View style={styles.coverContainer}>
@@ -772,6 +822,40 @@ export default function ProfileEditScreen({ navigation }) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Upload Progress Modal */}
+      {(uploadingAvatar || uploadingCover) && uploadProgress > 0 && (
+        <View style={styles.progressModalOverlay}>
+          <View style={[styles.progressModal, { backgroundColor: theme.cardBackground }]}>
+            <Ionicons 
+              name={uploadType === 'avatar' ? 'person' : 'image'} 
+              size={48} 
+              color={theme.primary} 
+            />
+            <Text style={[styles.progressModalTitle, { color: theme.text }]}>
+              Uploading {uploadType === 'avatar' ? 'Profile Photo' : 'Cover Photo'}
+            </Text>
+            <View style={styles.progressModalBarContainer}>
+              <View style={[styles.progressModalBarBackground, { backgroundColor: theme.border }]}>
+                <View 
+                  style={[
+                    styles.progressModalBar, 
+                    { 
+                      width: `${uploadProgress}%`, 
+                      backgroundColor: theme.primary 
+                    }
+                  ]} 
+                />
+              </View>
+            </View>
+            <Text style={[styles.progressModalPercent, { color: theme.text }]}>
+              {uploadProgress}%
+            </Text>
+            <Text style={[styles.progressModalSubtext, { color: theme.subtext }]}>
+              Please wait while your image is being uploaded...
+            </Text>
+          </View>
+        </View>
+      )}
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1053,5 +1137,83 @@ const styles = StyleSheet.create({
   settingDescription: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  // Progress Styles
+  progressOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    right: 8,
+    alignItems: 'center',
+  },
+  progressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  progressBarContainer: {
+    width: '100%',
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  // Progress Modal Styles
+  progressModalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  progressModal: {
+    width: '80%',
+    maxWidth: 300,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  progressModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  progressModalBarContainer: {
+    width: '100%',
+    marginBottom: 12,
+  },
+  progressModalBarBackground: {
+    width: '100%',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressModalBar: {
+    height: '100%',
+    borderRadius: 4,
+    transition: 'width 0.3s ease',
+  },
+  progressModalPercent: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  progressModalSubtext: {
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

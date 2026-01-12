@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   Modal,
@@ -21,12 +22,17 @@ import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
+import { useWallet } from '../contexts/WalletContext';
+import { getPersonaWelcomeMessage, getPersonaQuickActions, getPersonaRecommendedFeatures } from '../utils/personaFilters';
+import { searchFeatures, getSearchSuggestions } from '../utils/searchUtils';
+import { db, isFirebaseReady } from '../firebase';
 
 export default function HomeScreen({ navigation }) {
   const { user: authUser, loading: authLoading } = useAuth();
   const { user: userProfile } = useContext(UserContext);
   const { theme } = useTheme();
   const { isAdminEmail } = useRole();
+  const { balance: walletBalance, refreshBalance } = useWallet();
   const { 
     userPersona, 
     getPersonaColor, 
@@ -36,22 +42,8 @@ export default function HomeScreen({ navigation }) {
     getTutorialSteps
   } = useM1APersonalization();
   
-  // Check if current user is admin
-  // isAdminEmail already checks if email is in admin list, so we can use it directly
-  // But we'll also verify email matches for extra security
-  const isAdmin = isAdminEmail || (authUser?.email === 'admin@merkabaent.com');
-  
-  // Debug logging for admin check
-  useEffect(() => {
-    if (authUser) {
-      console.log('🏠 HomeScreen Admin Check:', {
-        email: authUser.email,
-        isAdminEmail,
-        isAdmin,
-        checkResult: isAdminEmail || (authUser?.email === 'admin@merkabaent.com'),
-      });
-    }
-  }, [authUser, isAdminEmail, isAdmin]);
+  // SECURITY: Only admin@merkabaent.com can access admin panels
+  const isAdmin = authUser?.email === 'admin@merkabaent.com';
   
   const [refreshing, setRefreshing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -61,7 +53,24 @@ export default function HomeScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
+  const [stats, setStats] = useState({
+    activeEvents: 0,
+    upcomingEvents: 0,
+    totalBookings: 0,
+  });
+  const [loadingStats, setLoadingStats] = useState(false);
+
+  // Refresh wallet balance when screen is focused (e.g., after admin adjustment)
+  useFocusEffect(
+    useCallback(() => {
+      if (authUser?.uid) {
+        // Refresh balance from WalletContext when screen comes into focus
+        refreshBalance(authUser.uid);
+      }
+    }, [authUser?.uid, refreshBalance])
+  );
 
   // Show tutorial on first visit to home screen
   useEffect(() => {
@@ -88,19 +97,90 @@ export default function HomeScreen({ navigation }) {
     return features;
   }, []);
 
-  // Search functionality
+  // Enhanced search functionality with fuzzy matching
   useEffect(() => {
     if (searchQuery.trim().length > 0) {
-      const query = searchQuery.toLowerCase();
-      const results = allFeatures.filter(feature => 
-        feature.title.toLowerCase().includes(query) ||
-        feature.description.toLowerCase().includes(query)
-      );
+      const results = searchFeatures(searchQuery, allFeatures);
       setSearchResults(results);
+      
+      // Show suggestions for partial queries
+      if (searchQuery.trim().length >= 2) {
+        const suggestions = getSearchSuggestions(searchQuery, allFeatures);
+        setSearchSuggestions(suggestions);
+      } else {
+        setSearchSuggestions([]);
+      }
     } else {
       setSearchResults([]);
+      setSearchSuggestions([]);
     }
   }, [searchQuery, allFeatures]);
+
+  // Load personalized stats
+  useEffect(() => {
+    if (authUser?.uid) {
+      loadUserStats();
+    }
+  }, [authUser?.uid]);
+
+  const loadUserStats = async () => {
+    if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
+      return;
+    }
+
+    // Check cache first
+    const cacheKey = dataCache.generateKey('homeStats', { userId: authUser?.uid });
+    const cachedStats = dataCache.get(cacheKey);
+    if (cachedStats) {
+      console.log('📦 Using cached home stats');
+      setStats(cachedStats);
+      setLoadingStats(false);
+      // Still refresh in background
+    }
+
+    setLoadingStats(true);
+    try {
+      const { collection: firestoreCollection, query: firestoreQuery, where, getCountFromServer, Timestamp } = await import('firebase/firestore');
+      const now = Timestamp.now();
+
+      // Get upcoming events count
+      try {
+        const upcomingEventsQuery = firestoreQuery(
+          firestoreCollection(db, 'eventBookings'),
+          where('userId', '==', authUser.uid),
+          where('eventDate', '>=', now)
+        );
+        const upcomingSnapshot = await getCountFromServer(upcomingEventsQuery);
+        const upcomingEvents = upcomingSnapshot.data().count;
+
+        // Get total bookings
+        const totalBookingsQuery = firestoreQuery(
+          firestoreCollection(db, 'eventBookings'),
+          where('userId', '==', authUser.uid)
+        );
+        const totalSnapshot = await getCountFromServer(totalBookingsQuery);
+        const totalBookings = totalSnapshot.data().count;
+
+        const newStats = {
+          activeEvents: upcomingEvents,
+          upcomingEvents: upcomingEvents,
+          totalBookings: totalBookings,
+        };
+        setStats(newStats);
+        
+        // Cache the results
+        const cacheKey = dataCache.generateKey('homeStats', { userId: authUser?.uid });
+        dataCache.set(cacheKey, newStats, 3 * 60 * 1000); // 3 minutes TTL
+      } catch (error) {
+        console.warn('Error loading stats:', error);
+        // Keep default values on error
+      }
+    } catch (error) {
+      console.warn('Error initializing stats load:', error);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
 
   const handleSearchSelect = (feature) => {
     setSearchQuery('');
@@ -112,18 +192,20 @@ export default function HomeScreen({ navigation }) {
     setRefreshing(true);
     setError(null);
     try {
-      // Simulate refresh with potential error
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // Simulate occasional error for testing
-      if (Math.random() < 0.1) {
-        throw new Error('Failed to refresh data');
+      // Refresh wallet balance and user data
+      if (authUser?.uid) {
+        await refreshBalance(authUser.uid);
+        await loadUserStats(); // Refresh stats on pull-to-refresh
       }
+      // Add any other refresh logic here
+      await new Promise(resolve => setTimeout(resolve, 500));
     } catch (err) {
-      setError(err.message);
+      console.error('Error refreshing home screen:', err);
+      setError('Failed to refresh. Please try again.');
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [authUser?.uid, refreshBalance]);
 
   const handleTutorialNext = () => {
     const tutorialSteps = getTutorialSteps();
@@ -150,11 +232,24 @@ export default function HomeScreen({ navigation }) {
     await markTutorialComplete();
   };
 
-  // Get persona-specific services based on user's persona
+  // Get persona-specific services and recommendations
   const primaryServices = useMemo(() => {
     const personaId = userPersona?.id || 'guest';
     
-    // Define services for each persona
+    // Get persona-specific recommended features
+    const personaRecommended = getPersonaRecommendedFeatures(personaId);
+    
+    // Convert to service format
+    const recommendedServices = personaRecommended.map((feature, index) => ({
+      id: feature.id || `rec-${index}`,
+      title: feature.title,
+      description: feature.description,
+      icon: feature.icon,
+      color: feature.color || '#007AFF',
+      onPress: () => navigation.navigate(feature.screen),
+    }));
+    
+    // Define base services for each persona
     const personaServices = {
       promoter: [
         {
@@ -458,7 +553,7 @@ export default function HomeScreen({ navigation }) {
                 </Text>
                 <Text style={[styles.valueProposition, { color: theme.subtext }]}>
                   {userPersona 
-                    ? `Your AI-powered assistant for ${userPersona.subtitle || 'entertainment professionals'}`
+                    ? getPersonaWelcomeMessage(userPersona.id)
                     : 'Your AI-powered assistant for everything Merkaba'}
                 </Text>
               </View>
@@ -483,6 +578,23 @@ export default function HomeScreen({ navigation }) {
                 <Ionicons name="close-circle" size={20} color={theme.subtext} />
               </TouchableOpacity>
             )}
+          </View>
+        )}
+
+        {/* Search Suggestions */}
+        {showSearch && searchQuery.length >= 2 && searchSuggestions.length > 0 && searchResults.length === 0 && (
+          <View style={[styles.searchSuggestionsContainer, { backgroundColor: theme.cardBackground }]}>
+            <Text style={[styles.suggestionsTitle, { color: theme.subtext }]}>Suggestions</Text>
+            {searchSuggestions.map((suggestion, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[styles.suggestionItem, { borderBottomColor: theme.border }]}
+                onPress={() => setSearchQuery(suggestion)}
+              >
+                <Ionicons name="search-outline" size={16} color={theme.subtext} />
+                <Text style={[styles.suggestionText, { color: theme.text }]}>{suggestion}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         )}
 
@@ -616,26 +728,69 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.quickStatsSection}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Quick Stats</Text>
           <View style={styles.statsContainer}>
-            <View style={[
-              styles.statCard, 
-              { 
-                backgroundColor: theme.cardBackground,
-                shadowColor: theme.shadow,
-              }
-            ]}>
-              <Text style={[styles.statValue, { color: theme.primary }]}>$0</Text>
+            <TouchableOpacity
+              style={[
+                styles.statCard, 
+                { 
+                  backgroundColor: theme.cardBackground,
+                  shadowColor: theme.shadow,
+                }
+              ]}
+              onPress={() => navigation.navigate('Wallet')}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.statIconContainer, { backgroundColor: theme.primary + '20' }]}>
+                <Ionicons name="wallet" size={20} color={theme.primary} />
+              </View>
+              <Text style={[styles.statValue, { color: theme.primary }]}>
+                ${typeof walletBalance === 'number' ? walletBalance.toFixed(2) : '0.00'}
+              </Text>
               <Text style={[styles.statLabel, { color: theme.subtext }]}>Wallet Balance</Text>
-            </View>
-            <View style={[
-              styles.statCard, 
-              { 
-                backgroundColor: theme.cardBackground,
-                shadowColor: theme.shadow,
-              }
-            ]}>
-              <Text style={[styles.statValue, { color: theme.primary }]}>0</Text>
-              <Text style={[styles.statLabel, { color: theme.subtext }]}>Active Events</Text>
-            </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.statCard, 
+                { 
+                  backgroundColor: theme.cardBackground,
+                  shadowColor: theme.shadow,
+                }
+              ]}
+              onPress={() => navigation.navigate('Explore', { initialCategory: 'Events' })}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.statIconContainer, { backgroundColor: getPersonaColor() + '20' }]}>
+                <Ionicons name="calendar" size={20} color={getPersonaColor()} />
+              </View>
+              {loadingStats ? (
+                <Text style={[styles.statValue, { color: theme.subtext }]}>...</Text>
+              ) : (
+                <Text style={[styles.statValue, { color: getPersonaColor() }]}>
+                  {stats.upcomingEvents}
+                </Text>
+              )}
+              <Text style={[styles.statLabel, { color: theme.subtext }]}>Upcoming Events</Text>
+            </TouchableOpacity>
+            {stats.totalBookings > 0 && (
+              <TouchableOpacity
+                style={[
+                  styles.statCard, 
+                  { 
+                    backgroundColor: theme.cardBackground,
+                    shadowColor: theme.shadow,
+                  }
+                ]}
+                onPress={() => navigation.navigate('M1ADashboard')}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.statIconContainer, { backgroundColor: '#9C27B0' + '20' }]}>
+                  <Ionicons name="checkmark-circle" size={20} color="#9C27B0" />
+                </View>
+                <Text style={[styles.statValue, { color: '#9C27B0' }]}>
+                  {stats.totalBookings}
+                </Text>
+                <Text style={[styles.statLabel, { color: theme.subtext }]}>Total Bookings</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
         </ScrollView>
@@ -988,6 +1143,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    minWidth: 100,
+  },
+  statIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   statValue: {
     fontSize: 24,
@@ -997,6 +1161,39 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 14,
     textAlign: 'center',
+  },
+  searchSuggestionsContainer: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 12,
+    borderRadius: 12,
+    padding: 12,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  suggestionsTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+  },
+  suggestionText: {
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
   },
   modalOverlay: {
     flex: 1,

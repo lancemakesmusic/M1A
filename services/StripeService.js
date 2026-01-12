@@ -276,8 +276,12 @@ class StripeService {
   async createCheckoutSession(amount, currency = 'usd', metadata = {}, orderItems = [], successUrl, cancelUrl) {
     try {
       // Validate inputs
-      if (!amount || typeof amount !== 'number' || amount <= 0) {
-        throw new Error('Invalid amount: must be a positive number');
+      // Allow 0 for free tickets, but require positive for paid orders
+      if (typeof amount !== 'number' || amount < 0) {
+        throw new Error('Invalid amount: must be a non-negative number');
+      }
+      if (amount === 0) {
+        throw new Error('Cannot create checkout session for free orders. Use direct order completion instead.');
       }
       if (!successUrl || !cancelUrl) {
         throw new Error('Success and cancel URLs are required');

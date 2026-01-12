@@ -9,6 +9,7 @@ import {
   getDocs,
   increment,
   limit,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -16,7 +17,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,15 +33,20 @@ import {
   View,
   Keyboard
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { auth, db, isFirebaseReady } from '../firebase';
+import { auth, db, isFirebaseReady, uploadImageAsync } from '../firebase';
 import { sendMessageNotification } from '../services/NotificationService';
 import { getAvatarUrl, hasAvatar, getAvatarSource } from '../utils/photoUtils';
 import M1ALogo from '../components/M1ALogo';
+
+// Default avatar fallback
+const defaultAvatar = null; // Will use default icon if null
 
 export default function MessagesScreen() {
   const navigation = useNavigation();
@@ -58,12 +64,15 @@ export default function MessagesScreen() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [text, setText] = useState('');
   const [searchText, setSearchText] = useState('');
+  const [messageSearchText, setMessageSearchText] = useState('');
   const [userSearchText, setUserSearchText] = useState('');
   const [loading, setLoading] = useState(true);
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const listRef = useRef(null);
 
   const createOrGetConversation = useCallback(
@@ -140,7 +149,10 @@ export default function MessagesScreen() {
           const data = docSnap.data();
           return {
             id: docSnap.id,
-            text: data.text,
+            text: data.text || '',
+            imageUrl: data.imageUrl || null,
+            attachmentType: data.attachmentType || null,
+            attachmentName: data.attachmentName || null,
             senderId: data.senderId,
             timestamp: data.createdAt?.toDate() || new Date(),
             isSent: data.senderId === user?.uid,
@@ -216,7 +228,12 @@ export default function MessagesScreen() {
   );
 
   const handleConversationSelect = useCallback(
-    (conversation) => {
+    async (conversation) => {
+      // Haptic feedback for selection
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+      
       setMessages([]);
       setSelectedConversation({
         id: conversation.id,
@@ -225,8 +242,20 @@ export default function MessagesScreen() {
         isOnline: conversation.isOnline,
         participantId: conversation.otherParticipantId,
       });
+      
+      // Mark conversation as read
+      if (conversation.id && user?.uid && isFirebaseReady() && db && typeof db.collection !== 'function') {
+        try {
+          await updateDoc(doc(db, 'conversations', conversation.id), {
+            [`unreadCount.${user.uid}`]: 0,
+          });
+          console.log('✅ Marked conversation as read');
+        } catch (error) {
+          console.warn('Failed to mark conversation as read:', error);
+        }
+      }
     },
-    []
+    [user?.uid]
   );
 
   const closeConversation = useCallback(() => {
@@ -241,6 +270,10 @@ export default function MessagesScreen() {
       'Conversation Options',
       `Options for ${selectedConversation.name}`,
       [
+        {
+          text: 'Search Messages',
+          onPress: () => setShowMessageSearch(!showMessageSearch),
+        },
         {
           text: 'Delete Conversation',
           style: 'destructive',
@@ -397,14 +430,39 @@ export default function MessagesScreen() {
     try {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
         // Real Firestore - load users (excluding current user)
-        const usersQuery = query(
+        // Load public users first
+        const publicUsersQuery = query(
           collection(db, 'users'),
           where('private', '==', false),
           limit(50)
         );
-        const usersSnapshot = await getDocs(usersQuery);
+        const publicUsersSnapshot = await getDocs(publicUsersQuery);
         
-        const usersData = usersSnapshot.docs
+        // Also load admin users (they should always be available for messaging)
+        // Admin email is admin@merkabaent.com
+        let adminUsers = [];
+        try {
+          const allUsersSnapshot = await getDocs(collection(db, 'users'));
+          adminUsers = allUsersSnapshot.docs
+            .filter(docSnap => {
+              const userData = docSnap.data();
+              return userData.email === 'admin@merkabaent.com' && docSnap.id !== user.uid;
+            })
+            .map(docSnap => {
+              const userData = { id: docSnap.id, ...docSnap.data() };
+              return {
+                id: docSnap.id,
+                name: userData.displayName || 'Admin',
+                username: userData.username || '',
+                avatar: getAvatarUrl(userData) || defaultAvatar,
+                isOnline: userData.isOnline || false,
+              };
+            });
+        } catch (adminError) {
+          console.warn('Error loading admin users:', adminError);
+        }
+        
+        const publicUsersData = publicUsersSnapshot.docs
           .filter(docSnap => docSnap.id !== user.uid)
           .map(docSnap => {
             const userData = { id: docSnap.id, ...docSnap.data() };
@@ -417,7 +475,15 @@ export default function MessagesScreen() {
             };
           });
         
-        setAvailableUsers(usersData);
+        // Combine public users and admin users, removing duplicates
+        const allUsersMap = new Map();
+        [...publicUsersData, ...adminUsers].forEach(user => {
+          if (!allUsersMap.has(user.id)) {
+            allUsersMap.set(user.id, user);
+          }
+        });
+        
+        setAvailableUsers(Array.from(allUsersMap.values()));
       } else {
         // Fallback to empty array if Firebase not ready
         setAvailableUsers([]);
@@ -428,16 +494,184 @@ export default function MessagesScreen() {
     }
   }, [user?.uid]);
 
+  // Set up real-time listener for conversations
   useEffect(() => {
+    if (!user?.uid || !isFirebaseReady() || !db || typeof db.collection === 'function') {
+      return;
+    }
+
+    console.log('💬 Setting up real-time listener for conversations');
+    
+    let conversationsQuery;
+    try {
+      // Try query with orderBy first (requires index)
+      conversationsQuery = query(
+        collection(db, 'conversations'),
+        where('participants', 'array-contains', user.uid),
+        orderBy('lastMessageAt', 'desc'),
+        limit(50)
+      );
+    } catch (indexError) {
+      console.warn('Index not available, using simple query:', indexError);
+      // Fallback: query without orderBy if index not ready
+      conversationsQuery = query(
+        collection(db, 'conversations'),
+        where('participants', 'array-contains', user.uid),
+        limit(50)
+      );
+    }
+
+    const unsubscribe = onSnapshot(
+      conversationsQuery,
+      async (snapshot) => {
+        const conversationsData = await Promise.all(
+          snapshot.docs.map(async (docSnap) => {
+            const data = docSnap.data();
+            // Get other participant's info
+            const otherParticipantId = data.participants.find(id => id !== user.uid);
+            let otherUser = null;
+            if (otherParticipantId) {
+              try {
+                const userRef = doc(db, 'users', otherParticipantId);
+                const userSnap = await getDoc(userRef);
+                if (userSnap.exists()) {
+                  otherUser = { id: userSnap.id, ...userSnap.data() };
+                }
+              } catch (error) {
+                console.warn('Error loading user for conversation:', error);
+              }
+            }
+            
+            return {
+              id: docSnap.id,
+              name: otherUser?.displayName || 'Unknown User',
+              lastMessage: data.lastMessage || '',
+              timestamp: data.lastMessageAt?.toDate() || new Date(),
+              unreadCount: data.unreadCount?.[user.uid] || 0,
+              avatar: getAvatarUrl(otherUser) || defaultAvatar,
+              isOnline: otherUser?.isOnline || false,
+              otherParticipantId,
+            };
+          })
+        );
+        
+        console.log(`💬 Received ${conversationsData.length} conversations`);
+        setConversations(conversationsData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error listening to conversations:', error);
+        // Fallback to one-time load if listener fails
+        loadConversations();
+      }
+    );
+
+    // Also load once initially
     loadConversations();
     loadAvailableUsers();
-  }, [loadConversations, loadAvailableUsers]);
 
+    // Cleanup listener on unmount
+    return () => {
+      console.log('💬 Cleaning up conversations listener');
+      unsubscribe();
+    };
+  }, [user?.uid, db, loadConversations, loadAvailableUsers]);
+
+  // Set up real-time listener for messages when conversation is selected
   useEffect(() => {
-    if (selectedConversation?.id) {
-      loadMessages(selectedConversation.id);
+    if (!selectedConversation?.id || !isFirebaseReady() || !db || typeof db.collection === 'function') {
+      return;
     }
-  }, [selectedConversation?.id, loadMessages]);
+
+    console.log('📨 Setting up real-time listener for conversation:', selectedConversation.id);
+    
+    const messagesQuery = query(
+      collection(db, 'conversations', selectedConversation.id, 'messages'),
+      orderBy('createdAt', 'asc'),
+      limit(200)
+    );
+
+    const unsubscribe = onSnapshot(
+      messagesQuery,
+      (snapshot) => {
+        const previousCount = messages.length;
+        const messagesData = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            text: data.text || '',
+            imageUrl: data.imageUrl || null,
+            attachmentType: data.attachmentType || null,
+            attachmentName: data.attachmentName || null,
+            senderId: data.senderId,
+            timestamp: data.createdAt?.toDate() || new Date(),
+            isSent: data.senderId === user?.uid,
+          };
+        });
+        console.log(`📨 Received ${messagesData.length} messages for conversation ${selectedConversation.id}`);
+        
+        // Check if new message arrived (not sent by current user)
+        const newMessageCount = messagesData.length - previousCount;
+        if (newMessageCount > 0 && messagesData.length > previousCount) {
+          const latestMessage = messagesData[messagesData.length - 1];
+          if (latestMessage && !latestMessage.isSent) {
+            // Haptic feedback for new message
+            if (Platform.OS !== 'web') {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+            console.log('🔔 New message received, playing haptic feedback');
+          }
+        }
+        
+        setMessages(messagesData);
+        
+        // Scroll to bottom when new messages arrive
+        setTimeout(() => {
+          listRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      },
+      (error) => {
+        console.error('Error listening to messages:', error);
+        // Fallback to one-time load if listener fails
+        loadMessages(selectedConversation.id);
+      }
+    );
+
+    // Cleanup listener on unmount or conversation change
+    return () => {
+      console.log('📨 Cleaning up message listener');
+      unsubscribe();
+    };
+  }, [selectedConversation?.id, db, user?.uid, loadMessages]);
+
+  // Keyboard listeners to track keyboard height
+  // Always set up listeners (don't conditionally call hooks)
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        if (selectedConversation) {
+          setKeyboardHeight(e.endCoordinates.height);
+          // Scroll to bottom when keyboard appears
+          setTimeout(() => {
+            listRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        }
+      }
+    );
+
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, [selectedConversation]);
 
   const formatTime = (timestamp) => {
     const now = new Date();
@@ -451,6 +685,69 @@ export default function MessagesScreen() {
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
     return timestamp.toLocaleDateString();
+  };
+
+  const handleAttachMedia = async () => {
+    Alert.alert(
+      'Add Attachment',
+      'Choose an attachment type',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Photo', 
+          onPress: async () => {
+            try {
+              // Request permissions
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Required', 'Please grant camera roll permissions to attach photos');
+                return;
+              }
+
+              // Pick an image
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+
+              if (!result.canceled && result.assets[0]) {
+                setUploadingImage(true);
+                try {
+                  // Upload image to Firebase Storage
+                  const imageUrl = await uploadImageAsync(result.assets[0].uri, 'messages');
+                  console.log('✅ Image uploaded:', imageUrl);
+                  
+                  // Send message with image
+                  await sendMessage(imageUrl, 'image', null);
+                  
+                  // Haptic feedback
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                } catch (error) {
+                  console.error('Error uploading image:', error);
+                  Alert.alert('Upload Failed', 'Failed to upload image. Please try again.');
+                } finally {
+                  setUploadingImage(false);
+                }
+              }
+            } catch (error) {
+              console.error('Error picking image:', error);
+              Alert.alert('Error', 'Failed to pick image. Please try again.');
+            }
+          }
+        },
+        { 
+          text: 'Document', 
+          onPress: () => {
+            Alert.alert('Coming Soon', 'Document attachments will be available soon!');
+          }
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   const startNewChat = useCallback(
@@ -474,10 +771,10 @@ export default function MessagesScreen() {
     [createOrGetConversation]
   );
 
-  const sendMessage = async () => {
+  const sendMessage = async (imageUrl = null, attachmentType = null, attachmentName = null) => {
     const uid = auth.currentUser?.uid;
     const messageText = text.trim();
-    if (!uid || !messageText || !selectedConversation) return;
+    if (!uid || (!messageText && !imageUrl) || !selectedConversation) return;
     
     setText('');
     
@@ -485,6 +782,9 @@ export default function MessagesScreen() {
     const newMessage = {
       id: Date.now().toString(),
       text: messageText,
+      imageUrl: imageUrl || null,
+      attachmentType: attachmentType || null,
+      attachmentName: attachmentName || null,
       senderId: uid,
       timestamp: new Date(),
       isSent: true,
@@ -499,27 +799,57 @@ export default function MessagesScreen() {
 
     try {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-        await addDoc(
+        console.log('📤 Sending message to conversation:', selectedConversation.id);
+        console.log('📤 Message text:', messageText);
+        console.log('📤 Image URL:', imageUrl);
+        console.log('📤 Sender ID:', uid);
+        console.log('📤 Participant ID:', selectedConversation.participantId);
+        
+        const messageData = {
+          text: messageText || '',
+          senderId: uid,
+          createdAt: serverTimestamp(),
+        };
+        
+        if (imageUrl) {
+          messageData.imageUrl = imageUrl;
+          messageData.attachmentType = attachmentType || 'image';
+        }
+        
+        if (attachmentName) {
+          messageData.attachmentName = attachmentName;
+        }
+        
+        const messageRef = await addDoc(
           collection(db, 'conversations', selectedConversation.id, 'messages'),
-          {
-            text: messageText,
-            senderId: uid,
-            createdAt: serverTimestamp(),
-          }
+          messageData
         );
+        console.log('✅ Message sent successfully, ID:', messageRef.id);
 
+        const lastMessagePreview = imageUrl ? '📷 Photo' : (messageText || 'Attachment');
         const updates = {
-          lastMessage: messageText,
+          lastMessage: lastMessagePreview,
           lastMessageAt: serverTimestamp(),
           [`unreadCount.${uid}`]: 0,
         };
 
         if (selectedConversation.participantId) {
           updates[`unreadCount.${selectedConversation.participantId}`] = increment(1);
+          console.log('📤 Incrementing unread count for participant:', selectedConversation.participantId);
         }
 
         await updateDoc(doc(db, 'conversations', selectedConversation.id), updates);
-        await loadMessages(selectedConversation.id);
+        console.log('✅ Conversation updated successfully');
+        
+        // Haptic feedback for sent message
+        if (Platform.OS !== 'web') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+        
+        // Note: Real-time listener will automatically update messages, so loadMessages is optional
+        // await loadMessages(selectedConversation.id);
+      } else {
+        console.warn('⚠️ Firebase not ready or using mock database');
       }
 
       // Send notification to recipient (if not current user)
@@ -541,51 +871,38 @@ export default function MessagesScreen() {
   // Filter conversations based on search
   const filteredConversations = conversations.filter(conv =>
     conv.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    conv.lastMessage.toLowerCase().includes(searchText.toLowerCase())
+    (conv.lastMessage && conv.lastMessage.toLowerCase().includes(searchText.toLowerCase()))
   );
 
   // Filter users based on search
   const filteredUsers = availableUsers.filter(user =>
     user.name.toLowerCase().includes(userSearchText.toLowerCase()) ||
-    user.username.toLowerCase().includes(userSearchText.toLowerCase())
+    (user.username && user.username.toLowerCase().includes(userSearchText.toLowerCase()))
   );
 
+  // Filter messages based on search
+  const filteredMessages = useMemo(() => {
+    if (!messageSearchText.trim()) {
+      return messages;
+    }
+    const query = messageSearchText.toLowerCase();
+    return messages.filter(msg =>
+      msg.text.toLowerCase().includes(query) ||
+      (msg.attachmentName && msg.attachmentName.toLowerCase().includes(query))
+    );
+  }, [messages, messageSearchText]);
+
+  // Loading state
   if (loading) {
     return (
-      <SafeAreaView style={[styles.center, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-        <Text style={[styles.loadingText, { color: theme.text }]}>Loading messages...</Text>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.loadingText, { color: theme.text }]}>Loading messages...</Text>
+        </View>
       </SafeAreaView>
     );
   }
-
-  // Keyboard listeners to track keyboard height
-  useEffect(() => {
-    if (!selectedConversation) return;
-
-    const keyboardWillShow = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e) => {
-        setKeyboardHeight(e.endCoordinates.height);
-        // Scroll to bottom when keyboard appears
-        setTimeout(() => {
-          listRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-      }
-    );
-
-    const keyboardWillHide = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setKeyboardHeight(0);
-      }
-    );
-
-    return () => {
-      keyboardWillShow.remove();
-      keyboardWillHide.remove();
-    };
-  }, [selectedConversation]);
 
   // If a conversation is selected, show the chat view
   if (selectedConversation) {
@@ -612,7 +929,13 @@ export default function MessagesScreen() {
             </TouchableOpacity>
             
             <View style={styles.chatHeaderInfo}>
-              <Image source={{ uri: selectedConversation.avatar }} style={styles.chatAvatar} />
+              {selectedConversation.avatar ? (
+                <Image source={{ uri: selectedConversation.avatar }} style={styles.chatAvatar} />
+              ) : (
+                <View style={[styles.chatAvatar, { backgroundColor: theme.primary + '20', justifyContent: 'center', alignItems: 'center' }]}>
+                  <Ionicons name="person" size={24} color={theme.primary} />
+                </View>
+              )}
               <View style={styles.chatHeaderText}>
                 <Text style={[styles.chatName, { color: theme.text }]}>{selectedConversation.name}</Text>
                 <Text style={[styles.chatStatus, { color: theme.subtext }]}>
@@ -622,6 +945,12 @@ export default function MessagesScreen() {
             </View>
             
             <View style={styles.chatHeaderActions}>
+              <TouchableOpacity 
+                style={styles.headerActionButton}
+                onPress={() => setShowMessageSearch(!showMessageSearch)}
+              >
+                <Ionicons name="search" size={24} color={theme.text} />
+              </TouchableOpacity>
               <TouchableOpacity style={styles.headerActionButton}>
                 <Ionicons name="videocam" size={24} color={theme.text} />
               </TouchableOpacity>
@@ -637,10 +966,29 @@ export default function MessagesScreen() {
             </View>
           </View>
 
+          {/* Message Search Bar */}
+          {showMessageSearch && (
+            <View style={[styles.searchContainer, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+              <Ionicons name="search" size={20} color={theme.subtext} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                placeholder="Search messages..."
+                placeholderTextColor={theme.subtext}
+                value={messageSearchText}
+                onChangeText={setMessageSearchText}
+              />
+              {messageSearchText.length > 0 && (
+                <TouchableOpacity onPress={() => setMessageSearchText('')}>
+                  <Ionicons name="close-circle" size={20} color={theme.subtext} />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
           {/* Messages List */}
           <FlatList
             ref={listRef}
-            data={messages}
+            data={filteredMessages}
             keyExtractor={(item) => item.id}
             contentContainerStyle={[
               styles.messagesContainer,
@@ -653,7 +1001,30 @@ export default function MessagesScreen() {
                 item.senderId === auth.currentUser?.uid ? styles.bubbleMe : styles.bubbleOther,
                 { backgroundColor: item.senderId === auth.currentUser?.uid ? theme.primary + '20' : theme.cardBackground, borderColor: theme.border }
               ]}>
-                <Text style={[styles.messageText, { color: theme.text }]}>{item.text}</Text>
+                {item.imageUrl && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      // TODO: Open image in full screen viewer
+                      Alert.alert('Image', 'Image viewer coming soon');
+                    }}
+                    activeOpacity={0.9}
+                  >
+                    <Image 
+                      source={{ uri: item.imageUrl }} 
+                      style={styles.messageImage}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                )}
+                {item.text && (
+                  <Text style={[styles.messageText, { color: theme.text }]}>{item.text}</Text>
+                )}
+                {item.attachmentName && !item.imageUrl && (
+                  <View style={styles.attachmentContainer}>
+                    <Ionicons name="document" size={20} color={theme.primary} />
+                    <Text style={[styles.attachmentName, { color: theme.primary }]}>{item.attachmentName}</Text>
+                  </View>
+                )}
                 <Text style={[styles.messageTime, { color: theme.subtext }]}>
                   {formatTime(item.timestamp)}
                 </Text>
@@ -690,12 +1061,14 @@ export default function MessagesScreen() {
             ]}>
               <TouchableOpacity 
                 style={[styles.attachButton, { backgroundColor: theme.cardBackground }]}
-                onPress={() => {
-                  // TODO: Add attachment functionality
-                  Alert.alert('Coming Soon', 'Attachment feature coming soon!');
-                }}
+                onPress={handleAttachMedia}
+                disabled={uploadingImage}
               >
-                <Ionicons name="add" size={24} color={theme.text} />
+                {uploadingImage ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <Ionicons name="add" size={24} color={theme.text} />
+                )}
               </TouchableOpacity>
               <TextInput
                 style={[
@@ -810,7 +1183,13 @@ export default function MessagesScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.conversationAvatar}>
-              <Image source={{ uri: item.avatar }} style={styles.avatar} />
+              {item.avatar ? (
+                <Image source={{ uri: item.avatar }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, { backgroundColor: theme.primary + '20', justifyContent: 'center', alignItems: 'center' }]}>
+                  <Ionicons name="person" size={24} color={theme.primary} />
+                </View>
+              )}
               {item.isOnline && <View style={[styles.onlineIndicator, { backgroundColor: '#4CAF50' }]} />}
             </View>
             
@@ -890,7 +1269,13 @@ export default function MessagesScreen() {
                 activeOpacity={0.7}
               >
                 <View style={styles.userAvatar}>
-                  <Image source={{ uri: item.avatar }} style={styles.avatar} />
+                  {item.avatar ? (
+                    <Image source={{ uri: item.avatar }} style={styles.avatar} />
+                  ) : (
+                    <View style={[styles.avatar, { backgroundColor: theme.primary + '20', justifyContent: 'center', alignItems: 'center' }]}>
+                      <Ionicons name="person" size={24} color={theme.primary} />
+                    </View>
+                  )}
                   {item.isOnline && <View style={[styles.onlineIndicator, { backgroundColor: '#4CAF50' }]} />}
                 </View>
                 
@@ -907,7 +1292,7 @@ export default function MessagesScreen() {
       </Modal>
     </SafeAreaView>
   );
-      }
+}
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
@@ -1109,6 +1494,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     textAlign: 'right',
+  },
+  messageImage: {
+    width: 250,
+    height: 250,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  attachmentContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  attachmentName: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
   },
   
   // Composer styles

@@ -8,8 +8,9 @@
 // Set to true only after obtaining proper licenses and compliance
 export const ENABLE_WALLET_FEATURES = false; // Set to true when MTL is obtained
 
-// Individual wallet feature flags (all depend on ENABLE_WALLET_FEATURES)
-export const ENABLE_WALLET_BALANCE = ENABLE_WALLET_FEATURES;
+// Individual wallet feature flags
+// Balance display is always enabled so users can see their current balance
+export const ENABLE_WALLET_BALANCE = true; // Always show balance
 export const ENABLE_ADD_FUNDS = ENABLE_WALLET_FEATURES;
 export const ENABLE_SEND_MONEY = ENABLE_WALLET_FEATURES;
 export const ENABLE_CASH_OUT = ENABLE_WALLET_FEATURES;

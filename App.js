@@ -9,10 +9,12 @@ import { AuthProvider } from './contexts/AuthContext';
 import { CartBubbleProvider } from './contexts/CartBubbleContext';
 import { M1APersonalizationProvider } from './contexts/M1APersonalizationContext';
 import { M1AAssistantProvider } from './contexts/M1AAssistantContext';
+import { MessageBadgeProvider } from './contexts/MessageBadgeContext';
 import { NotificationPreferencesProvider } from './contexts/NotificationPreferencesContext';
 import { RoleProvider } from './contexts/RoleContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { UserProvider } from './contexts/UserContext';
+import { WalletProvider } from './contexts/WalletContext';
 
 import RootNavigation from './navigation/RootNavigation';
 import M1AChatBubble from './components/M1AChatBubble';
@@ -106,11 +108,13 @@ export default function App() {
         <AuthProvider>
           <ThemeProvider>
             <UserProvider>
-              <RoleProvider>
-                <M1APersonalizationProvider>
+              <WalletProvider>
+                <RoleProvider>
+                  <M1APersonalizationProvider>
                   <NotificationPreferencesProvider>
-                    <M1AAssistantProvider>
-                      <CartBubbleProvider>
+                    <MessageBadgeProvider>
+                      <M1AAssistantProvider>
+                        <CartBubbleProvider>
                         <NavigationContainer>
                           <StatusBar barStyle="dark-content" />
                           <RootNavigation />
@@ -119,9 +123,11 @@ export default function App() {
                         </NavigationContainer>
                       </CartBubbleProvider>
                     </M1AAssistantProvider>
+                    </MessageBadgeProvider>
                   </NotificationPreferencesProvider>
                 </M1APersonalizationProvider>
-              </RoleProvider>
+                </RoleProvider>
+              </WalletProvider>
             </UserProvider>
           </ThemeProvider>
         </AuthProvider>

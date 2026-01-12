@@ -23,12 +23,15 @@ import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
+import { eventsCache, servicesCache } from '../utils/dataCache';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackFeatureUsage, trackSearch } from '../services/AnalyticsService';
 import { sendDiscountNotification } from '../services/NotificationService';
 import ReviewService from '../services/ReviewService';
 import SharingService from '../services/SharingService';
 import SMSService from '../services/SMSService';
+import { filterItemsByPersona, getPersonaServiceCategories } from '../utils/personaFilters';
+import { searchFeatures } from '../utils/searchUtils';
 import UsersScreen from './UsersScreen';
 
 const { width } = Dimensions.get('window');
@@ -48,6 +51,8 @@ export default function ExploreScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('Services');
+  const [userCount, setUserCount] = useState(0);
+  const [barItemCount, setBarItemCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedPersonaFilter, setSelectedPersonaFilter] = useState('All');
@@ -57,7 +62,13 @@ export default function ExploreScreen() {
     maxPrice: null,
     minRating: null,
     location: '',
+    eventCategory: null, // 'performance', 'party', 'corporate', 'wedding', etc.
+    dealsOnly: false,
+    dateRange: null, // { start: Date, end: Date }
+    hasDiscount: false,
   });
+  const [sortBy, setSortBy] = useState('relevance'); // 'relevance', 'price_low', 'price_high', 'rating', 'date', 'popularity', 'name'
+  const [showSortOptions, setShowSortOptions] = useState(false);
   const [showRSVPModal, setShowRSVPModal] = useState(false);
   const [selectedRSVPItem, setSelectedRSVPItem] = useState(null);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
@@ -118,6 +129,18 @@ export default function ExploreScreen() {
   };
 
   const loadItems = useCallback(async () => {
+    // Check cache first
+    const cacheKey = eventsCache.generateKey('explore', { userId: user?.uid || 'guest' });
+    const cachedData = eventsCache.get(cacheKey);
+    if (cachedData) {
+      console.log('📦 Using cached explore data');
+      setItems(cachedData.items || []);
+      setBarItemCount(cachedData.barItemCount || 0);
+      setUserCount(cachedData.userCount || 0);
+      setLoading(false);
+      // Still refresh in background
+    }
+
     try {
       // Check if we have real Firestore (db doesn't have collection method)
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
@@ -206,31 +229,41 @@ export default function ExploreScreen() {
         }
         
         // Load from 'publicEvents' collection (admin-created events)
+        // Load ALL public events (no limit) - filter for isPublic: true and isAdminCreated: true
         try {
-          let publicEventsQuery;
-          try {
-            // Try to query by startDate if it exists
-            publicEventsQuery = firestoreQuery(
-              firestoreCollection(db, 'publicEvents'),
-              where('startDate', '>=', now),
-              firestoreOrderBy('startDate', 'asc'),
-              firestoreLimit(20)
-            );
-          } catch (indexError) {
-            // If index not ready, use simple query without orderBy
-            console.warn('PublicEvents index not ready, using simple query:', indexError);
-            publicEventsQuery = firestoreQuery(
-              firestoreCollection(db, 'publicEvents'),
-              where('startDate', '>=', now),
-              firestoreLimit(20)
-            );
-          }
-          const publicEventsSnapshot = await getDocs(publicEventsQuery);
-          const publicEventsFromCollection = publicEventsSnapshot.docs.map(doc => {
+          // First try: Load all publicEvents and filter client-side
+          // This ensures we get all admin-created public events regardless of date/index issues
+          const allPublicEventsSnapshot = await getDocs(firestoreCollection(db, 'publicEvents'));
+          const allPublicEvents = allPublicEventsSnapshot.docs.map(doc => {
             const data = doc.data();
+            
+            // Include ALL events from publicEvents collection
+            // All events in publicEvents are admin-created, so show them all
+            // Only filter by isPublic if explicitly set to false
+            if (data.isPublic === false) {
+              return null; // Skip events explicitly marked as not public
+            }
+            
             // Convert publicEvents format to match events format
             const startDate = data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || new Date());
             const eventDate = startDate;
+            
+            // Filter for future events only (show events today or in the future)
+            const nowDate = now.toDate ? now.toDate() : new Date(now.seconds * 1000);
+            // Reset time to start of day for fair comparison
+            const startOfToday = new Date(nowDate);
+            startOfToday.setHours(0, 0, 0, 0);
+            const startOfEventDate = new Date(startDate);
+            startOfEventDate.setHours(0, 0, 0, 0);
+            
+            // Only show future events (skip past events, but include today)
+            if (startOfEventDate < startOfToday) {
+              console.log(`⏭️ Skipping past event: ${data.title || doc.id} (${startDate.toLocaleDateString()})`);
+              return null;
+            }
+            
+            // Debug logging for each event
+            console.log(`✅ Including event: ${data.title || doc.id}, isPublic: ${data.isPublic}, isAdminCreated: ${data.isAdminCreated}, startDate: ${startDate.toLocaleDateString()}`);
             
             return {
               id: doc.id,
@@ -254,28 +287,51 @@ export default function ExploreScreen() {
               isAdminCreated: data.isAdminCreated,
               category: 'Events',
             };
+          }).filter(item => item !== null);
+          
+          // Sort by startDate ascending (earliest first)
+          allPublicEvents.sort((a, b) => {
+            const dateA = a.eventDate instanceof Date ? a.eventDate : new Date(a.eventDate);
+            const dateB = b.eventDate instanceof Date ? b.eventDate : new Date(b.eventDate);
+            return dateA - dateB;
           });
-          eventsData = [...eventsData, ...publicEventsFromCollection];
+          
+          eventsData = [...eventsData, ...allPublicEvents];
+          console.log(`✅ Loaded ${allPublicEvents.length} public events from publicEvents collection`);
         } catch (publicEventsError) {
           console.error('PublicEvents query failed:', publicEventsError);
-          // Fallback: try loading all publicEvents without date filter
+          // If loading all fails, try with date filter as fallback
           try {
-            const allPublicEventsSnapshot = await getDocs(firestoreCollection(db, 'publicEvents'));
-            const allPublicEvents = allPublicEventsSnapshot.docs.map(doc => {
+            let publicEventsQuery;
+            try {
+              publicEventsQuery = firestoreQuery(
+                firestoreCollection(db, 'publicEvents'),
+                where('isPublic', '==', true),
+                where('startDate', '>=', now),
+                firestoreOrderBy('startDate', 'asc'),
+                firestoreLimit(100) // Increased limit
+              );
+            } catch (indexError) {
+              console.warn('PublicEvents index not ready, using simple query:', indexError);
+              publicEventsQuery = firestoreQuery(
+                firestoreCollection(db, 'publicEvents'),
+                where('isPublic', '==', true),
+                firestoreLimit(100) // Increased limit
+              );
+            }
+            const publicEventsSnapshot = await getDocs(publicEventsQuery);
+            const publicEventsFromCollection = publicEventsSnapshot.docs.map(doc => {
               const data = doc.data();
               const startDate = data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || new Date());
-              // Only include future events - compare with now timestamp
-              const nowDate = now.toDate ? now.toDate() : new Date(now.seconds * 1000);
-              if (startDate < nowDate) {
-                return null;
-              }
+              const eventDate = startDate;
+              
               return {
                 id: doc.id,
                 name: data.title,
                 description: data.description,
-                image: data.photoUrl || data.photo || null, // Use image field for consistency
-                photo: data.photoUrl, // Keep photo for backward compatibility
-                eventDate: startDate,
+                image: data.photoUrl || data.photo || null,
+                photo: data.photoUrl,
+                eventDate: eventDate,
                 location: data.location,
                 price: data.ticketPrice || 0,
                 ticketPrice: data.ticketPrice,
@@ -291,11 +347,46 @@ export default function ExploreScreen() {
                 isAdminCreated: data.isAdminCreated,
                 category: 'Events',
               };
-            }).filter(item => item !== null);
-            eventsData = [...eventsData, ...allPublicEvents];
+            });
+            eventsData = [...eventsData, ...publicEventsFromCollection];
+            console.log(`✅ Loaded ${publicEventsFromCollection.length} public events (with filters)`);
           } catch (fallbackError) {
             console.error('PublicEvents fallback query failed:', fallbackError);
           }
+        }
+
+        // Load user count for Users category
+        try {
+          const usersRef = firestoreCollection(db, 'users');
+          const usersQuery = firestoreQuery(
+            usersRef,
+            where('private', '==', false)
+          );
+          const usersSnapshot = await getDocs(usersQuery);
+          setUserCount(usersSnapshot.size);
+          console.log(`✅ Loaded ${usersSnapshot.size} public users`);
+        } catch (userCountError) {
+          console.warn('Failed to load user count:', userCountError);
+          // Try simple query without where clause
+          try {
+            const allUsersSnapshot = await getDocs(firestoreCollection(db, 'users'));
+            setUserCount(allUsersSnapshot.size);
+            console.log(`✅ Loaded ${allUsersSnapshot.size} total users (fallback)`);
+          } catch (fallbackError) {
+            console.error('Failed to load user count (fallback):', fallbackError);
+            setUserCount(0);
+          }
+        }
+
+        // Load bar menu items count for Bar category
+        try {
+          const barMenuRef = firestoreCollection(db, 'barMenuItems');
+          const barMenuSnapshot = await getDocs(barMenuRef);
+          setBarItemCount(barMenuSnapshot.size);
+          console.log(`✅ Loaded ${barMenuSnapshot.size} bar menu items`);
+        } catch (barCountError) {
+          console.warn('Failed to load bar menu items count:', barCountError);
+          setBarItemCount(0);
         }
 
         // Combine all items
@@ -304,6 +395,14 @@ export default function ExploreScreen() {
         if (allItems.length > 0) {
           setItems(allItems);
           setLoading(false);
+          
+          // Cache the results
+          const cacheKey = eventsCache.generateKey('explore', { userId: user?.uid || 'guest' });
+          eventsCache.set(cacheKey, {
+            items: allItems,
+            barItemCount,
+            userCount,
+          }, 10 * 60 * 1000); // 10 minutes TTL
           return;
         }
       } else {
@@ -341,15 +440,39 @@ export default function ExploreScreen() {
       filtered = filtered.filter(item => item.category === selectedCategory);
     }
     
-    // Search query filter
+    // Enhanced search query filter with fuzzy matching
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(item => 
-        item.name.toLowerCase().includes(query) ||
-        item.description.toLowerCase().includes(query) ||
-        item.artist?.toLowerCase().includes(query) ||
-        item.subcategory?.toLowerCase().includes(query)
-      );
+      const query = searchQuery.toLowerCase().trim();
+      
+      // Use enhanced search utility for better matching
+      const searchableItems = filtered.map(item => ({
+        title: item.name,
+        description: item.description || '',
+        icon: item.subcategory || '',
+        screen: item.category || '',
+        ...item
+      }));
+      
+      const searchResults = searchFeatures(query, searchableItems);
+      const resultIds = new Set(searchResults.map(r => r.id));
+      
+      // Also include basic text matching for items not caught by enhanced search
+      filtered = filtered.filter(item => {
+        if (resultIds.has(item.id)) return true;
+        
+        // Fallback: basic text matching
+        const searchFields = [
+          item.name,
+          item.description,
+          item.artist,
+          item.subcategory,
+          item.location,
+          item.eventCategory,
+          item.category,
+        ].filter(Boolean).map(f => f.toLowerCase());
+        
+        return searchFields.some(field => field.includes(query));
+      });
     }
     
     // Price filter
@@ -362,11 +485,104 @@ export default function ExploreScreen() {
     
     // Rating filter
     if (filters.minRating !== null) {
-      filtered = filtered.filter(item => item.rating >= filters.minRating);
+      filtered = filtered.filter(item => (item.rating || 0) >= filters.minRating);
     }
     
-    return filtered;
-  }, [items, selectedCategory, searchQuery, filters]);
+    // Location filter
+    if (filters.location && filters.location.trim()) {
+      const locationQuery = filters.location.toLowerCase();
+      filtered = filtered.filter(item => 
+        item.location?.toLowerCase().includes(locationQuery) ||
+        item.address?.toLowerCase().includes(locationQuery)
+      );
+    }
+    
+    // Event category filter
+    if (filters.eventCategory && selectedCategory === 'Events') {
+      filtered = filtered.filter(item => 
+        item.eventCategory === filters.eventCategory ||
+        item.category === filters.eventCategory
+      );
+    }
+    
+    // Deals only filter
+    if (filters.dealsOnly) {
+      filtered = filtered.filter(item => item.isDeal === true);
+    }
+    
+    // Has discount filter
+    if (filters.hasDiscount) {
+      filtered = filtered.filter(item => 
+        item.discountEnabled === true ||
+        item.discountPercent > 0 ||
+        item.isDeal === true
+      );
+    }
+    
+    // Date range filter (for events)
+    if (filters.dateRange && filters.dateRange.start && filters.dateRange.end) {
+      filtered = filtered.filter(item => {
+        if (!item.eventDate && !item.startDate) return false;
+        const itemDate = item.eventDate || item.startDate;
+        const date = itemDate instanceof Date ? itemDate : (itemDate?.toDate ? itemDate.toDate() : new Date(itemDate));
+        return date >= filters.dateRange.start && date <= filters.dateRange.end;
+      });
+    }
+    
+    // Persona-based filtering (applies intelligent filtering based on user's persona)
+    if (userPersona?.id && selectedCategory !== 'Users' && selectedCategory !== 'Bar') {
+      filtered = filterItemsByPersona(filtered, userPersona.id, selectedCategory);
+    }
+    
+    // Sorting
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case 'price_low':
+        sorted.sort((a, b) => {
+          const priceA = a.dealPrice || a.price || a.ticketPrice || 0;
+          const priceB = b.dealPrice || b.price || b.ticketPrice || 0;
+          return priceA - priceB;
+        });
+        break;
+      case 'price_high':
+        sorted.sort((a, b) => {
+          const priceA = a.dealPrice || a.price || a.ticketPrice || 0;
+          const priceB = b.dealPrice || b.price || b.ticketPrice || 0;
+          return priceB - priceA;
+        });
+        break;
+      case 'rating':
+        sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        break;
+      case 'date':
+        sorted.sort((a, b) => {
+          const dateA = a.eventDate || a.startDate || a.serviceDate;
+          const dateB = b.eventDate || b.startDate || b.serviceDate;
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          const dA = dateA instanceof Date ? dateA : (dateA?.toDate ? dateA.toDate() : new Date(dateA));
+          const dB = dateB instanceof Date ? dateB : (dateB?.toDate ? dateB.toDate() : new Date(dateB));
+          return dA - dB;
+        });
+        break;
+      case 'popularity':
+        sorted.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+        break;
+      case 'name':
+        sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        break;
+      case 'relevance':
+      default:
+        // Keep search score order if available, otherwise maintain original order
+        if (searchQuery.trim()) {
+          sorted.sort((a, b) => (b.searchScore || 0) - (a.searchScore || 0));
+        }
+        break;
+    }
+    
+    return sorted;
+  }, [items, selectedCategory, searchQuery, filters, userPersona, sortBy]);
   
   // Track search
   useEffect(() => {
@@ -380,8 +596,12 @@ export default function ExploreScreen() {
 
   const getCategoryCount = (category) => {
     if (category === 'Users') {
-      // Return mock count - in production, get from Users collection
-      return 0; // Will be handled by UsersScreen
+      // Return actual user count from Firestore
+      return userCount;
+    }
+    if (category === 'Bar') {
+      // Return actual bar menu items count from Firestore
+      return barItemCount;
     }
     return items.filter(item => item.category === category).length;
   };
@@ -432,16 +652,35 @@ export default function ExploreScreen() {
       return;
     }
     
+    // Serialize item for navigation (convert Date objects to ISO strings)
+    const serializedItem = { ...item };
+    if (serializedItem.eventDate) {
+      // Convert Date or Firestore Timestamp to ISO string
+      if (serializedItem.eventDate.toDate) {
+        serializedItem.eventDate = serializedItem.eventDate.toDate().toISOString();
+      } else if (serializedItem.eventDate instanceof Date) {
+        serializedItem.eventDate = serializedItem.eventDate.toISOString();
+      }
+    }
+    if (serializedItem.startDate) {
+      // Convert Date or Firestore Timestamp to ISO string
+      if (serializedItem.startDate.toDate) {
+        serializedItem.startDate = serializedItem.startDate.toDate().toISOString();
+      } else if (serializedItem.startDate instanceof Date) {
+        serializedItem.startDate = serializedItem.startDate.toISOString();
+      }
+    }
+    
     // All Services and Events (non-RSVP) go to ServiceBooking
     // This includes: Services, Events that aren't RSVP
     if (item.category === 'Services' || (item.category === 'Events' && !item.isRSVP)) {
       // Navigate directly to ServiceBooking screen in drawer
-      navigation.navigate('ServiceBooking', { item });
+      navigation.navigate('ServiceBooking', { item: serializedItem });
       return;
     }
     
     // Fallback: Navigate to service booking for any other item
-    navigation.navigate('ServiceBooking', { item });
+    navigation.navigate('ServiceBooking', { item: serializedItem });
   };
 
   const handleRSVPSubmit = async () => {
@@ -701,9 +940,7 @@ export default function ExploreScreen() {
         trackButtonClick('select_category', 'ExploreScreen', { category: item });
         // Navigate to BarMenuScreen immediately when Bar is selected
         if (item === 'Bar') {
-          navigation.getParent()?.navigate('Home', {
-            screen: 'BarMenu',
-          });
+          navigation.navigate('BarMenu');
           return; // Don't update selectedCategory state - navigate away immediately
         }
         // For other categories, update state normally
@@ -813,15 +1050,32 @@ export default function ExploreScreen() {
             )}
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity
-            style={[styles.filterButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-            onPress={() => {
-              setShowFilters(true);
-              trackButtonClick('open_filters', 'ExploreScreen');
-            }}
-          >
-            <Ionicons name="options" size={18} color={theme.primary} />
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={[styles.filterButton, { backgroundColor: theme.cardBackground, borderColor: theme.border, marginRight: 8 }]}
+              onPress={() => {
+                setShowSortOptions(true);
+                trackButtonClick('open_sort', 'ExploreScreen');
+              }}
+            >
+              <Ionicons name="swap-vertical" size={18} color={theme.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+              onPress={() => {
+                setShowFilters(true);
+                trackButtonClick('open_filters', 'ExploreScreen');
+              }}
+            >
+              <Ionicons name="options" size={18} color={theme.primary} />
+              {(filters.minPrice !== null || filters.maxPrice !== null || filters.minRating !== null || 
+                filters.location || filters.eventCategory || filters.dealsOnly || filters.hasDiscount || filters.dateRange) && (
+                <View style={[styles.filterBadge, { backgroundColor: theme.primary }]}>
+                  <Text style={styles.filterBadgeText}>!</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </>
         )}
       </View>
 
@@ -1005,6 +1259,250 @@ export default function ExploreScreen() {
         </View>
       </Modal>
       
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilters}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowFilters(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Filters</Text>
+              <TouchableOpacity onPress={() => setShowFilters(false)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              {/* Price Range */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Price Range</Text>
+                <View style={styles.priceInputContainer}>
+                  <View style={styles.priceInputWrapper}>
+                    <Text style={[styles.priceLabel, { color: theme.subtext }]}>Min</Text>
+                    <TextInput
+                      style={[styles.priceInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+                      placeholder="$0"
+                      placeholderTextColor={theme.subtext}
+                      keyboardType="numeric"
+                      value={filters.minPrice !== null ? String(filters.minPrice) : ''}
+                      onChangeText={(text) => setFilters({ ...filters, minPrice: text ? parseFloat(text) : null })}
+                    />
+                  </View>
+                  <Text style={[styles.priceSeparator, { color: theme.subtext }]}>-</Text>
+                  <View style={styles.priceInputWrapper}>
+                    <Text style={[styles.priceLabel, { color: theme.subtext }]}>Max</Text>
+                    <TextInput
+                      style={[styles.priceInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+                      placeholder="$1000"
+                      placeholderTextColor={theme.subtext}
+                      keyboardType="numeric"
+                      value={filters.maxPrice !== null ? String(filters.maxPrice) : ''}
+                      onChangeText={(text) => setFilters({ ...filters, maxPrice: text ? parseFloat(text) : null })}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* Rating Filter */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Minimum Rating</Text>
+                <View style={styles.ratingContainer}>
+                  {[1, 2, 3, 4, 5].map((rating) => (
+                    <TouchableOpacity
+                      key={rating}
+                      style={[
+                        styles.ratingButton,
+                        {
+                          backgroundColor: filters.minRating === rating ? theme.primary : theme.cardBackground,
+                          borderColor: filters.minRating === rating ? theme.primary : theme.border,
+                        },
+                      ]}
+                      onPress={() => setFilters({ ...filters, minRating: filters.minRating === rating ? null : rating })}
+                    >
+                      <Ionicons name="star" size={20} color={filters.minRating === rating ? '#fff' : theme.primary} />
+                      <Text style={[styles.ratingText, { color: filters.minRating === rating ? '#fff' : theme.text }]}>
+                        {rating}+
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Location Filter */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Location</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+                  placeholder="Search by location..."
+                  placeholderTextColor={theme.subtext}
+                  value={filters.location}
+                  onChangeText={(text) => setFilters({ ...filters, location: text })}
+                />
+              </View>
+
+              {/* Event Category Filter (only for Events) */}
+              {selectedCategory === 'Events' && (
+                <View style={styles.filterSection}>
+                  <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Event Category</Text>
+                  <View style={styles.categoryFilterContainer}>
+                    {['performance', 'party', 'corporate', 'wedding', 'networking', 'workshop'].map((category) => (
+                      <TouchableOpacity
+                        key={category}
+                        style={[
+                          styles.categoryFilterButton,
+                          {
+                            backgroundColor: filters.eventCategory === category ? theme.primary : theme.cardBackground,
+                            borderColor: filters.eventCategory === category ? theme.primary : theme.border,
+                          },
+                        ]}
+                        onPress={() => setFilters({ ...filters, eventCategory: filters.eventCategory === category ? null : category })}
+                      >
+                        <Text
+                          style={[
+                            styles.categoryFilterText,
+                            { color: filters.eventCategory === category ? '#fff' : theme.text },
+                          ]}
+                        >
+                          {category.charAt(0).toUpperCase() + category.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Deals & Discounts */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Deals & Discounts</Text>
+                <TouchableOpacity
+                  style={styles.switchRow}
+                  onPress={() => setFilters({ ...filters, dealsOnly: !filters.dealsOnly })}
+                >
+                  <View style={styles.switchLabel}>
+                    <Ionicons name="pricetag" size={20} color={theme.primary} />
+                    <Text style={[styles.switchText, { color: theme.text }]}>Deals Only</Text>
+                  </View>
+                  <View style={[styles.switch, { backgroundColor: filters.dealsOnly ? theme.primary : theme.border }]}>
+                    <View
+                      style={[
+                        styles.switchThumb,
+                        { transform: [{ translateX: filters.dealsOnly ? 20 : 0 }] },
+                      ]}
+                    />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.switchRow}
+                  onPress={() => setFilters({ ...filters, hasDiscount: !filters.hasDiscount })}
+                >
+                  <View style={styles.switchLabel}>
+                    <Ionicons name="ticket" size={20} color={theme.primary} />
+                    <Text style={[styles.switchText, { color: theme.text }]}>Has Discount</Text>
+                  </View>
+                  <View style={[styles.switch, { backgroundColor: filters.hasDiscount ? theme.primary : theme.border }]}>
+                    <View
+                      style={[
+                        styles.switchThumb,
+                        { transform: [{ translateX: filters.hasDiscount ? 20 : 0 }] },
+                      ]}
+                    />
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Clear Filters Button */}
+              <TouchableOpacity
+                style={[styles.clearFiltersButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => {
+                  setFilters({
+                    minPrice: null,
+                    maxPrice: null,
+                    minRating: null,
+                    location: '',
+                    eventCategory: null,
+                    dealsOnly: false,
+                    dateRange: null,
+                    hasDiscount: false,
+                  });
+                  trackButtonClick('clear_filters', 'ExploreScreen');
+                }}
+              >
+                <Ionicons name="refresh" size={18} color={theme.primary} />
+                <Text style={[styles.clearFiltersText, { color: theme.primary }]}>Clear All Filters</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Sort Options Modal */}
+      <Modal
+        visible={showSortOptions}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSortOptions(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Sort By</Text>
+              <TouchableOpacity onPress={() => setShowSortOptions(false)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              {[
+                { value: 'relevance', label: 'Relevance', icon: 'search' },
+                { value: 'price_low', label: 'Price: Low to High', icon: 'arrow-up' },
+                { value: 'price_high', label: 'Price: High to Low', icon: 'arrow-down' },
+                { value: 'rating', label: 'Highest Rated', icon: 'star' },
+                { value: 'date', label: 'Date: Soonest First', icon: 'calendar' },
+                { value: 'popularity', label: 'Most Popular', icon: 'flame' },
+                { value: 'name', label: 'Name: A to Z', icon: 'text' },
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.sortOption,
+                    {
+                      backgroundColor: sortBy === option.value ? theme.primary + '20' : theme.cardBackground,
+                      borderColor: sortBy === option.value ? theme.primary : theme.border,
+                    },
+                  ]}
+                  onPress={() => {
+                    setSortBy(option.value);
+                    trackButtonClick('select_sort', 'ExploreScreen', { sortBy: option.value });
+                    setShowSortOptions(false);
+                  }}
+                >
+                  <Ionicons
+                    name={option.icon}
+                    size={20}
+                    color={sortBy === option.value ? theme.primary : theme.text}
+                  />
+                  <Text
+                    style={[
+                      styles.sortOptionText,
+                      {
+                        color: sortBy === option.value ? theme.primary : theme.text,
+                        fontWeight: sortBy === option.value ? '600' : '400',
+                      },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                  {sortBy === option.value && (
+                    <Ionicons name="checkmark" size={20} color={theme.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Persona Filter Modal (for Users category) */}
       <Modal
         visible={showPersonaFilters}
@@ -1441,5 +1939,134 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+  },
+  // Filter Modal Styles
+  filterSection: {
+    marginBottom: 24,
+  },
+  filterSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  priceInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  priceInputWrapper: {
+    flex: 1,
+  },
+  priceLabel: {
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  priceInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  priceSeparator: {
+    fontSize: 18,
+    marginTop: 20,
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  ratingButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+  },
+  ratingText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  filterInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  categoryFilterContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  categoryFilterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  categoryFilterText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  switchLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  switchText: {
+    fontSize: 16,
+  },
+  switch: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    padding: 2,
+  },
+  switchThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
+  clearFiltersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+    gap: 8,
+  },
+  clearFiltersText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Sort Modal Styles
+  sortOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+    gap: 12,
+  },
+  sortOptionText: {
+    flex: 1,
+    fontSize: 16,
   },
 });

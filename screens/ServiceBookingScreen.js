@@ -33,6 +33,7 @@ import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/Noti
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import SharingService from '../services/SharingService';
 import StripeService from '../services/StripeService';
+import { handleError, getUserFriendlyError } from '../utils/errorHandler';
 
 const TAX_RATE = 0.08; // 8% tax
 const SERVICE_FEE = 0.03; // 3% service fee
@@ -67,14 +68,56 @@ export default function ServiceBookingScreen({ route, navigation }) {
     discountCode: '',
     discountApplied: false,
   });
+
+  // For events, auto-populate date from event data (admin-set date)
+  useEffect(() => {
+    if (item?.category === 'Events') {
+      // Events can have eventDate or startDate (from publicEvents collection)
+      // Handle both ISO strings (from navigation) and Date/Timestamp objects
+      const eventDateValue = item.eventDate || item.startDate;
+      if (eventDateValue) {
+        let eventDate;
+        if (typeof eventDateValue === 'string') {
+          // ISO string from navigation params
+          eventDate = new Date(eventDateValue);
+        } else if (eventDateValue?.toDate) {
+          // Firestore Timestamp
+          eventDate = eventDateValue.toDate();
+        } else if (eventDateValue instanceof Date) {
+          // Date object
+          eventDate = eventDateValue;
+        } else {
+          eventDate = new Date(eventDateValue);
+        }
+        
+        const formattedDate = eventDate.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+        const formattedTime = eventDate.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        });
+        setFormData(prev => ({
+          ...prev,
+          serviceDate: formattedDate,
+          serviceTime: formattedTime,
+        }));
+      }
+    }
+  }, [item]);
   
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentStep, setPaymentStep] = useState('none'); // 'none', 'processing', 'success', 'failed'
+  const [paymentStep, setPaymentStep] = useState('none'); // 'none', 'submitting', 'checking', 'processing', 'success', 'failed'
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const [orderNumber, setOrderNumber] = useState(null);
   const [paymentError, setPaymentError] = useState(null);
 
@@ -232,7 +275,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
                     <View style={styles.serviceRating}>
                       <Ionicons name="star" size={16} color="#FFD700" />
                       <Text style={[styles.serviceRatingText, { color: theme.text }]}>
-                        {service.rating?.toFixed(1) || '4.5'}
+                        {service.rating?.toFixed(1) || '5.0'}
                       </Text>
                     </View>
                     <Text style={[styles.servicePrice, { color: theme.primary }]}>
@@ -353,7 +396,11 @@ export default function ServiceBookingScreen({ route, navigation }) {
         setFormData(prev => ({ ...prev, discountApplied: true }));
         return true;
       } else {
-        Alert.alert('Invalid Discount Code', 'The discount code you entered is not valid.');
+        Alert.alert(
+          'Invalid Discount Code',
+          'The discount code you entered is not valid. Please check and try again.',
+          [{ text: 'OK' }]
+        );
         setFormData(prev => ({ ...prev, discountApplied: false }));
         return false;
       }
@@ -362,35 +409,55 @@ export default function ServiceBookingScreen({ route, navigation }) {
   };
 
   const validateForm = () => {
-    if (!formData.serviceDate) {
-      Alert.alert('Missing Information', 'Please select a service date.');
-      return false;
-    }
-    if (!formData.serviceTime) {
-      Alert.alert('Missing Information', 'Please select a service time.');
-      return false;
+    // For events, date/time are pre-set by admin, skip validation
+    if (item.category !== 'Events') {
+      if (!formData.serviceDate) {
+        Alert.alert(
+          'Date Required',
+          'Please select a date for your service booking.',
+          [{ text: 'OK' }]
+        );
+        return false;
+      }
+      if (!formData.serviceTime) {
+        Alert.alert(
+          'Time Required',
+          'Please select a time for your service booking.',
+          [{ text: 'OK' }]
+        );
+        return false;
+      }
     }
     if (!formData.contactName || formData.contactName.trim().length < 2) {
-      Alert.alert('Invalid Information', 'Please enter a valid contact name (at least 2 characters).');
+      Alert.alert(
+        'Contact Name Required',
+        'Please enter your full name (at least 2 characters).',
+        [{ text: 'OK' }]
+      );
       return false;
     }
     if (!formData.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.contactEmail)) {
-      Alert.alert('Invalid Information', 'Please enter a valid email address.');
+      Alert.alert(
+        'Email Required',
+        'Please enter a valid email address for your booking confirmation.',
+        [{ text: 'OK' }]
+      );
       return false;
     }
     if (formData.quantity < 1) {
-      Alert.alert('Invalid Quantity', 'Quantity must be at least 1.');
+      Alert.alert(
+        'Invalid Quantity',
+        'Please select a quantity of at least 1.',
+        [{ text: 'OK' }]
+      );
       return false;
     }
     // Validate discount code if entered
     if (!validateDiscountCode()) {
       return false;
     }
-    // For events, ensure ticket price is valid
-    if (item.category === 'Events' && (!item.ticketPrice || item.ticketPrice === 0)) {
-      Alert.alert('Invalid Event', 'This event does not have a valid ticket price.');
-      return false;
-    }
+    // For events, ticket price can be 0 (free tickets are allowed)
+    // No validation needed - free tickets are valid
     return true;
   };
 
@@ -460,8 +527,17 @@ export default function ServiceBookingScreen({ route, navigation }) {
       return;
     }
     if (!user) {
-      Alert.alert('Login Required', 'Please log in to complete your booking.');
-      navigation.navigate('ProfileTab');
+      Alert.alert(
+        'Login Required',
+        'Please log in to complete your booking. You\'ll be redirected to the login page.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Go to Login', 
+            onPress: () => navigation.navigate('ProfileTab')
+          }
+        ]
+      );
       return;
     }
     trackFunnelStep('service_booking', 'payment', 1);
@@ -471,13 +547,25 @@ export default function ServiceBookingScreen({ route, navigation }) {
 
   const handleStripePayment = async () => {
     if (!user) {
-      Alert.alert('Login Required', 'Please log in to complete your order.');
+      Alert.alert(
+        'Login Required',
+        'Please log in to complete your order.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Go to Login', 
+            onPress: () => {
+              setShowPaymentModal(false);
+              navigation.navigate('ProfileTab');
+            }
+          }
+        ]
+      );
       return;
     }
 
     try {
       setProcessingPayment(true);
-      setPaymentStep('processing');
       setPaymentError(null);
       
       // Use network IP for physical devices, localhost for web/simulator
@@ -541,61 +629,90 @@ export default function ServiceBookingScreen({ route, navigation }) {
       // Track booking started
       trackEventBookingStarted(item.category);
 
-      // Submit booking to backend API first
+      // Submit booking to backend API first (skip for events and free tickets)
       let backendResult = { success: false };
-      try {
-        const bookingPayload = {
-          userId: user.uid,
-          serviceId: item.id,
-          serviceName: item.name,
-          serviceDate: formData.serviceDate,
-          serviceTime: formData.serviceTime,
-          quantity: formData.quantity,
-          contactName: formData.contactName,
-          contactEmail: formData.contactEmail,
-          contactPhone: formData.contactPhone || null,
-          specialRequests: formData.specialRequests.trim() || null,
-          totalCost: total,
-          subtotal: subtotal,
-          tax: tax,
-          serviceFee: serviceFee,
-        };
+      // Only submit to backend for paid service bookings (not events, not free tickets)
+      if (item.category !== 'Events' && total > 0) {
+        try {
+          // Show loading state for backend submission
+          setPaymentStep('submitting');
+          setLoadingMessage('Submitting booking...');
+          
+          const bookingPayload = {
+            userId: user.uid,
+            serviceId: item.id,
+            serviceName: item.name,
+            serviceDate: formData.serviceDate,
+            serviceTime: formData.serviceTime,
+            quantity: formData.quantity,
+            contactName: formData.contactName,
+            contactEmail: formData.contactEmail,
+            contactPhone: formData.contactPhone || null,
+            specialRequests: formData.specialRequests.trim() || null,
+            totalCost: total,
+            subtotal: subtotal,
+            tax: tax,
+            serviceFee: serviceFee,
+          };
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        const response = await fetch(`${API_BASE_URL}/api/service-booking`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(bookingPayload),
-          signal: controller.signal,
-        });
+          const response = await fetch(`${API_BASE_URL}/api/service-booking`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(bookingPayload),
+            signal: controller.signal,
+          });
 
-        clearTimeout(timeoutId);
+          clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          throw new Error(`Backend error: ${response.status} ${response.statusText}`);
+          if (!response.ok) {
+            // Handle 404 gracefully (backend not configured)
+            if (response.status === 404) {
+              console.log('Backend not configured (404) - continuing with local booking');
+              // Silently continue - backend is optional
+            } else {
+              throw new Error(`Backend error: ${response.status} ${response.statusText}`);
+            }
+          } else {
+            const result = await response.json();
+            backendResult = result;
+            
+            if (!result.success) {
+              throw new Error(result.error || 'Failed to create service booking');
+            }
+            
+            console.log('✅ Service booking created:', result.bookingId);
+          }
+        } catch (backendError) {
+          // Handle network errors and other issues gracefully
+          const errorMessage = backendError.message || '';
+          
+          // Silently handle 404 (backend not configured) and abort errors (timeout)
+          if (errorMessage.includes('404') || errorMessage.includes('aborted')) {
+            console.log('Backend submission skipped - backend not available');
+            // Continue with booking - backend is optional
+          } else {
+            // Log other errors but don't block the user
+            console.warn('Backend submission failed (non-critical):', backendError);
+            // Don't show alert - backend submission is optional
+            // The booking will still be saved to Firestore
+          }
         }
-
-        const result = await response.json();
-        backendResult = result;
-        
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to create service booking');
-        }
-        
-        console.log('Service booking created:', result.bookingId);
-      } catch (backendError) {
-        console.error('Error submitting service booking to backend:', backendError);
-        // Continue with payment even if backend fails (for demo purposes)
-        // In production, you might want to fail here
+      } else {
+        console.log('Skipping backend booking submission for event or free ticket');
       }
 
       // Check availability via backend BEFORE payment (uses admin's calendar)
-      if (formData.serviceDate && formData.serviceTime) {
+      if (formData.serviceDate && formData.serviceTime && item.category !== 'Events') {
         try {
+          // Show loading state for availability check
+          setPaymentStep('checking');
+          setLoadingMessage('Checking availability...');
+          
           // Parse service date and time to create start/end dates
           const serviceDateStr = formData.serviceDate;
           const serviceTimeStr = formData.serviceTime;
@@ -668,15 +785,11 @@ export default function ServiceBookingScreen({ route, navigation }) {
         }
       }
 
-      // Check if Stripe is configured
-      if (!StripeService.isConfigured()) {
-        throw new Error(
-          'Payment processing is not configured. Please contact support or configure Stripe keys. ' +
-          'Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY in your environment variables.'
-        );
-      }
-
       // Process payment with Stripe Checkout Session
+      // Update loading state
+      setPaymentStep('processing');
+      setLoadingMessage('Processing payment...');
+      
       // Calculate unit price based on item type
       let unitPrice = item.price || 0;
       if (item.category === 'Events') {
@@ -706,6 +819,61 @@ export default function ServiceBookingScreen({ route, navigation }) {
         ticketType: item.category === 'Events' ? formData.ticketType : null,
         discountApplied: item.category === 'Events' ? formData.discountApplied : false,
       }];
+
+      // Handle free tickets (total === 0) - skip Stripe checkout
+      if (total === 0) {
+        console.log('Free ticket detected - skipping Stripe checkout');
+        
+        // Save order to Firestore with COMPLETED payment status
+        const orderId = await saveOrderToFirestore({
+          ...orderData,
+          paymentStatus: 'completed',
+          paymentMethod: 'free',
+          backendBookingId: backendResult.bookingId || null,
+        });
+
+        // Close payment modal and reset states immediately
+        setShowPaymentModal(false);
+        setProcessingPayment(false);
+        setPaymentStep('none');
+        setOrderNumber(null);
+        
+        // Small delay to ensure modal closes before showing alert
+        setTimeout(() => {
+          // Show success message
+          Alert.alert(
+            'Ticket Confirmed!',
+            `Your ticket for ${item.name} has been confirmed.`,
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  // Navigate back to the previous screen (HomeMain)
+                  if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  } else {
+                    // If we can't go back, reset to HomeMain
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'HomeMain' }],
+                    });
+                  }
+                },
+              },
+            ]
+          );
+        }, 100);
+        return;
+      }
+
+      // For paid tickets, proceed with Stripe checkout
+      // Check if Stripe is configured
+      if (!StripeService.isConfigured()) {
+        throw new Error(
+          'Payment processing is not configured. Please contact support or configure Stripe keys. ' +
+          'Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY in your environment variables.'
+        );
+      }
 
       // Save order to Firestore with PENDING payment status first
       // This ensures we have an order ID before redirecting to Stripe
@@ -904,8 +1072,13 @@ export default function ServiceBookingScreen({ route, navigation }) {
     } catch (error) {
       console.error('Payment error:', error);
       trackError('service_payment_failed', { error: error.message, serviceId: item.id });
-      setPaymentError(error.message || 'Payment processing failed. Please try again.');
+      const friendlyError = getUserFriendlyError(error);
+      setPaymentError(friendlyError);
       setPaymentStep('failed');
+      setLoadingMessage('');
+      
+      // Log error for debugging
+      handleError(error, 'Service Booking Payment', 'Payment processing failed');
     } finally {
       setProcessingPayment(false);
     }
@@ -1058,14 +1231,16 @@ export default function ServiceBookingScreen({ route, navigation }) {
             </>
           )}
 
-          {paymentStep === 'processing' && (
+          {(paymentStep === 'submitting' || paymentStep === 'checking' || paymentStep === 'processing') && (
             <View style={styles.processingView}>
               <ActivityIndicator size="large" color={theme.primary} />
               <Text style={[styles.processingText, { color: theme.text }]}>
-                Processing Payment...
+                {loadingMessage || 'Processing...'}
               </Text>
               <Text style={[styles.processingSubtext, { color: theme.subtext }]}>
-                Please wait while we process your order
+                {paymentStep === 'submitting' && 'Submitting your booking details...'}
+                {paymentStep === 'checking' && 'Checking if this time is available...'}
+                {paymentStep === 'processing' && 'Please wait while we process your payment'}
               </Text>
             </View>
           )}
@@ -1093,7 +1268,16 @@ export default function ServiceBookingScreen({ route, navigation }) {
                   setShowPaymentModal(false);
                   setPaymentStep('none');
                   setOrderNumber(null);
-                  navigation.navigate('Home');
+                  // Navigate back to the previous screen (HomeMain)
+                  if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  } else {
+                    // If we can't go back, reset to HomeMain
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'HomeMain' }],
+                    });
+                  }
                 }}
               >
                 <Text style={styles.doneButtonText}>Done</Text>
@@ -1149,7 +1333,9 @@ export default function ServiceBookingScreen({ route, navigation }) {
           >
             <Ionicons name="arrow-back" size={24} color={theme.text} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Book Service</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            {item.category === 'Events' ? 'Buy Ticket' : 'Book Service'}
+          </Text>
           <View style={{ width: 24 }} />
         </View>
 
@@ -1193,31 +1379,59 @@ export default function ServiceBookingScreen({ route, navigation }) {
         <View style={styles.formContainer}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Booking Details</Text>
 
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: theme.text }]}>Service Date *</Text>
-            <TouchableOpacity
-              style={[styles.input, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Text style={[styles.inputText, { color: formData.serviceDate ? theme.text : theme.subtext }]}>
-                {formData.serviceDate || 'Select date'}
-              </Text>
-              <Ionicons name="calendar-outline" size={20} color={theme.primary} />
-            </TouchableOpacity>
-          </View>
+          {/* Date/Time Selection - Only for Services, not Events */}
+          {item.category !== 'Events' && (
+            <>
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: theme.text }]}>Service Date *</Text>
+                <TouchableOpacity
+                  style={[styles.input, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Text style={[styles.inputText, { color: formData.serviceDate ? theme.text : theme.subtext }]}>
+                    {formData.serviceDate || 'Select date'}
+                  </Text>
+                  <Ionicons name="calendar-outline" size={20} color={theme.primary} />
+                </TouchableOpacity>
+              </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: theme.text }]}>Service Time *</Text>
-            <TouchableOpacity
-              style={[styles.input, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
-              onPress={() => setShowTimePicker(true)}
-            >
-              <Text style={[styles.inputText, { color: formData.serviceTime ? theme.text : theme.subtext }]}>
-                {formData.serviceTime || 'Select time'}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: theme.text }]}>Service Time *</Text>
+                <TouchableOpacity
+                  style={[styles.input, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                  onPress={() => setShowTimePicker(true)}
+                >
+                  <Text style={[styles.inputText, { color: formData.serviceTime ? theme.text : theme.subtext }]}>
+                    {formData.serviceTime || 'Select time'}
+                  </Text>
+                  <Ionicons name="time-outline" size={20} color={theme.primary} />
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {/* Event Date Display - Read-only for Events (admin-set date) */}
+          {item.category === 'Events' && (item.eventDate || item.startDate) && (
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: theme.text }]}>Event Date & Time</Text>
+              <View style={[styles.eventDateDisplay, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+                <Ionicons name="calendar" size={20} color={theme.primary} />
+                <View style={styles.eventDateInfo}>
+                  <Text style={[styles.eventDateText, { color: theme.text }]}>
+                    {formData.serviceDate || 'Loading...'}
+                  </Text>
+                  {formData.serviceTime && (
+                    <Text style={[styles.eventTimeText, { color: theme.subtext }]}>
+                      {formData.serviceTime}
+                    </Text>
+                  )}
+                </View>
+              </View>
+              <Text style={[styles.eventDateNote, { color: theme.subtext }]}>
+                This date is set by the event organizer
               </Text>
-              <Ionicons name="time-outline" size={20} color={theme.primary} />
-            </TouchableOpacity>
-          </View>
+            </View>
+          )}
 
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: theme.text }]}>
@@ -1466,8 +1680,10 @@ export default function ServiceBookingScreen({ route, navigation }) {
             onPress={handleProceedToPayment}
             disabled={processingPayment}
           >
-            <Text style={styles.bookButtonText}>Proceed to Payment</Text>
-            <Ionicons name="arrow-forward" size={20} color="#fff" />
+            <Text style={styles.bookButtonText}>
+              {item.category === 'Events' ? 'Buy Ticket' : 'Proceed to Payment'}
+            </Text>
+            <Ionicons name={item.category === 'Events' ? 'ticket' : 'arrow-forward'} size={20} color="#fff" />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -2037,6 +2253,30 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  eventDateDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+  },
+  eventDateInfo: {
+    flex: 1,
+  },
+  eventDateText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  eventTimeText: {
+    fontSize: 14,
+  },
+  eventDateNote: {
+    fontSize: 12,
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   dealBadge: {
     flexDirection: 'row',

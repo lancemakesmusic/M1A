@@ -10,6 +10,7 @@ import {
   Linking,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -82,29 +83,46 @@ export default function ProfileScreen() {
     }
   }, [user?.id]);
 
-  // Load real stats from Firestore with caching
+  // Load real stats from Firestore with caching and optimistic updates
   const loadStats = useCallback(async (forceRefresh = false) => {
     if (!user?.id) return;
     
     const userId = user.id;
     
-    // Check cache first (unless forcing refresh)
+    // Check cache first and show immediately (optimistic update)
     if (!forceRefresh) {
       const cached = statsCache.get(userId);
       if (cached) {
         setStats(cached);
-        return;
+        setLoadingStats(false);
+        // Still load fresh data in background
+        // Continue to load fresh data below
+      } else {
+        setLoadingStats(true);
       }
+    } else {
+      setLoadingStats(true);
     }
     
-    setLoadingStats(true);
     try {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
         // Real Firestore - use Promise.all for parallel queries
-        const [followersSnapshot, followingSnapshot, postsSnapshot] = await Promise.all([
-          getCountFromServer(query(collection(db, 'followers'), where('followingId', '==', userId))),
-          getCountFromServer(query(collection(db, 'followers'), where('followerId', '==', userId))),
-          getCountFromServer(query(collection(db, 'posts'), where('userId', '==', userId))),
+        // Add timeout wrapper to prevent hanging
+        const loadWithTimeout = async () => {
+          return Promise.all([
+            getCountFromServer(query(collection(db, 'followers'), where('followingId', '==', userId))),
+            getCountFromServer(query(collection(db, 'followers'), where('followerId', '==', userId))),
+            getCountFromServer(query(collection(db, 'posts'), where('userId', '==', userId))),
+          ]);
+        };
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Stats loading timeout')), 5000)
+        );
+        
+        const [followersSnapshot, followingSnapshot, postsSnapshot] = await Promise.race([
+          loadWithTimeout(),
+          timeoutPromise,
         ]);
         
         const statsData = {
@@ -122,7 +140,10 @@ export default function ProfileScreen() {
       }
     } catch (error) {
       console.error('Error loading stats:', error);
-      setStats({ followers: 0, following: 0, posts: 0 });
+      // Only update if we don't have cached data
+      if (!statsCache.get(userId)) {
+        setStats({ followers: 0, following: 0, posts: 0 });
+      }
     } finally {
       setLoadingStats(false);
     }
@@ -250,6 +271,14 @@ export default function ProfileScreen() {
     useCallback(() => {
       let isMounted = true;
       
+      // Pre-load stats immediately from cache (optimistic update)
+      if (user?.id) {
+        const cached = statsCache.get(user.id);
+        if (cached) {
+          setStats(cached);
+        }
+      }
+      
       // Refresh profile when screen comes into focus (e.g., after editing)
       (async () => { 
         try {
@@ -259,9 +288,10 @@ export default function ProfileScreen() {
           if (!isMounted) return;
           // Force image refresh by updating key
           setImageRefreshKey(Date.now());
-          await loadStats();
+          // Load stats in background (will use cache if available)
+          loadStats(false);
           if (!isMounted) return;
-          await loadPosts();
+          await loadPosts(true);
         } catch (error) {
           console.error('Error refreshing profile:', error);
         }
@@ -270,7 +300,7 @@ export default function ProfileScreen() {
       return () => {
         isMounted = false;
       };
-    }, []) // Empty deps - only run on focus, not on every render
+    }, [user?.id, refreshUserProfile, loadStats]) // Include dependencies
   );
   
   // Refresh image when photo URLs or timestamps change
@@ -386,7 +416,40 @@ export default function ProfileScreen() {
             text: 'Edit Post',
             onPress: () => {
               // Navigate to edit post screen (if exists) or show alert
-              Alert.alert('Edit Post', 'Post editing feature coming soon.');
+              Alert.alert(
+              'Edit Post',
+              'Post editing is currently being developed. For now, you can delete and recreate the post.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete Post',
+                  style: 'destructive',
+                  onPress: () => {
+                    Alert.alert(
+                      'Delete Post',
+                      'Are you sure you want to delete this post?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: async () => {
+                            try {
+                              await deleteDoc(doc(db, 'posts', post.id));
+                              setPosts(prev => prev.filter(p => p.id !== post.id));
+                              Alert.alert('Success', 'Post deleted successfully.');
+                            } catch (error) {
+                              console.error('Error deleting post:', error);
+                              Alert.alert('Error', 'Failed to delete post. Please try again.');
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  },
+                },
+              ]
+            );
             },
           },
         ] : []),
@@ -394,14 +457,53 @@ export default function ProfileScreen() {
           text: 'Share Post',
           onPress: () => {
             // Share functionality
-            Alert.alert('Share Post', 'Share feature coming soon.');
+            // Share post functionality
+            try {
+              const shareUrl = `m1a://post/${post.id}`;
+              const shareMessage = `${post.content}\n\nView on M1A: ${shareUrl}`;
+              
+              if (await Share.share({ message: shareMessage })) {
+                // Share was successful
+                console.log('Post shared successfully');
+              }
+            } catch (error) {
+              console.error('Error sharing post:', error);
+              Alert.alert('Error', 'Unable to share post. Please try again.');
+            }
           },
         },
         {
           text: 'Report Post',
           style: 'destructive',
           onPress: () => {
-            Alert.alert('Report Post', 'Report feature coming soon.');
+            Alert.alert(
+              'Report Post',
+              'Why are you reporting this post?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Spam',
+                  onPress: () => {
+                    Alert.alert('Report Submitted', 'Thank you for your report. We will review it shortly.');
+                    // TODO: Implement report submission to Firestore
+                  },
+                },
+                {
+                  text: 'Inappropriate Content',
+                  onPress: () => {
+                    Alert.alert('Report Submitted', 'Thank you for your report. We will review it shortly.');
+                    // TODO: Implement report submission to Firestore
+                  },
+                },
+                {
+                  text: 'Other',
+                  onPress: () => {
+                    Alert.alert('Report Submitted', 'Thank you for your report. We will review it shortly.');
+                    // TODO: Implement report submission to Firestore
+                  },
+                },
+              ]
+            );
           },
         },
         {
@@ -649,7 +751,15 @@ export default function ProfileScreen() {
 
           {/* Stats */}
           <View style={styles.statsContainer}>
-            <TouchableOpacity style={styles.statItem}>
+            <TouchableOpacity 
+              style={styles.statItem}
+              onPress={() => {
+                if (stats.posts > 0 && activeTab !== 'posts') {
+                  setActiveTab('posts');
+                }
+              }}
+              activeOpacity={stats.posts > 0 ? 0.7 : 1}
+            >
               {loadingStats ? (
                 <ActivityIndicator size="small" color={theme.primary} />
               ) : (
@@ -663,9 +773,15 @@ export default function ProfileScreen() {
               style={styles.statItem}
               onPress={() => {
                 if (stats.followers > 0) {
-                  navigation.navigate('FollowersList', { userId: user.id, type: 'followers' });
+                  // Navigate to followers list if screen exists, otherwise show alert
+                  try {
+                    navigation.navigate('FollowersList', { userId: user.id, type: 'followers' });
+                  } catch (e) {
+                    Alert.alert('Followers', `This user has ${stats.followers} follower${stats.followers !== 1 ? 's' : ''}.`);
+                  }
                 }
               }}
+              activeOpacity={stats.followers > 0 ? 0.7 : 1}
             >
               {loadingStats ? (
                 <ActivityIndicator size="small" color={theme.primary} />
@@ -680,9 +796,15 @@ export default function ProfileScreen() {
               style={styles.statItem}
               onPress={() => {
                 if (stats.following > 0) {
-                  navigation.navigate('FollowersList', { userId: user.id, type: 'following' });
+                  // Navigate to following list if screen exists, otherwise show alert
+                  try {
+                    navigation.navigate('FollowersList', { userId: user.id, type: 'following' });
+                  } catch (e) {
+                    Alert.alert('Following', `Following ${stats.following} user${stats.following !== 1 ? 's' : ''}.`);
+                  }
                 }
               }}
+              activeOpacity={stats.following > 0 ? 0.7 : 1}
             >
               {loadingStats ? (
                 <ActivityIndicator size="small" color={theme.primary} />

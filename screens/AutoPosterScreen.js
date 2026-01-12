@@ -65,6 +65,12 @@ export default function AutoPosterScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [generatingContent, setGeneratingContent] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [backendStatus, setBackendStatus] = useState({
+    connected: false,
+    checking: true,
+    lastChecked: null,
+  });
+  const [showBackendHelp, setShowBackendHelp] = useState(false);
 
   // Content generation states
   const [contentPrompt, setContentPrompt] = useState('');
@@ -147,6 +153,16 @@ export default function AutoPosterScreen({ navigation }) {
 
   useEffect(() => {
     loadData();
+    checkBackendStatus();
+  }, []);
+
+  // Check backend status periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkBackendStatus();
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
   const loadData = withErrorHandling(async () => {
@@ -223,6 +239,56 @@ export default function AutoPosterScreen({ navigation }) {
     }
   };
 
+  const checkBackendStatus = async () => {
+    try {
+      setBackendStatus(prev => ({ ...prev, checking: true }));
+      
+      // Try to ping the backend health endpoint
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      try {
+        const response = await fetch(`${BACKEND_BASE_URL}/api/health`, {
+          method: 'GET',
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          setBackendStatus({
+            connected: true,
+            checking: false,
+            lastChecked: new Date(),
+          });
+        } else {
+          setBackendStatus({
+            connected: false,
+            checking: false,
+            lastChecked: new Date(),
+          });
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.warn('Backend health check timed out');
+        }
+        setBackendStatus({
+          connected: false,
+          checking: false,
+          lastChecked: new Date(),
+        });
+      }
+    } catch (error) {
+      console.error('Error checking backend status:', error);
+      setBackendStatus({
+        connected: false,
+        checking: false,
+        lastChecked: new Date(),
+      });
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadData();
@@ -283,14 +349,47 @@ export default function AutoPosterScreen({ navigation }) {
   });
 
   const generateContentWithErrorHandling = async () => {
+    // Check backend status before attempting generation
+    if (!backendStatus.connected) {
+      Alert.alert(
+        'Backend Not Available',
+        'The AutoPoster backend is not connected. Please check your backend setup and try again.\n\nWould you like to see setup instructions?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'View Setup Guide', 
+            onPress: () => setShowBackendHelp(true) 
+          },
+        ]
+      );
+      return;
+    }
+
     try {
       await generateContent();
     } catch (error) {
-      handleError(error, {
-        customTitle: 'Content Generation Failed',
-        customMessage: 'Unable to generate content. Please try again.',
-        onRetry: generateContentWithErrorHandling,
-      });
+      // Check if it's a backend connection error
+      if (error.message?.includes('fetch') || error.message?.includes('network') || error.message?.includes('Failed to fetch')) {
+        Alert.alert(
+          'Backend Connection Error',
+          'Unable to connect to the AutoPoster backend. Please check:\n\n• Backend server is running\n• EXPO_PUBLIC_API_BASE_URL is configured correctly\n• Network connection is active\n\nWould you like to see setup instructions?',
+          [
+            { text: 'OK', style: 'cancel' },
+            { 
+              text: 'View Setup Guide', 
+              onPress: () => setShowBackendHelp(true) 
+            },
+          ]
+        );
+        // Update backend status
+        setBackendStatus(prev => ({ ...prev, connected: false }));
+      } else {
+        handleError(error, {
+          customTitle: 'Content Generation Failed',
+          customMessage: 'Unable to generate content. Please try again.',
+          onRetry: generateContentWithErrorHandling,
+        });
+      }
     } finally {
       setGeneratingContent(false);
     }
@@ -809,6 +908,33 @@ export default function AutoPosterScreen({ navigation }) {
               : 'Activate Auto Poster to automatically schedule your content.'
             }
           </Text>
+          
+          {/* Backend Status Indicator */}
+          <View style={styles.backendStatusContainer}>
+            <View style={styles.backendStatusRow}>
+              <Ionicons 
+                name={backendStatus.connected ? "cloud-done" : "cloud-offline"} 
+                size={16} 
+                color={backendStatus.connected ? '#34C759' : '#FF9500'} 
+              />
+              <Text style={[styles.backendStatusText, { color: theme.subtext }]}>
+                Backend: {backendStatus.connected ? 'Connected' : backendStatus.checking ? 'Checking...' : 'Not Available'}
+              </Text>
+              {!backendStatus.connected && (
+                <TouchableOpacity
+                  onPress={() => setShowBackendHelp(true)}
+                  style={styles.helpButton}
+                >
+                  <Ionicons name="help-circle-outline" size={16} color={theme.primary} />
+                </TouchableOpacity>
+              )}
+            </View>
+            {!backendStatus.connected && (
+              <Text style={[styles.backendStatusWarning, { color: '#FF9500' }]}>
+                ⚠️ Some features require backend setup. Tap the help icon for setup instructions.
+              </Text>
+            )}
+          </View>
         </View>
 
         {/* Social Media Platforms */}
@@ -979,21 +1105,35 @@ export default function AutoPosterScreen({ navigation }) {
 
               <Text style={[styles.inputLabel, { color: theme.text }]}>Content Type</Text>
               <View style={styles.optionRow}>
-                {['post', 'story', 'reel', 'carousel'].map((type) => (
+                {[
+                  { id: 'post', label: 'Post', icon: 'document-text' },
+                  { id: 'story', label: 'Story', icon: 'camera' },
+                  { id: 'reel', label: 'Reel', icon: 'videocam' },
+                  { id: 'carousel', label: 'Carousel', icon: 'images' },
+                  { id: 'video', label: 'Video', icon: 'film' },
+                  { id: 'poll', label: 'Poll', icon: 'stats-chart' },
+                  { id: 'live', label: 'Live', icon: 'radio' },
+                ].map((type) => (
                   <TouchableOpacity
-                    key={type}
+                    key={type.id}
                     style={[
                       styles.optionButton,
-                      { backgroundColor: contentType === type ? theme.primary : theme.background },
+                      { backgroundColor: contentType === type.id ? theme.primary : theme.background },
                       { borderColor: theme.border }
                     ]}
-                    onPress={() => setContentType(type)}
+                    onPress={() => setContentType(type.id)}
                   >
+                    <Ionicons 
+                      name={type.icon} 
+                      size={16} 
+                      color={contentType === type.id ? 'white' : theme.text} 
+                      style={{ marginRight: 4 }}
+                    />
                     <Text style={[
                       styles.optionText,
-                      { color: contentType === type ? 'white' : theme.text }
+                      { color: contentType === type.id ? 'white' : theme.text }
                     ]}>
-                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                      {type.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -1257,6 +1397,104 @@ export default function AutoPosterScreen({ navigation }) {
         </View>
       </Modal>
       
+      {/* Backend Setup Help Modal */}
+      <Modal
+        visible={showBackendHelp}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowBackendHelp(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.cardBackground }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Backend Setup Guide</Text>
+              <TouchableOpacity onPress={() => setShowBackendHelp(false)}>
+                <Ionicons name="close" size={24} color={theme.subtext} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <Text style={[styles.helpSectionTitle, { color: theme.text }]}>Why Backend Setup?</Text>
+              <Text style={[styles.helpText, { color: theme.subtext }]}>
+                AutoPoster requires a backend server to:
+              </Text>
+              <View style={styles.helpList}>
+                <Text style={[styles.helpListItem, { color: theme.subtext }]}>
+                  • Generate AI-powered content using GPT models
+                </Text>
+                <Text style={[styles.helpListItem, { color: theme.subtext }]}>
+                  • Connect to social media platform APIs
+                </Text>
+                <Text style={[styles.helpListItem, { color: theme.subtext }]}>
+                  • Schedule and publish posts automatically
+                </Text>
+                <Text style={[styles.helpListItem, { color: theme.subtext }]}>
+                  • Store media files and manage content library
+                </Text>
+              </View>
+
+              <Text style={[styles.helpSectionTitle, { color: theme.text, marginTop: 24 }]}>Setup Steps</Text>
+              <View style={styles.helpSteps}>
+                <View style={styles.helpStep}>
+                  <Text style={[styles.helpStepNumber, { color: theme.primary }]}>1</Text>
+                  <View style={styles.helpStepContent}>
+                    <Text style={[styles.helpStepTitle, { color: theme.text }]}>Deploy Backend</Text>
+                    <Text style={[styles.helpStepText, { color: theme.subtext }]}>
+                      Deploy the AutoPoster backend to a cloud service (Google Cloud, AWS, etc.)
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.helpStep}>
+                  <Text style={[styles.helpStepNumber, { color: theme.primary }]}>2</Text>
+                  <View style={styles.helpStepContent}>
+                    <Text style={[styles.helpStepTitle, { color: theme.text }]}>Configure API URL</Text>
+                    <Text style={[styles.helpStepText, { color: theme.subtext }]}>
+                      Set EXPO_PUBLIC_API_BASE_URL environment variable to your backend URL
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.helpStep}>
+                  <Text style={[styles.helpStepNumber, { color: theme.primary }]}>3</Text>
+                  <View style={styles.helpStepContent}>
+                    <Text style={[styles.helpStepTitle, { color: theme.text }]}>Connect Platforms</Text>
+                    <Text style={[styles.helpStepText, { color: theme.subtext }]}>
+                      Configure OAuth credentials for each social media platform in the backend
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.helpStep}>
+                  <Text style={[styles.helpStepNumber, { color: theme.primary }]}>4</Text>
+                  <View style={styles.helpStepContent}>
+                    <Text style={[styles.helpStepTitle, { color: theme.text }]}>Test Connection</Text>
+                    <Text style={[styles.helpStepText, { color: theme.subtext }]}>
+                      Use the "Test Backend Connection" button to verify everything is working
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <Text style={[styles.helpSectionTitle, { color: theme.text, marginTop: 24 }]}>Current Configuration</Text>
+              <View style={[styles.configCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                <Text style={[styles.configLabel, { color: theme.subtext }]}>Backend URL:</Text>
+                <Text style={[styles.configValue, { color: theme.text }]}>{BACKEND_BASE_URL}</Text>
+                <Text style={[styles.configLabel, { color: theme.subtext, marginTop: 8 }]}>Status:</Text>
+                <Text style={[styles.configValue, { color: backendStatus.connected ? '#34C759' : '#FF9500' }]}>
+                  {backendStatus.connected ? 'Connected ✓' : 'Not Connected ✗'}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.testBackendButton, { backgroundColor: theme.primary }]}
+                onPress={checkBackendStatus}
+              >
+                <Ionicons name="refresh" size={20} color="white" />
+                <Text style={styles.testBackendButtonText}>Test Backend Connection</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Scroll Indicator */}
       {showScrollIndicator && (
         <ScrollIndicator
@@ -1739,6 +1977,110 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   uploadButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Backend Status Styles
+  backendStatusContainer: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5E7',
+  },
+  backendStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  backendStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
+    flex: 1,
+  },
+  helpButton: {
+    padding: 4,
+  },
+  backendStatusWarning: {
+    fontSize: 11,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  // Help Modal Styles
+  helpSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  helpText: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  helpList: {
+    marginLeft: 8,
+    marginBottom: 16,
+  },
+  helpListItem: {
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 6,
+  },
+  helpSteps: {
+    marginBottom: 16,
+  },
+  helpStep: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  helpStepNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E5E5E7',
+    textAlign: 'center',
+    lineHeight: 32,
+    fontSize: 16,
+    fontWeight: '700',
+    marginRight: 12,
+  },
+  helpStepContent: {
+    flex: 1,
+  },
+  helpStepTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  helpStepText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  configCard: {
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  configLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  configValue: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  testBackendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    marginTop: 20,
+    gap: 8,
+  },
+  testBackendButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',

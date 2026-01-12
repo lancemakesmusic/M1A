@@ -3,7 +3,7 @@
  * Handles user reviews, ratings, and moderation
  */
 
-import { collection, addDoc, query, where, getDocs, orderBy, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, limit, doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
 import { trackReviewSubmitted } from './AnalyticsService';
 
@@ -76,6 +76,11 @@ export const submitReview = async (reviewData) => {
 
     // Track in analytics
     await trackReviewSubmitted(reviewData.itemId, reviewData.rating, !!reviewData.reviewText);
+
+    // Update user rating if reviewing a user (itemId is a userId)
+    if (reviewData.itemId && reviewData.itemId !== reviewData.userId) {
+      await updateUserRating(reviewData.itemId);
+    }
 
     return { success: true, reviewId };
   } catch (error) {
@@ -235,6 +240,81 @@ export const getUserReviews = async (userId) => {
   }
 };
 
+// Update user rating based on all reviews for that user
+export const updateUserRating = async (userId) => {
+  try {
+    if (!userId || !isFirebaseReady() || !db || typeof db.collection === 'function') {
+      return;
+    }
+
+    // Get all reviews for this user (where itemId == userId)
+    const reviewsQuery = query(
+      collection(db, 'reviews'),
+      where('itemId', '==', userId)
+    );
+    const reviewsSnapshot = await getDocs(reviewsQuery);
+    
+    if (reviewsSnapshot.empty) {
+      // No reviews yet, set default to 5.0
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        rating: 5.0,
+        reviews: 0,
+        updatedAt: serverTimestamp(),
+      });
+      return;
+    }
+
+    // Calculate average rating
+    const reviews = reviewsSnapshot.docs.map(doc => doc.data());
+    const totalRating = reviews.reduce((sum, review) => sum + (review.rating || 0), 0);
+    const averageRating = totalRating / reviews.length;
+    const roundedRating = Math.round(averageRating * 10) / 10; // Round to 1 decimal
+
+    // Update user document
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      rating: roundedRating,
+      reviews: reviews.length,
+      updatedAt: serverTimestamp(),
+    });
+
+    console.log(`✅ Updated rating for user ${userId}: ${roundedRating} (${reviews.length} reviews)`);
+  } catch (error) {
+    console.error('Error updating user rating:', error);
+  }
+};
+
+// Get reviews for a specific user (where itemId == userId)
+export const getUserRatingReviews = async (userId, limitCount = 20) => {
+  try {
+    let reviews = [];
+
+    if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+      const q = query(
+        collection(db, 'reviews'),
+        where('itemId', '==', userId),
+        orderBy('createdAt', 'desc'),
+        limit(limitCount)
+      );
+      const snapshot = await getDocs(q);
+      reviews = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else if (db && typeof db.collection === 'function') {
+      const snapshot = await db.collection('reviews')
+        .where('itemId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .limit(limitCount)
+        .get();
+      reviews = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+
+    return reviews;
+  } catch (error) {
+    console.error('Error getting user rating reviews:', error);
+    return [];
+  }
+};
+
 export default {
   submitReview,
   getItemReviews,
@@ -242,5 +322,7 @@ export default {
   markReviewHelpful,
   reportReview,
   getUserReviews,
+  updateUserRating,
+  getUserRatingReviews,
 };
 

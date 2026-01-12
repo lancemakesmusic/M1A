@@ -13,9 +13,12 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Modal,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -23,6 +26,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
+import { usersCache } from '../utils/dataCache';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackFeatureUsage, trackSearch } from '../services/AnalyticsService';
 import { getAvatarUrl, hasAvatar, getAvatarSource } from '../utils/photoUtils';
@@ -42,12 +46,34 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showSortOptions, setShowSortOptions] = useState(false);
+  const [filters, setFilters] = useState({
+    minRating: null,
+    location: '',
+    persona: null,
+    verified: null, // null = all, true = verified only, false = unverified only
+    online: null, // null = all, true = online only
+    minServices: null, // minimum number of services
+  });
+  const [sortBy, setSortBy] = useState('name'); // 'name', 'rating', 'reviews', 'recent'
 
   useEffect(() => {
     loadUsers();
   }, []);
 
   const loadUsers = useCallback(async () => {
+    // Check cache first
+    const cacheKey = usersCache.generateKey('usersList');
+    const cachedUsers = usersCache.get(cacheKey);
+    if (cachedUsers) {
+      console.log('📦 Using cached users list');
+      setUsers(cachedUsers);
+      setLoading(false);
+      // Still refresh in background
+    }
+
     try {
       setLoading(true);
       
@@ -72,13 +98,17 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
           persona: u.persona || 'vendor',
           personaTitle: u.personaTitle || 'Vendor',
           services: u.services || [],
-          rating: u.rating || 4.5,
+          rating: u.rating || 5.0, // Default to 5 stars for new users
           reviews: u.reviews || 0,
           priceRange: u.priceRange || '$50-$500',
           isOnline: u.isOnline || false,
           verified: u.verified || false,
         }));
         setUsers(enrichedUsers);
+        
+        // Cache the results
+        const cacheKey = usersCache.generateKey('usersList');
+        usersCache.set(cacheKey, enrichedUsers, 5 * 60 * 1000); // 5 minutes TTL
       } else {
         console.warn('Firestore not ready, showing empty list');
         setUsers([]);
@@ -97,7 +127,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
     loadUsers();
   }, [loadUsers]);
 
-  const filteredUsers = useMemo(() => {
+  const filteredAndSortedUsers = useMemo(() => {
     let filtered = users.filter(u => u.id !== currentUser?.uid); // Exclude current user
     
     // Persona filter (from parent ExploreScreen)
@@ -105,8 +135,83 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
       filtered = filtered.filter(u => u.personaTitle === selectedPersonaFilter);
     }
     
-    return filtered;
-  }, [users, selectedPersonaFilter, currentUser]);
+    // Search query filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(u => {
+        const searchFields = [
+          u.displayName,
+          u.username,
+          u.bio,
+          u.location,
+          u.personaTitle,
+          ...(u.services || []),
+        ].filter(Boolean).map(f => String(f).toLowerCase());
+        return searchFields.some(field => field.includes(query));
+      });
+    }
+    
+    // Rating filter
+    if (filters.minRating !== null) {
+      filtered = filtered.filter(u => (u.rating || 5.0) >= filters.minRating);
+    }
+    
+    // Location filter
+    if (filters.location && filters.location.trim()) {
+      const locationQuery = filters.location.toLowerCase();
+      filtered = filtered.filter(u => 
+        u.location?.toLowerCase().includes(locationQuery)
+      );
+    }
+    
+    // Persona filter (from filters modal)
+    if (filters.persona) {
+      filtered = filtered.filter(u => u.personaTitle === filters.persona);
+    }
+    
+    // Verified filter
+    if (filters.verified !== null) {
+      filtered = filtered.filter(u => (u.verified || false) === filters.verified);
+    }
+    
+    // Online filter
+    if (filters.online !== null) {
+      filtered = filtered.filter(u => (u.isOnline || false) === filters.online);
+    }
+    
+    // Minimum services filter
+    if (filters.minServices !== null) {
+      filtered = filtered.filter(u => (u.services?.length || 0) >= filters.minServices);
+    }
+    
+    // Sorting
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case 'rating':
+        sorted.sort((a, b) => (b.rating || 5.0) - (a.rating || 5.0));
+        break;
+      case 'reviews':
+        sorted.sort((a, b) => (b.reviews || 0) - (a.reviews || 0));
+        break;
+      case 'recent':
+        // Sort by createdAt if available, otherwise by displayName
+        sorted.sort((a, b) => {
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : (a.createdAt ? new Date(a.createdAt) : null);
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : (b.createdAt ? new Date(b.createdAt) : null);
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return dateB - dateA; // Most recent first
+        });
+        break;
+      case 'name':
+      default:
+        sorted.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+        break;
+    }
+    
+    return sorted;
+  }, [users, selectedPersonaFilter, currentUser, searchQuery, filters, sortBy]);
 
   const ensureConversationExists = useCallback(
     async (targetUser) => {
@@ -364,7 +469,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
             <View style={styles.ratingRow}>
               <Ionicons name="star" size={14} color="#FFD700" />
               <Text style={[styles.rating, { color: theme.text }]}>
-                {item.rating?.toFixed(1) || '4.5'}
+                {item.rating?.toFixed(1) || '5.0'}
               </Text>
               <Text style={[styles.reviewCount, { color: theme.subtext }]}>
                 ({item.reviews || 0})
@@ -400,14 +505,46 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
       )}
 
       {/* Price Range */}
-      {item.priceRange && (
-        <View style={styles.priceContainer}>
-          <Ionicons name="cash-outline" size={16} color={theme.primary} />
-          <Text style={[styles.priceRange, { color: theme.text }]}>
-            {item.priceRange}
-          </Text>
-        </View>
-      )}
+          {/* Additional User Info */}
+          <View style={styles.additionalInfo}>
+            {item.location && (
+              <View style={styles.infoItem}>
+                <Ionicons name="location-outline" size={14} color={theme.subtext} />
+                <Text style={[styles.infoText, { color: theme.subtext }]} numberOfLines={1}>
+                  {item.location}
+                </Text>
+              </View>
+            )}
+            {item.services && item.services.length > 0 && (
+              <View style={styles.infoItem}>
+                <Ionicons name="briefcase-outline" size={14} color={theme.subtext} />
+                <Text style={[styles.infoText, { color: theme.subtext }]}>
+                  {item.services.length} {item.services.length === 1 ? 'service' : 'services'}
+                </Text>
+              </View>
+            )}
+            {item.createdAt && (
+              <View style={styles.infoItem}>
+                <Ionicons name="calendar-outline" size={14} color={theme.subtext} />
+                <Text style={[styles.infoText, { color: theme.subtext }]}>
+                  Joined {item.createdAt?.toDate ? 
+                    new Date(item.createdAt.toDate()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) :
+                    new Date(item.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                  }
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Price Range */}
+          {item.priceRange && (
+            <View style={styles.priceContainer}>
+              <Ionicons name="cash-outline" size={16} color={theme.primary} />
+              <Text style={[styles.priceRange, { color: theme.text }]}>
+                {item.priceRange}
+              </Text>
+            </View>
+          )}
 
       {/* Action Buttons */}
       <View style={styles.actionButtons}>
@@ -453,9 +590,52 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Users List - No header, starts immediately */}
+      {/* Search and Filter Bar */}
+      <View style={[styles.searchBarContainer, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
+        <View style={[styles.searchBar, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+          <Ionicons name="search" size={18} color={theme.subtext} style={styles.searchIcon} />
+          <TextInput
+            style={[styles.searchInput, { color: theme.text }]}
+            placeholder="Search users..."
+            placeholderTextColor={theme.subtext}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              style={styles.clearButton}
+            >
+              <Ionicons name="close-circle" size={18} color={theme.subtext} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={styles.filterButtons}>
+          <TouchableOpacity
+            style={[styles.filterButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+            onPress={() => setShowSortOptions(true)}
+          >
+            <Ionicons name="swap-vertical" size={18} color={theme.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+            onPress={() => setShowFilters(true)}
+          >
+            <Ionicons name="options" size={18} color={theme.primary} />
+            {(filters.minRating !== null || filters.location || filters.persona || 
+              filters.verified !== null || filters.online !== null || filters.minServices !== null) && (
+              <View style={[styles.filterBadge, { backgroundColor: theme.primary }]}>
+                <Text style={styles.filterBadgeText}>!</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Users List */}
       <FlatList
-        data={filteredUsers}
+        data={filteredAndSortedUsers}
         renderItem={renderUserCard}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContainer}
@@ -470,13 +650,249 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
               No users found
             </Text>
             <Text style={[styles.emptySubtext, { color: theme.subtext }]}>
-              {selectedPersonaFilter !== 'All'
+              {searchQuery || Object.values(filters).some(v => v !== null && v !== '')
+                ? 'Try adjusting your search or filters'
+                : selectedPersonaFilter !== 'All'
                 ? 'Try a different filter'
                 : 'Check back later for new users'}
             </Text>
           </View>
         }
       />
+
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilters}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowFilters(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Filters</Text>
+              <TouchableOpacity onPress={() => setShowFilters(false)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              {/* Rating Filter */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Minimum Rating</Text>
+                <View style={styles.ratingContainer}>
+                  {[1, 2, 3, 4, 5].map((rating) => (
+                    <TouchableOpacity
+                      key={rating}
+                      style={[
+                        styles.ratingButton,
+                        {
+                          backgroundColor: filters.minRating === rating ? theme.primary : theme.cardBackground,
+                          borderColor: filters.minRating === rating ? theme.primary : theme.border,
+                        },
+                      ]}
+                      onPress={() => setFilters({ ...filters, minRating: filters.minRating === rating ? null : rating })}
+                    >
+                      <Ionicons name="star" size={20} color={filters.minRating === rating ? '#fff' : theme.primary} />
+                      <Text style={[styles.ratingText, { color: filters.minRating === rating ? '#fff' : theme.text }]}>
+                        {rating}+
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Location Filter */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Location</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+                  placeholder="Search by location..."
+                  placeholderTextColor={theme.subtext}
+                  value={filters.location}
+                  onChangeText={(text) => setFilters({ ...filters, location: text })}
+                />
+              </View>
+
+              {/* Persona Filter */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Persona</Text>
+                <View style={styles.categoryFilterContainer}>
+                  {['All', 'Artist', 'Vendor', 'Promoter', 'Guest', 'Wedding Planner', 'Venue Owner', 'Performer'].map((persona) => (
+                    <TouchableOpacity
+                      key={persona}
+                      style={[
+                        styles.categoryFilterButton,
+                        {
+                          backgroundColor: filters.persona === persona ? theme.primary : theme.cardBackground,
+                          borderColor: filters.persona === persona ? theme.primary : theme.border,
+                        },
+                      ]}
+                      onPress={() => setFilters({ ...filters, persona: filters.persona === persona ? null : persona })}
+                    >
+                      <Text
+                        style={[
+                          styles.categoryFilterText,
+                          { color: filters.persona === persona ? '#fff' : theme.text },
+                        ]}
+                      >
+                        {persona}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Verified & Online Filters */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Status</Text>
+                <TouchableOpacity
+                  style={styles.switchRow}
+                  onPress={() => setFilters({ ...filters, verified: filters.verified === true ? null : true })}
+                >
+                  <View style={styles.switchLabel}>
+                    <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
+                    <Text style={[styles.switchText, { color: theme.text }]}>Verified Only</Text>
+                  </View>
+                  <View style={[styles.switch, { backgroundColor: filters.verified === true ? theme.primary : theme.border }]}>
+                    <View
+                      style={[
+                        styles.switchThumb,
+                        { transform: [{ translateX: filters.verified === true ? 20 : 0 }] },
+                      ]}
+                    />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.switchRow}
+                  onPress={() => setFilters({ ...filters, online: filters.online === true ? null : true })}
+                >
+                  <View style={styles.switchLabel}>
+                    <Ionicons name="radio-button-on" size={20} color={theme.primary} />
+                    <Text style={[styles.switchText, { color: theme.text }]}>Online Now</Text>
+                  </View>
+                  <View style={[styles.switch, { backgroundColor: filters.online === true ? theme.primary : theme.border }]}>
+                    <View
+                      style={[
+                        styles.switchThumb,
+                        { transform: [{ translateX: filters.online === true ? 20 : 0 }] },
+                      ]}
+                    />
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Minimum Services Filter */}
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Minimum Services</Text>
+                <View style={styles.servicesFilterContainer}>
+                  {[0, 1, 3, 5, 10].map((count) => (
+                    <TouchableOpacity
+                      key={count}
+                      style={[
+                        styles.servicesFilterButton,
+                        {
+                          backgroundColor: filters.minServices === count ? theme.primary : theme.cardBackground,
+                          borderColor: filters.minServices === count ? theme.primary : theme.border,
+                        },
+                      ]}
+                      onPress={() => setFilters({ ...filters, minServices: filters.minServices === count ? null : count })}
+                    >
+                      <Text
+                        style={[
+                          styles.servicesFilterText,
+                          { color: filters.minServices === count ? '#fff' : theme.text },
+                        ]}
+                      >
+                        {count}+
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Clear Filters Button */}
+              <TouchableOpacity
+                style={[styles.clearFiltersButton, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
+                onPress={() => {
+                  setFilters({
+                    minRating: null,
+                    location: '',
+                    persona: null,
+                    verified: null,
+                    online: null,
+                    minServices: null,
+                  });
+                }}
+              >
+                <Ionicons name="refresh" size={18} color={theme.primary} />
+                <Text style={[styles.clearFiltersText, { color: theme.primary }]}>Clear All Filters</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Sort Options Modal */}
+      <Modal
+        visible={showSortOptions}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSortOptions(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Sort By</Text>
+              <TouchableOpacity onPress={() => setShowSortOptions(false)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              {[
+                { value: 'name', label: 'Name: A to Z', icon: 'text' },
+                { value: 'rating', label: 'Highest Rated', icon: 'star' },
+                { value: 'reviews', label: 'Most Reviews', icon: 'chatbubbles' },
+                { value: 'recent', label: 'Recently Joined', icon: 'calendar' },
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.sortOption,
+                    {
+                      backgroundColor: sortBy === option.value ? theme.primary + '20' : theme.cardBackground,
+                      borderColor: sortBy === option.value ? theme.primary : theme.border,
+                    },
+                  ]}
+                  onPress={() => {
+                    setSortBy(option.value);
+                    setShowSortOptions(false);
+                  }}
+                >
+                  <Ionicons
+                    name={option.icon}
+                    size={20}
+                    color={sortBy === option.value ? theme.primary : theme.text}
+                  />
+                  <Text
+                    style={[
+                      styles.sortOptionText,
+                      {
+                        color: sortBy === option.value ? theme.primary : theme.text,
+                        fontWeight: sortBy === option.value ? '600' : '400',
+                      },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                  {sortBy === option.value && (
+                    <Ionicons name="checkmark" size={20} color={theme.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -682,5 +1098,221 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  // Search and Filter Bar
+  searchBarContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    padding: 0,
+  },
+  clearButton: {
+    marginLeft: 8,
+  },
+  filterButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  filterButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    position: 'relative',
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  filterBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  // Additional User Info
+  additionalInfo: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 12,
+  },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  infoText: {
+    fontSize: 12,
+  },
+  // Filter Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '90%',
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  modalScrollView: {
+    padding: 20,
+  },
+  filterSection: {
+    marginBottom: 24,
+  },
+  filterSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  ratingButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+  },
+  ratingText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  filterInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  categoryFilterContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  categoryFilterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  categoryFilterText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  switchLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  switchText: {
+    fontSize: 16,
+  },
+  switch: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    padding: 2,
+  },
+  switchThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
+  servicesFilterContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  servicesFilterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  servicesFilterText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  clearFiltersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+    gap: 8,
+  },
+  clearFiltersText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Sort Modal Styles
+  sortOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+    gap: 12,
+  },
+  sortOptionText: {
+    flex: 1,
+    fontSize: 16,
   },
 });

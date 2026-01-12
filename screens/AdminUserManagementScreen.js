@@ -4,7 +4,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { addDoc, collection, getDocs, query, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
+import { addDoc, collection, getDocs, query, serverTimestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -24,6 +24,7 @@ import EmptyState from '../components/EmptyState';
 import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useWallet } from '../contexts/WalletContext';
 import { db } from '../firebase';
 import RoleManagementService from '../services/RoleManagementService';
 import WalletService from '../services/WalletService';
@@ -32,6 +33,7 @@ export default function AdminUserManagementScreen({ navigation }) {
   const { user } = useAuth();
   const { theme } = useTheme();
   const { isAdmin, isMasterAdmin, hasPermission, isAdminEmail } = useRole();
+  const { refreshBalance } = useWallet();
   
   // SECURITY: Only admin@merkabaent.com can access this screen
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
@@ -319,8 +321,25 @@ export default function AdminUserManagementScreen({ navigation }) {
             try {
               setProcessing(true);
               
-              // Update wallet balance
+              // Update wallet balance in wallets collection
               await WalletService.updateBalance(selectedUser.id, amount);
+              
+              // Also sync balance to user document for quick reference (optional)
+              // This ensures consistency across the app
+              try {
+                const userRef = doc(db, 'users', selectedUser.id);
+                const userSnap = await getDoc(userRef);
+                if (userSnap.exists()) {
+                  const currentWalletBalance = await WalletService.getBalance(selectedUser.id);
+                  await updateDoc(userRef, {
+                    wallet: currentWalletBalance,
+                    updatedAt: serverTimestamp(),
+                  });
+                }
+              } catch (syncError) {
+                console.warn('Failed to sync balance to user document:', syncError);
+                // Don't fail the operation if sync fails
+              }
               
               // Create transaction record for audit trail
               const transactionId = `ADMIN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -340,6 +359,12 @@ export default function AdminUserManagementScreen({ navigation }) {
               
               // Reload wallet balance
               await loadWalletBalance(selectedUser.id);
+              
+              // If the adjusted user is the currently logged-in user, refresh their WalletContext
+              if (selectedUser.id === user.uid) {
+                console.log('🔄 Refreshing WalletContext for adjusted user');
+                await refreshBalance(selectedUser.id);
+              }
               
               Alert.alert(
                 'Success',
@@ -482,8 +507,9 @@ export default function AdminUserManagementScreen({ navigation }) {
           onPress: async () => {
             try {
               setProcessing(true);
-              // TODO: Implement account deletion in RoleManagementService
-              // For now, we'll deactivate and mark for deletion
+              // Account deletion: Mark account as deleted and set deletion metadata
+              // The account is soft-deleted (marked for deletion) rather than hard-deleted
+              // to maintain data integrity and allow for recovery if needed
               await updateDoc(doc(db, 'users', targetUser.id), {
                 accountStatus: 'deleted',
                 deletedAt: serverTimestamp(),

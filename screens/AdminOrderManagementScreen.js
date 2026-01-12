@@ -4,8 +4,8 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, orderBy, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { useCallback, useEffect, useState } from 'react';
+import { collection, getDocs, query, orderBy, updateDoc, doc, serverTimestamp, where, Timestamp } from 'firebase/firestore';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,10 +15,14 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -35,6 +39,30 @@ export default function AdminOrderManagementScreen({ navigation }) {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [filter, setFilter] = useState('all'); // all, pending, completed, cancelled
+  // Advanced filters
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({
+    status: 'all',
+    orderType: 'all', // all, serviceOrders, eventOrders, barOrders
+    paymentMethod: 'all', // all, stripe, wallet, cash, free
+    minAmount: '',
+    maxAmount: '',
+    customerSearch: '',
+    startDate: null,
+    endDate: null,
+  });
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerMode, setDatePickerMode] = useState(null); // 'start' or 'end'
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analytics, setAnalytics] = useState({
+    totalRevenue: 0,
+    totalOrders: 0,
+    averageOrderValue: 0,
+    ordersByStatus: {},
+    ordersByType: {},
+    revenueByType: {},
+    ordersByDate: [],
+  });
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
 
@@ -51,7 +79,7 @@ export default function AdminOrderManagementScreen({ navigation }) {
     try {
       setLoading(true);
       // Try multiple possible collections
-      const collections = ['orders', 'cartOrders', 'transactions'];
+      const collections = ['orders', 'serviceOrders', 'eventOrders', 'barOrders', 'cartOrders', 'transactions'];
       let allOrders = [];
 
       for (const collectionName of collections) {
@@ -61,6 +89,7 @@ export default function AdminOrderManagementScreen({ navigation }) {
           const ordersData = ordersSnapshot.docs.map(doc => ({
             id: doc.id,
             collection: collectionName,
+            orderType: collectionName.replace('Orders', '').replace('s', '') || 'order',
             ...doc.data(),
           }));
           allOrders = [...allOrders, ...ordersData];
@@ -71,6 +100,7 @@ export default function AdminOrderManagementScreen({ navigation }) {
       }
 
       setOrders(allOrders);
+      calculateAnalytics(allOrders);
     } catch (error) {
       console.error('Error loading orders:', error);
       Alert.alert('Error', 'Failed to load orders');
@@ -78,6 +108,51 @@ export default function AdminOrderManagementScreen({ navigation }) {
       setLoading(false);
       setRefreshing(false);
     }
+  }, [calculateAnalytics]);
+
+  const calculateAnalytics = useCallback((ordersData) => {
+    let totalRevenue = 0;
+    let totalOrders = ordersData.length;
+    const ordersByStatus = {};
+    const ordersByType = {};
+    const revenueByType = {};
+    const ordersByDate = {};
+
+    ordersData.forEach(order => {
+      const amount = parseFloat(order.total || order.amount || 0);
+      totalRevenue += amount;
+
+      // Orders by status
+      const status = order.status || 'pending';
+      ordersByStatus[status] = (ordersByStatus[status] || 0) + 1;
+
+      // Orders by type
+      const type = order.orderType || 'order';
+      ordersByType[type] = (ordersByType[type] || 0) + 1;
+      revenueByType[type] = (revenueByType[type] || 0) + amount;
+
+      // Orders by date
+      if (order.createdAt) {
+        const date = order.createdAt.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+        const dateKey = date.toISOString().split('T')[0];
+        ordersByDate[dateKey] = (ordersByDate[dateKey] || 0) + 1;
+      }
+    });
+
+    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    setAnalytics({
+      totalRevenue,
+      totalOrders,
+      averageOrderValue,
+      ordersByStatus,
+      ordersByType,
+      revenueByType,
+      ordersByDate: Object.entries(ordersByDate)
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .slice(0, 30), // Last 30 days
+    });
   }, []);
 
   const onRefresh = useCallback(() => {
@@ -157,6 +232,53 @@ export default function AdminOrderManagementScreen({ navigation }) {
     );
   };
 
+  const handleExportOrders = async () => {
+    try {
+      if (filteredOrders.length === 0) {
+        Alert.alert('No Orders', 'There are no orders to export.');
+        return;
+      }
+
+      // Create CSV content
+      const headers = ['Order ID', 'Date', 'User Email', 'Type', 'Status', 'Payment Method', 'Amount', 'Items'];
+      const rows = filteredOrders.map(order => {
+        const date = order.createdAt ? (order.createdAt.toDate ? order.createdAt.toDate() : new Date(order.createdAt)) : new Date();
+        const items = order.items ? order.items.map(i => `${i.name} (x${i.quantity || 1})`).join('; ') : 'N/A';
+        return [
+          order.id,
+          date.toISOString(),
+          order.userEmail || 'N/A',
+          order.orderType || 'order',
+          order.status || 'pending',
+          order.paymentMethod || 'stripe',
+          (order.total || order.amount || 0).toFixed(2),
+          items,
+        ];
+      });
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      ].join('\n');
+
+      // Save to file
+      const fileName = `orders_export_${new Date().toISOString().split('T')[0]}.csv`;
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+      
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: FileSystem.EncodingType.UTF8 });
+
+      // Share the file
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri);
+      } else {
+        Alert.alert('Export Complete', `File saved to: ${fileUri}`);
+      }
+    } catch (error) {
+      console.error('Error exporting orders:', error);
+      Alert.alert('Error', 'Failed to export orders. Please try again.');
+    }
+  };
+
   const formatDate = (date) => {
     if (!date) return 'No date';
     const d = date.toDate ? date.toDate() : new Date(date);
@@ -178,10 +300,68 @@ export default function AdminOrderManagementScreen({ navigation }) {
     }
   };
 
-  const filteredOrders = orders.filter(order => {
-    if (filter === 'all') return true;
-    return order.status?.toLowerCase() === filter.toLowerCase();
-  });
+  const filteredOrders = useMemo(() => {
+    return orders.filter(order => {
+      // Status filter
+      if (filters.status !== 'all' && order.status?.toLowerCase() !== filters.status.toLowerCase()) {
+        return false;
+      }
+
+      // Order type filter
+      if (filters.orderType !== 'all') {
+        const orderType = order.orderType || order.collection?.replace('Orders', '').replace('s', '') || 'order';
+        if (orderType.toLowerCase() !== filters.orderType.toLowerCase()) {
+          return false;
+        }
+      }
+
+      // Payment method filter
+      if (filters.paymentMethod !== 'all') {
+        const paymentMethod = order.paymentMethod || (order.paymentStatus === 'free' ? 'free' : 'stripe');
+        if (paymentMethod.toLowerCase() !== filters.paymentMethod.toLowerCase()) {
+          return false;
+        }
+      }
+
+      // Amount range filter
+      const amount = parseFloat(order.total || order.amount || 0);
+      if (filters.minAmount && amount < parseFloat(filters.minAmount)) {
+        return false;
+      }
+      if (filters.maxAmount && amount > parseFloat(filters.maxAmount)) {
+        return false;
+      }
+
+      // Customer search filter
+      if (filters.customerSearch) {
+        const searchLower = filters.customerSearch.toLowerCase();
+        const userEmail = (order.userEmail || '').toLowerCase();
+        const userName = (order.userName || order.userDisplayName || '').toLowerCase();
+        const userId = (order.userId || '').toLowerCase();
+        if (!userEmail.includes(searchLower) && !userName.includes(searchLower) && !userId.includes(searchLower)) {
+          return false;
+        }
+      }
+
+      // Date range filter
+      if (filters.startDate || filters.endDate) {
+        if (!order.createdAt) return false;
+        const orderDate = order.createdAt.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+        if (filters.startDate && orderDate < filters.startDate) {
+          return false;
+        }
+        if (filters.endDate) {
+          const endDate = new Date(filters.endDate);
+          endDate.setHours(23, 59, 59, 999);
+          if (orderDate > endDate) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    });
+  }, [orders, filters]);
 
   const renderOrderItem = ({ item }) => (
     <TouchableOpacity
@@ -225,25 +405,53 @@ export default function AdminOrderManagementScreen({ navigation }) {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Filters */}
+      {/* Header Actions */}
+      <View style={[styles.headerActions, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: theme.cardBackground }]}
+          onPress={() => setShowFilters(!showFilters)}
+        >
+          <Ionicons name="filter" size={20} color={theme.primary} />
+          <Text style={[styles.actionButtonText, { color: theme.text }]}>Filters</Text>
+          {(filters.status !== 'all' || filters.orderType !== 'all' || filters.paymentMethod !== 'all' || filters.customerSearch || filters.minAmount || filters.maxAmount || filters.startDate || filters.endDate) && (
+            <View style={[styles.badge, { backgroundColor: theme.primary }]} />
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: theme.cardBackground }]}
+          onPress={() => setShowAnalytics(!showAnalytics)}
+        >
+          <Ionicons name="stats-chart" size={20} color={theme.primary} />
+          <Text style={[styles.actionButtonText, { color: theme.text }]}>Analytics</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: theme.cardBackground }]}
+          onPress={handleExportOrders}
+        >
+          <Ionicons name="download-outline" size={20} color={theme.primary} />
+          <Text style={[styles.actionButtonText, { color: theme.text }]}>Export</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Quick Status Filters */}
       <View style={[styles.filters, { backgroundColor: theme.cardBackground, borderBottomColor: theme.border }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContent}>
-          {['all', 'pending', 'completed', 'cancelled'].map((filterOption) => (
+          {['all', 'pending', 'completed', 'cancelled', 'refunded'].map((filterOption) => (
             <TouchableOpacity
               key={filterOption}
               style={[
                 styles.filterChip,
                 {
-                  backgroundColor: filter === filterOption ? theme.primary : theme.background,
+                  backgroundColor: filters.status === filterOption ? theme.primary : theme.background,
                   borderColor: theme.border,
                 },
               ]}
-              onPress={() => setFilter(filterOption)}
+              onPress={() => setFilters({ ...filters, status: filterOption })}
             >
               <Text
                 style={[
                   styles.filterText,
-                  { color: filter === filterOption ? '#fff' : theme.text },
+                  { color: filters.status === filterOption ? '#fff' : theme.text },
                 ]}
               >
                 {filterOption.charAt(0).toUpperCase() + filterOption.slice(1)}
@@ -252,6 +460,263 @@ export default function AdminOrderManagementScreen({ navigation }) {
           ))}
         </ScrollView>
       </View>
+
+      {/* Advanced Filters Modal */}
+      {showFilters && (
+        <Modal visible={showFilters} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modal, { backgroundColor: theme.cardBackground }]}>
+              <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>Advanced Filters</Text>
+                <TouchableOpacity onPress={() => setShowFilters(false)}>
+                  <Ionicons name="close" size={24} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalContent}>
+                {/* Order Type Filter */}
+                <View style={styles.filterGroup}>
+                  <Text style={[styles.filterLabel, { color: theme.text }]}>Order Type</Text>
+                  <View style={styles.filterOptions}>
+                    {['all', 'service', 'event', 'bar'].map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.filterOption,
+                          {
+                            backgroundColor: filters.orderType === type ? theme.primary : theme.background,
+                            borderColor: theme.border,
+                          },
+                        ]}
+                        onPress={() => setFilters({ ...filters, orderType: type })}
+                      >
+                        <Text
+                          style={[
+                            styles.filterOptionText,
+                            { color: filters.orderType === type ? '#fff' : theme.text },
+                          ]}
+                        >
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Payment Method Filter */}
+                <View style={styles.filterGroup}>
+                  <Text style={[styles.filterLabel, { color: theme.text }]}>Payment Method</Text>
+                  <View style={styles.filterOptions}>
+                    {['all', 'stripe', 'wallet', 'cash', 'free'].map((method) => (
+                      <TouchableOpacity
+                        key={method}
+                        style={[
+                          styles.filterOption,
+                          {
+                            backgroundColor: filters.paymentMethod === method ? theme.primary : theme.background,
+                            borderColor: theme.border,
+                          },
+                        ]}
+                        onPress={() => setFilters({ ...filters, paymentMethod: method })}
+                      >
+                        <Text
+                          style={[
+                            styles.filterOptionText,
+                            { color: filters.paymentMethod === method ? '#fff' : theme.text },
+                          ]}
+                        >
+                          {method.charAt(0).toUpperCase() + method.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Amount Range */}
+                <View style={styles.filterGroup}>
+                  <Text style={[styles.filterLabel, { color: theme.text }]}>Amount Range</Text>
+                  <View style={styles.amountRow}>
+                    <TextInput
+                      style={[styles.amountInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
+                      placeholder="Min"
+                      placeholderTextColor={theme.subtext}
+                      value={filters.minAmount}
+                      onChangeText={(text) => setFilters({ ...filters, minAmount: text })}
+                      keyboardType="numeric"
+                    />
+                    <Text style={[styles.amountSeparator, { color: theme.subtext }]}>-</Text>
+                    <TextInput
+                      style={[styles.amountInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
+                      placeholder="Max"
+                      placeholderTextColor={theme.subtext}
+                      value={filters.maxAmount}
+                      onChangeText={(text) => setFilters({ ...filters, maxAmount: text })}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                </View>
+
+                {/* Customer Search */}
+                <View style={styles.filterGroup}>
+                  <Text style={[styles.filterLabel, { color: theme.text }]}>Customer Search</Text>
+                  <TextInput
+                    style={[styles.searchInput, { backgroundColor: theme.background, borderColor: theme.border, color: theme.text }]}
+                    placeholder="Email, name, or user ID"
+                    placeholderTextColor={theme.subtext}
+                    value={filters.customerSearch}
+                    onChangeText={(text) => setFilters({ ...filters, customerSearch: text })}
+                  />
+                </View>
+
+                {/* Date Range */}
+                <View style={styles.filterGroup}>
+                  <Text style={[styles.filterLabel, { color: theme.text }]}>Date Range</Text>
+                  <View style={styles.dateRow}>
+                    <TouchableOpacity
+                      style={[styles.dateButton, { backgroundColor: theme.background, borderColor: theme.border }]}
+                      onPress={() => {
+                        setDatePickerMode('start');
+                        setShowDatePicker(true);
+                      }}
+                    >
+                      <Text style={[styles.dateButtonText, { color: theme.text }]}>
+                        {filters.startDate ? filters.startDate.toLocaleDateString() : 'Start Date'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.dateButton, { backgroundColor: theme.background, borderColor: theme.border }]}
+                      onPress={() => {
+                        setDatePickerMode('end');
+                        setShowDatePicker(true);
+                      }}
+                    >
+                      <Text style={[styles.dateButtonText, { color: theme.text }]}>
+                        {filters.endDate ? filters.endDate.toLocaleDateString() : 'End Date'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Clear Filters */}
+                <TouchableOpacity
+                  style={[styles.clearButton, { backgroundColor: theme.background, borderColor: theme.border }]}
+                  onPress={() => setFilters({
+                    status: 'all',
+                    orderType: 'all',
+                    paymentMethod: 'all',
+                    minAmount: '',
+                    maxAmount: '',
+                    customerSearch: '',
+                    startDate: null,
+                    endDate: null,
+                  })}
+                >
+                  <Text style={[styles.clearButtonText, { color: theme.text }]}>Clear All Filters</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Analytics Modal */}
+      {showAnalytics && (
+        <Modal visible={showAnalytics} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modal, { backgroundColor: theme.cardBackground }]}>
+              <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>Order Analytics</Text>
+                <TouchableOpacity onPress={() => setShowAnalytics(false)}>
+                  <Ionicons name="close" size={24} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalContent}>
+                {/* Key Metrics */}
+                <View style={styles.analyticsSection}>
+                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Key Metrics</Text>
+                  <View style={styles.metricsGrid}>
+                    <View style={[styles.metricCard, { backgroundColor: theme.background }]}>
+                      <Ionicons name="cash-outline" size={24} color="#34C759" />
+                      <Text style={[styles.metricValue, { color: theme.text }]}>
+                        ${analytics.totalRevenue.toFixed(2)}
+                      </Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Total Revenue</Text>
+                    </View>
+                    <View style={[styles.metricCard, { backgroundColor: theme.background }]}>
+                      <Ionicons name="receipt-outline" size={24} color={theme.primary} />
+                      <Text style={[styles.metricValue, { color: theme.text }]}>{analytics.totalOrders}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Total Orders</Text>
+                    </View>
+                    <View style={[styles.metricCard, { backgroundColor: theme.background }]}>
+                      <Ionicons name="trending-up-outline" size={24} color="#FF9500" />
+                      <Text style={[styles.metricValue, { color: theme.text }]}>
+                        ${analytics.averageOrderValue.toFixed(2)}
+                      </Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Avg Order Value</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Orders by Status */}
+                {Object.keys(analytics.ordersByStatus).length > 0 && (
+                  <View style={styles.analyticsSection}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Orders by Status</Text>
+                    {Object.entries(analytics.ordersByStatus)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([status, count]) => (
+                        <View key={status} style={[styles.analyticsRow, { backgroundColor: theme.background }]}>
+                          <Text style={[styles.analyticsLabel, { color: theme.text }]}>
+                            {status.charAt(0).toUpperCase() + status.slice(1)}
+                          </Text>
+                          <Text style={[styles.analyticsValue, { color: theme.primary }]}>{count}</Text>
+                        </View>
+                      ))}
+                  </View>
+                )}
+
+                {/* Revenue by Type */}
+                {Object.keys(analytics.revenueByType).length > 0 && (
+                  <View style={styles.analyticsSection}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue by Type</Text>
+                    {Object.entries(analytics.revenueByType)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([type, revenue]) => (
+                        <View key={type} style={[styles.analyticsRow, { backgroundColor: theme.background }]}>
+                          <Text style={[styles.analyticsLabel, { color: theme.text }]}>
+                            {type.charAt(0).toUpperCase() + type.slice(1)}
+                          </Text>
+                          <Text style={[styles.analyticsValue, { color: theme.primary }]}>
+                            ${revenue.toFixed(2)}
+                          </Text>
+                        </View>
+                      ))}
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Date Picker */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={datePickerMode === 'start' ? (filters.startDate || new Date()) : (filters.endDate || new Date())}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowDatePicker(false);
+            if (selectedDate) {
+              if (datePickerMode === 'start') {
+                setFilters({ ...filters, startDate: selectedDate });
+              } else {
+                setFilters({ ...filters, endDate: selectedDate });
+              }
+            }
+          }}
+        />
+      )}
 
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -538,6 +1003,150 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Header Actions
+  headerActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderBottomWidth: 1,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 6,
+    position: 'relative',
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  badge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  // Advanced Filters
+  filterGroup: {
+    marginBottom: 20,
+  },
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  filterOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  filterOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  amountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  amountInput: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    fontSize: 16,
+  },
+  amountSeparator: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  searchInput: {
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    fontSize: 16,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dateButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  dateButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  clearButton: {
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  clearButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Analytics
+  analyticsSection: {
+    marginBottom: 24,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  metricCard: {
+    flex: 1,
+    minWidth: '30%',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  metricValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  metricLabel: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  analyticsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  analyticsLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  analyticsValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

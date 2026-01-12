@@ -7,13 +7,20 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Configure notification behavior
+// Configure notification behavior - Corporate grade like WhatsApp/Facebook
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    // Always show alerts, play sound, and set badge for messages
+    const isMessage = notification.request.content.data?.type === 'message';
+    
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      // Priority for messages
+      priority: isMessage ? Notifications.AndroidNotificationPriority.HIGH : Notifications.AndroidNotificationPriority.DEFAULT,
+    };
+  },
 });
 
 let notificationListener = null;
@@ -46,11 +53,29 @@ export const initNotifications = async () => {
     // Set up notification listeners
     notificationListener = Notifications.addNotificationReceivedListener(notification => {
       console.log('📬 Notification received:', notification);
+      // Play haptic feedback for message notifications
+      if (notification.request.content.data?.type === 'message') {
+        import('expo-haptics').then(({ default: Haptics }) => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        }).catch(() => {});
+      }
     });
 
     responseListener = Notifications.addNotificationResponseReceivedListener(response => {
       console.log('👆 Notification tapped:', response);
-      // Handle notification tap (e.g., navigate to specific screen)
+      const data = response.notification.request.content.data;
+      
+      // Handle message notification tap - navigate to conversation
+      if (data?.type === 'message' && data?.conversationId) {
+        // This will be handled by the navigation system
+        // Store the conversation ID to navigate when app opens
+        import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+          AsyncStorage.setItem('pending_navigation', JSON.stringify({
+            screen: 'Messages',
+            params: { conversationId: data.conversationId },
+          })).catch(() => {});
+        }).catch(() => {});
+      }
     });
 
     return true;
@@ -273,6 +298,7 @@ export const sendMessageNotification = async (messageData, preferences) => {
       return false;
     }
 
+    // Corporate-grade notification like WhatsApp/Facebook/Instagram
     await Notifications.scheduleNotificationAsync({
       content: {
         title: messageData.senderName || 'New Message',
@@ -283,8 +309,11 @@ export const sendMessageNotification = async (messageData, preferences) => {
           messageId: messageData.id,
           senderId: messageData.senderId,
         },
-        sound: true,
-        badge: 1,
+        sound: true, // Play sound
+        badge: 1, // Red badge indicator
+        priority: 'high', // High priority for messages
+        vibrate: [0, 250, 250, 250], // Vibration pattern
+        categoryId: 'MESSAGE', // Message category
       },
       trigger: null, // Send immediately
     });

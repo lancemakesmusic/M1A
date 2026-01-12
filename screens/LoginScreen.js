@@ -16,11 +16,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from '../firebase';
 import { trackLogin, trackButtonClick, trackError } from '../services/AnalyticsService';
+import { signInWithGoogle, signInWithApple } from '../services/SocialAuthService';
 import { authRateLimiter } from '../utils/rateLimiter';
 import { AUTH_ERRORS, getFirebaseErrorMessage } from '../constants/errorMessages';
 import { AUTH_STRINGS, GENERAL_STRINGS } from '../constants/strings';
 import { logError, logInfo } from '../utils/logger';
+import { showErrorAlert } from '../utils/errorHandler';
 import M1ALogo from '../components/M1ALogo';
+import { Platform } from 'react-native';
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
@@ -200,32 +203,170 @@ export default function LoginScreen({ navigation }) {
               )}
             </TouchableOpacity>
 
+            {/* Password Reset - More Prominent */}
             <TouchableOpacity 
-              style={styles.forgotPassword}
-              onPress={async () => {
-                if (!email.trim()) {
-                  Alert.alert(AUTH_STRINGS.EMAIL, AUTH_ERRORS.EMAIL_REQUIRED);
-                  return;
-                }
-                
-                try {
-                  await sendPasswordResetEmail(email);
-                  Alert.alert(
-                    AUTH_STRINGS.PASSWORD_RESET_SENT,
-                    AUTH_STRINGS.PASSWORD_RESET_MESSAGE,
-                    [{ text: GENERAL_STRINGS.OK }]
-                  );
-                } catch (error) {
-                  const errorMessage = getFirebaseErrorMessage(error);
-                  Alert.alert(GENERAL_STRINGS.ERROR, errorMessage);
-                }
+              style={[styles.forgotPasswordButton, { borderColor: theme.primary }]}
+              onPress={() => {
+                setResetEmail(email);
+                setShowPasswordResetModal(true);
               }}
             >
-              <Text style={[styles.forgotPasswordText, { color: theme.primary }]}>
+              <Ionicons name="lock-closed-outline" size={18} color={theme.primary} />
+              <Text style={[styles.forgotPasswordButtonText, { color: theme.primary }]}>
                 {AUTH_STRINGS.FORGOT_PASSWORD}
               </Text>
             </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={styles.dividerContainer}>
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+              <Text style={[styles.dividerText, { color: theme.subtext }]}>OR</Text>
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            </View>
+
+            {/* Social Login Buttons */}
+            <TouchableOpacity
+              style={[styles.socialButton, styles.googleButton, { backgroundColor: '#FFFFFF', borderColor: theme.border }]}
+              onPress={async () => {
+                setSocialLoading(true);
+                try {
+                  await signInWithGoogle();
+                } catch (error) {
+                  showErrorAlert(error, 'Google Sign-In');
+                } finally {
+                  setSocialLoading(false);
+                }
+              }}
+              disabled={socialLoading || loading}
+            >
+              <Ionicons name="logo-google" size={20} color="#4285F4" />
+              <Text style={[styles.socialButtonText, { color: theme.text }]}>
+                Continue with Google
+              </Text>
+            </TouchableOpacity>
+
+            {Platform.OS === 'ios' && (
+              <TouchableOpacity
+                style={[styles.socialButton, styles.appleButton, { backgroundColor: theme.text, borderColor: theme.text }]}
+                onPress={async () => {
+                  setSocialLoading(true);
+                  try {
+                    await signInWithApple();
+                  } catch (error) {
+                    if (error.message?.includes('cancel')) {
+                      // User cancelled - don't show error
+                      return;
+                    }
+                    showErrorAlert(error, 'Apple Sign-In');
+                  } finally {
+                    setSocialLoading(false);
+                  }
+                }}
+                disabled={socialLoading || loading}
+              >
+                <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
+                <Text style={[styles.socialButtonText, { color: '#FFFFFF' }]}>
+                  Continue with Apple
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
+
+          {/* Password Reset Modal */}
+          {showPasswordResetModal && (
+            <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+              <View style={[styles.modalContent, { backgroundColor: theme.cardBackground }]}>
+                <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, { color: theme.text }]}>Reset Password</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowPasswordResetModal(false);
+                      setResetEmail('');
+                    }}
+                  >
+                    <Ionicons name="close" size={24} color={theme.text} />
+                  </TouchableOpacity>
+                </View>
+                
+                <Text style={[styles.modalDescription, { color: theme.subtext }]}>
+                  Enter your email address and we'll send you a link to reset your password.
+                </Text>
+
+                <TextInput
+                  style={[
+                    styles.modalInput,
+                    {
+                      color: theme.text,
+                      borderColor: errors.resetEmail ? theme.error : theme.border,
+                      backgroundColor: theme.background,
+                    }
+                  ]}
+                  placeholder="Enter your email"
+                  placeholderTextColor={theme.subtext}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={resetEmail}
+                  onChangeText={(text) => {
+                    setResetEmail(text);
+                    if (errors.resetEmail) {
+                      setErrors(prev => ({ ...prev, resetEmail: '' }));
+                    }
+                  }}
+                />
+                {errors.resetEmail && (
+                  <Text style={[styles.fieldError, { color: theme.error }]}>{errors.resetEmail}</Text>
+                )}
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonCancel, { borderColor: theme.border }]}
+                    onPress={() => {
+                      setShowPasswordResetModal(false);
+                      setResetEmail('');
+                    }}
+                  >
+                    <Text style={[styles.modalButtonText, { color: theme.text }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonSubmit, { backgroundColor: theme.primary }]}
+                    onPress={async () => {
+                      if (!resetEmail.trim()) {
+                        setErrors({ resetEmail: AUTH_ERRORS.EMAIL_REQUIRED });
+                        return;
+                      }
+                      if (!/\S+@\S+\.\S+/.test(resetEmail)) {
+                        setErrors({ resetEmail: AUTH_ERRORS.INVALID_EMAIL });
+                        return;
+                      }
+
+                      try {
+                        await sendPasswordResetEmail(resetEmail);
+                        Alert.alert(
+                          'Email Sent',
+                          'Check your email for password reset instructions. The link will expire in 1 hour.',
+                          [
+                            {
+                              text: 'OK',
+                              onPress: () => {
+                                setShowPasswordResetModal(false);
+                                setResetEmail('');
+                              }
+                            }
+                          ]
+                        );
+                      } catch (error) {
+                        const errorMessage = getFirebaseErrorMessage(error);
+                        setErrors({ resetEmail: errorMessage });
+                      }
+                    }}
+                  >
+                    <Text style={[styles.modalButtonText, { color: '#FFFFFF' }]}>Send Reset Link</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
 
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: theme.subtext }]}>
@@ -332,12 +473,117 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  forgotPassword: {
+  forgotPasswordButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 24,
+    gap: 8,
   },
-  forgotPasswordText: {
+  forgotPasswordButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    marginHorizontal: 16,
     fontSize: 14,
     fontWeight: '500',
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    gap: 10,
+  },
+  googleButton: {
+    // Styled above
+  },
+  appleButton: {
+    // Styled above
+  },
+  socialButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    width: '90%',
+    maxWidth: 400,
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  modalDescription: {
+    fontSize: 14,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  modalInput: {
+    borderWidth: 1,
+    padding: 14,
+    borderRadius: 12,
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  modalButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalButtonCancel: {
+    borderWidth: 1,
+  },
+  modalButtonSubmit: {
+    // backgroundColor set inline
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',

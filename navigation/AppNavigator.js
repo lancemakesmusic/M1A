@@ -3,6 +3,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../contexts/ThemeContext';
+import { useMessageBadge } from '../contexts/MessageBadgeContext';
 
 // Screens
 import AdminAnalyticsScreen from '../screens/AdminAnalyticsScreen';
@@ -10,6 +11,7 @@ import AdminCalendarManagementScreen from '../screens/AdminCalendarManagementScr
 import AdminControlCenterScreen from '../screens/AdminControlCenterScreen';
 import AdminEmployeeManagementScreen from '../screens/AdminEmployeeManagementScreen';
 import AdminEventCreationScreen from '../screens/AdminEventCreationScreen';
+import EventAnalyticsScreen from '../screens/EventAnalyticsScreen';
 import AdminMenuManagementScreen from '../screens/AdminMenuManagementScreen';
 import AdminMessagingScreen from '../screens/AdminMessagingScreen';
 import AdminOrderManagementScreen from '../screens/AdminOrderManagementScreen';
@@ -149,6 +151,11 @@ function HomeStackNavigator() {
         options={{ headerShown: false }}
       />
       <Stack.Screen
+        name="EventAnalytics"
+        component={EventAnalyticsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
         name="AdminMessaging"
         component={AdminMessagingScreen}
         options={{ headerShown: false }}
@@ -279,7 +286,22 @@ export default function AppNavigator() {
     >
       <Tab.Screen name="Home" component={HomeStackNavigator} />
       <Tab.Screen name="Explore" component={ExploreScreen} />
-      <Tab.Screen name="Messages" component={MessagesScreen} />
+      <Tab.Screen 
+        name="Messages" 
+        component={MessagesScreen}
+        options={{
+          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#FF3B30',
+            color: '#FFFFFF',
+            fontSize: 10,
+            fontWeight: 'bold',
+            minWidth: 18,
+            height: 18,
+            borderRadius: 9,
+          },
+        }}
+      />
       <Tab.Screen name="Wallet" component={WalletScreen} />
       <Tab.Screen
         name="ProfileTab"

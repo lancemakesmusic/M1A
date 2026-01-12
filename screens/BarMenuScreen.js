@@ -243,6 +243,7 @@ const getImageSource = (image) => {
 export default function BarMenuScreen({ navigation, route }) {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const canGoBack = navigation.canGoBack();
   const [menuItems, setMenuItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -944,9 +945,13 @@ export default function BarMenuScreen({ navigation, route }) {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
+        {canGoBack ? (
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 24 }} />
+        )}
         <Text style={[styles.headerTitle, { color: theme.text }]}>Bar Menu</Text>
         <TouchableOpacity onPress={() => setShowCheckout(true)}>
           <View style={styles.cartIconContainer}>

@@ -47,11 +47,15 @@ export default function AdminSystemSettingsScreen({ navigation }) {
 
   useEffect(() => {
     if (!canAccess) {
+      Alert.alert(
+        'Access Denied',
+        'Only admin@merkabaent.com can access admin tools for security purposes.'
+      );
       navigation.goBack();
       return;
     }
     loadSettings();
-  }, [user, canAccess]);
+  }, [user, canAccess, navigation]);
 
   const loadSettings = useCallback(async () => {
     try {

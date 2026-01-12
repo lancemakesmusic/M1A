@@ -8,7 +8,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { addDoc, collection, doc, serverTimestamp, Timestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -68,7 +68,20 @@ export default function AdminEventCreationScreen({ navigation, route }) {
   const [datePickerMode, setDatePickerMode] = useState('start'); // 'start', 'end', 'earlyBird'
   const [timePickerMode, setTimePickerMode] = useState('start'); // 'start', 'end'
 
+  // SECURITY: Only admin@merkabaent.com can access this screen
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
+
+  // SECURITY: Block unauthorized access
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert(
+        'Access Denied',
+        'Only admin@merkabaent.com can access admin tools for security purposes.'
+      );
+      navigation.goBack();
+      return;
+    }
+  }, [user, canAccess, navigation]);
 
   const eventCategories = [
     { id: 'performance', label: 'Performance', icon: 'musical-notes', color: '#007AFF' },
@@ -249,10 +262,9 @@ export default function AdminEventCreationScreen({ navigation, route }) {
     }
   };
 
+  // Access check is handled in useEffect above
   if (!canAccess) {
-    Alert.alert('Access Denied', 'Only admin@merkabaent.com can create events');
-    navigation.goBack();
-    return null;
+    return null; // Will redirect via useEffect
   }
 
   return (
@@ -270,13 +282,23 @@ export default function AdminEventCreationScreen({ navigation, route }) {
           <Text style={[styles.headerTitle, { color: theme.text }]}>
             {editingEvent ? 'Edit Event' : 'Create Public Event'}
           </Text>
-          <TouchableOpacity onPress={handleSave} style={styles.saveButton} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator size="small" color={theme.primary} />
-            ) : (
-              <Text style={[styles.saveButtonText, { color: theme.primary }]}>Save</Text>
+          <View style={styles.headerRight}>
+            {editingEvent && (
+              <TouchableOpacity
+                onPress={() => navigation.navigate('EventAnalytics', { event: editingEvent })}
+                style={styles.analyticsButton}
+              >
+                <Ionicons name="stats-chart" size={24} color={theme.primary} />
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+            <TouchableOpacity onPress={handleSave} style={styles.saveButton} disabled={loading}>
+              {loading ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <Text style={[styles.saveButtonText, { color: theme.primary }]}>Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -629,6 +651,14 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  analyticsButton: {
+    padding: 4,
   },
   scrollView: {
     flex: 1,

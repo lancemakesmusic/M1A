@@ -3,7 +3,7 @@
  * Google Calendar-style booking interface with venue availability sync
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,8 @@ import {
   TextInput,
   Platform,
   Alert,
+  FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -21,6 +23,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import GoogleCalendarService from '../services/GoogleCalendarService';
 import { trackFeatureUsage, trackButtonClick } from '../services/AnalyticsService';
 import useScreenTracking from '../hooks/useScreenTracking';
+import * as Notifications from 'expo-notifications';
+import { scheduleEventReminder } from '../services/NotificationService';
 
 // Generate calendar days for a month
 const generateCalendarDays = (year, month) => {
@@ -80,6 +84,11 @@ export default function CalendarScreen({ navigation }) {
   const [timePickerMode, setTimePickerMode] = useState('start'); // 'start' or 'end'
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [calendarView, setCalendarView] = useState('month'); // 'month', 'week', 'day', 'agenda'
+  const [showSetupGuide, setShowSetupGuide] = useState(false);
+  const [reminders, setReminders] = useState([]);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [selectedReminderTime, setSelectedReminderTime] = useState('10'); // minutes before
   
   // Event form data
   const [eventForm, setEventForm] = useState({
@@ -94,6 +103,7 @@ export default function CalendarScreen({ navigation }) {
     location: '',
     description: '',
     guests: [],
+    reminders: ['10'], // Default: 10 minutes before
   });
 
   const currentYear = currentDate.getFullYear();
@@ -620,17 +630,33 @@ export default function CalendarScreen({ navigation }) {
                 <Text style={[styles.optionText, { color: theme.text }]}>Add location</Text>
               </TouchableOpacity>
 
-              {/* Notifications */}
-              <View style={[styles.notificationRow, { borderBottomColor: theme.border }]}>
-                <Ionicons name="notifications-outline" size={20} color={theme.text} />
-                <Text style={[styles.optionText, { color: theme.text }]}>10 minutes before</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
+              {/* Reminders */}
+              <View style={[styles.remindersSection, { borderBottomColor: theme.border }]}>
+                <View style={styles.remindersHeader}>
+                  <Ionicons name="notifications-outline" size={20} color={theme.text} />
+                  <Text style={[styles.optionText, { color: theme.text }]}>Reminders</Text>
+                </View>
+                {eventForm.reminders && eventForm.reminders.length > 0 && (
+                  <View style={styles.remindersList}>
+                    {eventForm.reminders.map((minutes, index) => (
+                      <View key={index} style={[styles.reminderChip, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                        <Text style={[styles.reminderChipText, { color: theme.text }]}>
+                          {minutes} minutes before
+                        </Text>
+                        <TouchableOpacity onPress={() => removeReminder(minutes)}>
+                          <Ionicons name="close-circle" size={18} color={theme.subtext} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <TouchableOpacity 
+                  style={[styles.optionRow]}
+                  onPress={() => setShowReminderModal(true)}
+                >
+                  <Text style={[styles.optionText, { color: theme.primary }]}>+ Add reminder</Text>
+                </TouchableOpacity>
               </View>
-
-              <TouchableOpacity style={[styles.optionRow]}>
-                <Text style={[styles.optionText, { color: theme.text }]}>Add another notification</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
-              </TouchableOpacity>
             </ScrollView>
           </View>
         </View>

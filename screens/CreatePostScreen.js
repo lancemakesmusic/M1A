@@ -25,11 +25,16 @@ export default function CreatePostScreen({ navigation }) {
   const { theme } = useTheme();
   
   const [content, setContent] = useState('');
+  const [postType, setPostType] = useState('text'); // 'text', 'photo', 'video', 'audio', 'poll'
   const [mediaType, setMediaType] = useState(null); // 'photo', 'video', 'audio'
   const [mediaUri, setMediaUri] = useState(null);
   const [mediaUrl, setMediaUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [posting, setPosting] = useState(false);
+  // Poll state
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
+  const [pollDuration, setPollDuration] = useState(7); // days
 
   const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();

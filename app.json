@@ -23,7 +23,7 @@
         "NSPhotoLibraryAddUsageDescription": "M1A needs access to save photos to your library.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "usesAppleSignIn": false,
+      "usesAppleSignIn": true,
       "config": {
         "usesNonExemptEncryption": false
       },

@@ -22,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
+import { dataCache } from '../utils/dataCache';
 import GoogleCalendarService from '../services/GoogleCalendarService';
 
 const { width } = Dimensions.get('window');
@@ -53,6 +54,16 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     completedTasks: 0,
     revenue: 0,
   });
+  const [detailedInsights, setDetailedInsights] = useState({
+    revenueTrend: [],
+    eventTrend: [],
+    activityBreakdown: {},
+    monthlyComparison: {},
+    recommendations: [],
+    performanceMetrics: {},
+  });
+  const [loadingInsights, setLoadingInsights] = useState(false);
+  const [selectedTimeRange, setSelectedTimeRange] = useState('30d'); // '7d', '30d', '90d', 'all'
   const [guestData, setGuestData] = useState({
     featuredDrinks: [],
     todaysSpecials: [],
@@ -68,13 +79,14 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
       loadGuestDashboardData();
     } else {
       loadDashboardData();
+      loadDetailedInsights();
     }
     
     // Show tutorial if needed
     if (shouldShowTutorial()) {
       setShowTutorial(true);
     }
-  }, [userPersona]);
+  }, [userPersona, selectedTimeRange]);
 
   useEffect(() => {
     // Show tutorial when component mounts if needed
@@ -186,6 +198,15 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
         return;
       }
 
+      // Check cache first
+      const cacheKey = dataCache.generateKey('dashboard', { userId: user.uid, persona: userPersona?.id });
+      const cachedStats = dataCache.get(cacheKey);
+      if (cachedStats) {
+        console.log('📦 Using cached dashboard stats');
+        setStats(cachedStats);
+        // Still refresh in background
+      }
+
       // Use network IP for physical devices, localhost for web/simulator
       const getApiBaseUrl = () => {
         if (process.env.EXPO_PUBLIC_API_BASE_URL) {
@@ -243,7 +264,21 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
         const upcomingEvents = upcomingEventsSnapshot.data().count;
 
         // Get completed tasks (from tasks collection if it exists)
-        const completedTasks = 0; // TODO: Implement tasks collection
+        // Load completed tasks from user's task history
+        let completedTasks = 0;
+        try {
+          const tasksQuery = query(
+            collection(db, 'userTasks'),
+            where('userId', '==', user?.uid),
+            where('completed', '==', true)
+          );
+          const tasksSnapshot = await getDocs(tasksQuery);
+          completedTasks = tasksSnapshot.size;
+        } catch (taskError) {
+          console.warn('Could not load tasks:', taskError);
+          // Default to 0 if tasks collection doesn't exist yet
+          completedTasks = 0;
+        }
 
         // Calculate revenue from completed bookings
         const bookingsSnapshot = await getDocs(query(collection(db, 'eventBookings'), where('userId', '==', user.uid)));
@@ -255,12 +290,17 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
           }
         });
 
-        setStats({
+        const newStats = {
           totalEvents,
           upcomingEvents,
           completedTasks,
           revenue,
-        });
+        };
+        setStats(newStats);
+        
+        // Cache the results
+        const cacheKey = dataCache.generateKey('dashboard', { userId: user.uid, persona: userPersona?.id });
+        dataCache.set(cacheKey, newStats, 3 * 60 * 1000); // 3 minutes TTL
       } else {
         // Fallback to zero stats if Firebase not ready
         setStats({ totalEvents: 0, upcomingEvents: 0, completedTasks: 0, revenue: 0 });
@@ -271,12 +311,226 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     }
   };
 
+  const loadDetailedInsights = async () => {
+    if (userPersona?.id === 'guest' || !user?.uid) {
+      return;
+    }
+
+    // Check cache first
+    const cacheKey = dataCache.generateKey('dashboardInsights', { 
+      userId: user.uid, 
+      timeRange: selectedTimeRange 
+    });
+    const cachedInsights = dataCache.get(cacheKey);
+    if (cachedInsights) {
+      console.log('📦 Using cached dashboard insights');
+      setDetailedInsights(cachedInsights);
+      setLoadingInsights(false);
+      // Still refresh in background
+    }
+
+    setLoadingInsights(true);
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        const { collection, query, where, getDocs, Timestamp, orderBy, limit } = await import('firebase/firestore');
+        const now = Timestamp.now();
+        
+        // Calculate time range
+        const daysAgo = selectedTimeRange === '7d' ? 7 : selectedTimeRange === '30d' ? 30 : selectedTimeRange === '90d' ? 90 : 365;
+        const startDate = Timestamp.fromDate(new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000));
+        
+        // Revenue trend (last 30 days)
+        const revenueTrend = [];
+        const eventTrend = [];
+        for (let i = 29; i >= 0; i--) {
+          const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+          const dayStart = Timestamp.fromDate(new Date(date.setHours(0, 0, 0, 0)));
+          const dayEnd = Timestamp.fromDate(new Date(date.setHours(23, 59, 59, 999)));
+          
+          // Get revenue for this day
+          const dayBookings = await getDocs(
+            query(
+              collection(db, 'eventBookings'),
+              where('userId', '==', user.uid),
+              where('createdAt', '>=', dayStart),
+              where('createdAt', '<=', dayEnd)
+            )
+          );
+          let dayRevenue = 0;
+          dayBookings.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.totalCost) dayRevenue += data.totalCost;
+          });
+          
+          revenueTrend.push({
+            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            value: dayRevenue,
+          });
+          
+          // Get events for this day
+          const dayEvents = await getDocs(
+            query(
+              collection(db, 'eventBookings'),
+              where('userId', '==', user.uid),
+              where('eventDate', '>=', dayStart),
+              where('eventDate', '<=', dayEnd)
+            )
+          );
+          eventTrend.push({
+            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            value: dayEvents.size,
+          });
+        }
+        
+        // Activity breakdown
+        const allBookings = await getDocs(
+          query(
+            collection(db, 'eventBookings'),
+            where('userId', '==', user.uid),
+            where('createdAt', '>=', startDate)
+          )
+        );
+        
+        const activityBreakdown = {
+          completed: 0,
+          pending: 0,
+          cancelled: 0,
+        };
+        
+        allBookings.docs.forEach(doc => {
+          const status = doc.data().status || 'pending';
+          if (status === 'completed') activityBreakdown.completed++;
+          else if (status === 'cancelled') activityBreakdown.cancelled++;
+          else activityBreakdown.pending++;
+        });
+        
+        // Monthly comparison
+        const currentMonth = new Date();
+        const lastMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+        const currentMonthStart = Timestamp.fromDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1));
+        const lastMonthStart = Timestamp.fromDate(lastMonth);
+        const lastMonthEnd = Timestamp.fromDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 0));
+        
+        const currentMonthBookings = await getDocs(
+          query(
+            collection(db, 'eventBookings'),
+            where('userId', '==', user.uid),
+            where('createdAt', '>=', currentMonthStart)
+          )
+        );
+        
+        const lastMonthBookings = await getDocs(
+          query(
+            collection(db, 'eventBookings'),
+            where('userId', '==', user.uid),
+            where('createdAt', '>=', lastMonthStart),
+            where('createdAt', '<=', lastMonthEnd)
+          )
+        );
+        
+        let currentMonthRevenue = 0;
+        currentMonthBookings.docs.forEach(doc => {
+          const data = doc.data();
+          if (data.totalCost) currentMonthRevenue += data.totalCost;
+        });
+        
+        let lastMonthRevenue = 0;
+        lastMonthBookings.docs.forEach(doc => {
+          const data = doc.data();
+          if (data.totalCost) lastMonthRevenue += data.totalCost;
+        });
+        
+        const revenueChange = lastMonthRevenue > 0 
+          ? ((currentMonthRevenue - lastMonthRevenue) / lastMonthRevenue * 100).toFixed(1)
+          : currentMonthRevenue > 0 ? 100 : 0;
+        
+        const eventChange = lastMonthBookings.size > 0
+          ? ((currentMonthBookings.size - lastMonthBookings.size) / lastMonthBookings.size * 100).toFixed(1)
+          : currentMonthBookings.size > 0 ? 100 : 0;
+        
+        // Performance metrics
+        const avgRevenuePerEvent = stats.totalEvents > 0 ? stats.revenue / stats.totalEvents : 0;
+        const completionRate = stats.totalEvents > 0 
+          ? (stats.completedTasks / stats.totalEvents * 100).toFixed(1)
+          : 0;
+        
+        // Generate recommendations
+        const recommendations = [];
+        if (stats.upcomingEvents === 0) {
+          recommendations.push({
+            type: 'action',
+            title: 'Create Your First Event',
+            description: 'Start promoting your events to reach more people',
+            icon: 'add-circle',
+            color: '#4ECDC4',
+          });
+        }
+        if (revenueChange < 0) {
+          recommendations.push({
+            type: 'insight',
+            title: 'Revenue Down',
+            description: `Revenue decreased ${Math.abs(revenueChange)}% compared to last month`,
+            icon: 'trending-down',
+            color: '#FF6B6B',
+          });
+        }
+        if (completionRate < 50) {
+          recommendations.push({
+            type: 'insight',
+            title: 'Low Completion Rate',
+            description: `Only ${completionRate}% of events are completed. Focus on follow-through.`,
+            icon: 'alert-circle',
+            color: '#FF9500',
+          });
+        }
+        if (stats.upcomingEvents > 5) {
+          recommendations.push({
+            type: 'success',
+            title: 'Great Activity!',
+            description: `You have ${stats.upcomingEvents} upcoming events. Keep up the momentum!`,
+            icon: 'checkmark-circle',
+            color: '#34C759',
+          });
+        }
+        
+        const newInsights = {
+          revenueTrend,
+          eventTrend,
+          activityBreakdown,
+          monthlyComparison: {
+            revenue: { current: currentMonthRevenue, last: lastMonthRevenue, change: parseFloat(revenueChange) },
+            events: { current: currentMonthBookings.size, last: lastMonthBookings.size, change: parseFloat(eventChange) },
+          },
+          recommendations,
+          performanceMetrics: {
+            avgRevenuePerEvent,
+            completionRate: parseFloat(completionRate),
+            totalRevenue: stats.revenue,
+          },
+        };
+        setDetailedInsights(newInsights);
+        
+        // Cache the results
+        const cacheKey = dataCache.generateKey('dashboardInsights', { 
+          userId: user.uid, 
+          timeRange: selectedTimeRange 
+        });
+        dataCache.set(cacheKey, newInsights, 5 * 60 * 1000); // 5 minutes TTL
+      }
+    } catch (error) {
+      console.error('Error loading detailed insights:', error);
+    } finally {
+      setLoadingInsights(false);
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     if (userPersona?.id === 'guest') {
       await loadGuestDashboardData();
     } else {
       await loadDashboardData();
+      await loadDetailedInsights();
     }
     setRefreshing(false);
   };
@@ -499,6 +753,95 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     </TouchableOpacity>
   );
 
+  const renderTrendChart = (data, theme, color) => {
+    if (!data || data.length === 0) return null;
+    
+    const maxValue = Math.max(...data.map(d => d.value), 1);
+    const chartHeight = 150;
+    const barWidth = (width - 80) / data.length;
+    
+    return (
+      <View style={styles.chartWrapper}>
+        <View style={styles.chartBars}>
+          {data.map((item, index) => {
+            const barHeight = maxValue > 0 ? (item.value / maxValue) * chartHeight : 0;
+            return (
+              <View key={index} style={styles.chartBarContainer}>
+                <View style={styles.chartBarWrapper}>
+                  <View 
+                    style={[
+                      styles.chartBar,
+                      {
+                        height: Math.max(barHeight, 2),
+                        backgroundColor: color,
+                        width: Math.max(barWidth - 2, 2),
+                      }
+                    ]}
+                  />
+                </View>
+                {index % 5 === 0 && (
+                  <Text style={[styles.chartLabel, { color: theme.subtext }]} numberOfLines={1}>
+                    {item.date.split(' ')[0]}
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
+        <View style={styles.chartAxis}>
+          <Text style={[styles.chartAxisLabel, { color: theme.subtext }]}>$0</Text>
+          <Text style={[styles.chartAxisLabel, { color: theme.subtext }]}>${maxValue.toLocaleString()}</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderActivityBreakdown = (breakdown, theme) => {
+    const total = breakdown.completed + breakdown.pending + breakdown.cancelled;
+    if (total === 0) return null;
+    
+    const completedPercent = (breakdown.completed / total) * 100;
+    const pendingPercent = (breakdown.pending / total) * 100;
+    const cancelledPercent = (breakdown.cancelled / total) * 100;
+    
+    return (
+      <View style={styles.breakdownContainer}>
+        <View style={styles.breakdownBars}>
+          <View style={styles.breakdownBarRow}>
+            <View style={styles.breakdownBarLabel}>
+              <View style={[styles.breakdownColorDot, { backgroundColor: '#2ECC71' }]} />
+              <Text style={[styles.breakdownLabel, { color: theme.text }]}>Completed</Text>
+            </View>
+            <View style={styles.breakdownBarWrapper}>
+              <View style={[styles.breakdownBar, { width: `${completedPercent}%`, backgroundColor: '#2ECC71' }]} />
+              <Text style={[styles.breakdownValue, { color: theme.text }]}>{breakdown.completed}</Text>
+            </View>
+          </View>
+          <View style={styles.breakdownBarRow}>
+            <View style={styles.breakdownBarLabel}>
+              <View style={[styles.breakdownColorDot, { backgroundColor: '#FF9500' }]} />
+              <Text style={[styles.breakdownLabel, { color: theme.text }]}>Pending</Text>
+            </View>
+            <View style={styles.breakdownBarWrapper}>
+              <View style={[styles.breakdownBar, { width: `${pendingPercent}%`, backgroundColor: '#FF9500' }]} />
+              <Text style={[styles.breakdownValue, { color: theme.text }]}>{breakdown.pending}</Text>
+            </View>
+          </View>
+          <View style={styles.breakdownBarRow}>
+            <View style={styles.breakdownBarLabel}>
+              <View style={[styles.breakdownColorDot, { backgroundColor: '#FF3B30' }]} />
+              <Text style={[styles.breakdownLabel, { color: theme.text }]}>Cancelled</Text>
+            </View>
+            <View style={styles.breakdownBarWrapper}>
+              <View style={[styles.breakdownBar, { width: `${cancelledPercent}%`, backgroundColor: '#FF3B30' }]} />
+              <Text style={[styles.breakdownValue, { color: theme.text }]}>{breakdown.cancelled}</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   const handleOpenGoogleCalendar = async () => {
     try {
       // Get calendar ID from environment or default
@@ -666,15 +1009,179 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
             </View>
           </View>
         ) : (
-          <View style={styles.statsContainer}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
-            <View style={styles.statsGrid}>
-              {renderStatCard('Total Events', stats.totalEvents, 'calendar', getPersonaColor())}
-              {renderStatCard('Upcoming', stats.upcomingEvents, 'time', '#4ECDC4')}
-              {renderStatCard('Completed', stats.completedTasks, 'checkmark-circle', '#2ECC71')}
-              {renderStatCard('Revenue', `$${stats.revenue.toLocaleString()}`, 'cash', '#F39C12')}
+          <>
+            <View style={styles.statsContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
+                <View style={styles.timeRangeSelector}>
+                  {['7d', '30d', '90d', 'all'].map((range) => (
+                    <TouchableOpacity
+                      key={range}
+                      style={[
+                        styles.timeRangeButton,
+                        {
+                          backgroundColor: selectedTimeRange === range ? theme.primary : theme.cardBackground,
+                          borderColor: theme.border,
+                        },
+                      ]}
+                      onPress={() => setSelectedTimeRange(range)}
+                    >
+                      <Text style={[
+                        styles.timeRangeText,
+                        { color: selectedTimeRange === range ? '#fff' : theme.text }
+                      ]}>
+                        {range === '7d' ? '7D' : range === '30d' ? '30D' : range === '90d' ? '90D' : 'All'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+              <View style={styles.statsGrid}>
+                {renderStatCard('Total Events', stats.totalEvents, 'calendar', getPersonaColor())}
+                {renderStatCard('Upcoming', stats.upcomingEvents, 'time', '#4ECDC4')}
+                {renderStatCard('Completed', stats.completedTasks, 'checkmark-circle', '#2ECC71')}
+                {renderStatCard('Revenue', `$${stats.revenue.toLocaleString()}`, 'cash', '#F39C12')}
+              </View>
             </View>
-          </View>
+
+            {/* Detailed Insights Section */}
+            {!loadingInsights && (
+              <>
+                {/* Monthly Comparison */}
+                {detailedInsights.monthlyComparison?.revenue && (
+                  <View style={styles.insightsContainer}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Monthly Comparison</Text>
+                    <View style={[styles.comparisonCard, { backgroundColor: theme.cardBackground }]}>
+                      <View style={styles.comparisonRow}>
+                        <View style={styles.comparisonItem}>
+                          <Text style={[styles.comparisonLabel, { color: theme.subtext }]}>Revenue</Text>
+                          <Text style={[styles.comparisonValue, { color: theme.text }]}>
+                            ${detailedInsights.monthlyComparison.revenue.current.toLocaleString()}
+                          </Text>
+                          <View style={[
+                            styles.comparisonChange,
+                            { backgroundColor: detailedInsights.monthlyComparison.revenue.change >= 0 ? '#34C75920' : '#FF3B3020' }
+                          ]}>
+                            <Ionicons 
+                              name={detailedInsights.monthlyComparison.revenue.change >= 0 ? 'trending-up' : 'trending-down'} 
+                              size={14} 
+                              color={detailedInsights.monthlyComparison.revenue.change >= 0 ? '#34C759' : '#FF3B30'} 
+                            />
+                            <Text style={[
+                              styles.comparisonChangeText,
+                              { color: detailedInsights.monthlyComparison.revenue.change >= 0 ? '#34C759' : '#FF3B30' }
+                            ]}>
+                              {Math.abs(detailedInsights.monthlyComparison.revenue.change)}%
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.comparisonItem}>
+                          <Text style={[styles.comparisonLabel, { color: theme.subtext }]}>Events</Text>
+                          <Text style={[styles.comparisonValue, { color: theme.text }]}>
+                            {detailedInsights.monthlyComparison.events.current}
+                          </Text>
+                          <View style={[
+                            styles.comparisonChange,
+                            { backgroundColor: detailedInsights.monthlyComparison.events.change >= 0 ? '#34C75920' : '#FF3B3020' }
+                          ]}>
+                            <Ionicons 
+                              name={detailedInsights.monthlyComparison.events.change >= 0 ? 'trending-up' : 'trending-down'} 
+                              size={14} 
+                              color={detailedInsights.monthlyComparison.events.change >= 0 ? '#34C759' : '#FF3B30'} 
+                            />
+                            <Text style={[
+                              styles.comparisonChangeText,
+                              { color: detailedInsights.monthlyComparison.events.change >= 0 ? '#34C759' : '#FF3B30' }
+                            ]}>
+                              {Math.abs(detailedInsights.monthlyComparison.events.change)}%
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Revenue Trend Chart */}
+                {detailedInsights.revenueTrend && detailedInsights.revenueTrend.length > 0 && (
+                  <View style={styles.insightsContainer}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue Trend (Last 30 Days)</Text>
+                    <View style={[styles.chartCard, { backgroundColor: theme.cardBackground }]}>
+                      <View style={styles.chartContainer}>
+                        {renderTrendChart(detailedInsights.revenueTrend, theme, '#F39C12')}
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Event Trend Chart */}
+                {detailedInsights.eventTrend && detailedInsights.eventTrend.length > 0 && (
+                  <View style={styles.insightsContainer}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Event Activity (Last 30 Days)</Text>
+                    <View style={[styles.chartCard, { backgroundColor: theme.cardBackground }]}>
+                      <View style={styles.chartContainer}>
+                        {renderTrendChart(detailedInsights.eventTrend, theme, '#4ECDC4')}
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Activity Breakdown */}
+                {detailedInsights.activityBreakdown && Object.keys(detailedInsights.activityBreakdown).length > 0 && (
+                  <View style={styles.insightsContainer}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Activity Breakdown</Text>
+                    <View style={[styles.chartCard, { backgroundColor: theme.cardBackground }]}>
+                      {renderActivityBreakdown(detailedInsights.activityBreakdown, theme)}
+                    </View>
+                  </View>
+                )}
+
+                {/* Performance Metrics */}
+                {detailedInsights.performanceMetrics && (
+                  <View style={styles.insightsContainer}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Performance Metrics</Text>
+                    <View style={styles.metricsGrid}>
+                      <View style={[styles.metricCard, { backgroundColor: theme.cardBackground }]}>
+                        <Ionicons name="cash-outline" size={24} color="#F39C12" />
+                        <Text style={[styles.metricValue, { color: theme.text }]}>
+                          ${detailedInsights.performanceMetrics.avgRevenuePerEvent?.toFixed(2) || '0.00'}
+                        </Text>
+                        <Text style={[styles.metricLabel, { color: theme.subtext }]}>Avg Revenue/Event</Text>
+                      </View>
+                      <View style={[styles.metricCard, { backgroundColor: theme.cardBackground }]}>
+                        <Ionicons name="checkmark-circle-outline" size={24} color="#2ECC71" />
+                        <Text style={[styles.metricValue, { color: theme.text }]}>
+                          {detailedInsights.performanceMetrics.completionRate || 0}%
+                        </Text>
+                        <Text style={[styles.metricLabel, { color: theme.subtext }]}>Completion Rate</Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Recommendations */}
+                {detailedInsights.recommendations && detailedInsights.recommendations.length > 0 && (
+                  <View style={styles.insightsContainer}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Insights & Recommendations</Text>
+                    {detailedInsights.recommendations.map((rec, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={[styles.recommendationCard, { backgroundColor: theme.cardBackground, borderLeftColor: rec.color }]}
+                      >
+                        <View style={[styles.recIconContainer, { backgroundColor: rec.color + '20' }]}>
+                          <Ionicons name={rec.icon} size={20} color={rec.color} />
+                        </View>
+                        <View style={styles.recContent}>
+                          <Text style={[styles.recTitle, { color: theme.text }]}>{rec.title}</Text>
+                          <Text style={[styles.recDescription, { color: theme.subtext }]}>{rec.description}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </>
         )}
 
         {/* Guest-Specific Content */}
@@ -1473,5 +1980,197 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 12,
     textAlign: 'center',
+  },
+  // Insights Styles
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  timeRangeSelector: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  timeRangeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  timeRangeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  insightsContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 30,
+  },
+  comparisonCard: {
+    padding: 16,
+    borderRadius: 12,
+  },
+  comparisonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  comparisonItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  comparisonLabel: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  comparisonValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  comparisonChange: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  comparisonChangeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  chartCard: {
+    padding: 16,
+    borderRadius: 12,
+  },
+  chartContainer: {
+    marginTop: 8,
+  },
+  chartWrapper: {
+    height: 180,
+  },
+  chartBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    height: 150,
+    marginBottom: 8,
+  },
+  chartBarContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  chartBarWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    height: 150,
+  },
+  chartBar: {
+    borderRadius: 2,
+    marginBottom: 4,
+  },
+  chartLabel: {
+    fontSize: 9,
+    textAlign: 'center',
+  },
+  chartAxis: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  chartAxisLabel: {
+    fontSize: 10,
+  },
+  breakdownContainer: {
+    paddingVertical: 8,
+  },
+  breakdownBars: {
+    gap: 16,
+  },
+  breakdownBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  breakdownBarLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 100,
+    gap: 8,
+  },
+  breakdownColorDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  breakdownLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  breakdownBarWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  breakdownBar: {
+    height: 24,
+    borderRadius: 12,
+    minWidth: 4,
+  },
+  breakdownValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    minWidth: 30,
+    textAlign: 'right',
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  metricCard: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  metricValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  metricLabel: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  recommendationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+  },
+  recIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  recContent: {
+    flex: 1,
+  },
+  recTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  recDescription: {
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

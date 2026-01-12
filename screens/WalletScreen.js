@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Linking from 'expo-linking';
 import { collection, limit as firestoreLimit, getDocs, orderBy, query, where } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
@@ -30,6 +30,7 @@ import {
 } from '../constants/featureFlags';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useWallet } from '../contexts/WalletContext';
 import { db } from '../firebase';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackWalletTransaction } from '../services/AnalyticsService';
@@ -42,11 +43,13 @@ export default function WalletScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { balance, loading: balanceLoading, refreshing: balanceRefreshing, refreshBalance, updateBalance: updateWalletBalance } = useWallet();
   useScreenTracking('WalletScreen');
   
   // Check if we can go back (i.e., accessed from drawer)
   const canGoBack = navigation.canGoBack();
-  const [balance, setBalance] = useState(0);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [balanceChange, setBalanceChange] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState(false);
@@ -100,6 +103,16 @@ export default function WalletScreen() {
     }
   }, [user?.uid, activeTab]);
 
+  // Refresh balance when screen is focused (e.g., after admin adjustment)
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.uid && ENABLE_WALLET_BALANCE) {
+        // Refresh balance from WalletContext when screen comes into focus
+        refreshBalance(user.uid);
+      }
+    }, [user?.uid, refreshBalance])
+  );
+
   const checkGoogleDriveConnection = useCallback(async () => {
     try {
       const connected = await GoogleDriveService.isConnected();
@@ -122,45 +135,78 @@ export default function WalletScreen() {
   const loadWalletData = useCallback(async () => {
     if (!user?.uid) {
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
+    let loadingTimeout;
     try {
       setLoading(true);
       
-      // Load balance (only if wallet features enabled), transactions, and payment methods in parallel
+      // Set a timeout to ensure loading never gets stuck
+      loadingTimeout = setTimeout(() => {
+        console.warn('Wallet data loading timeout - forcing loading to false');
+        setLoading(false);
+        setRefreshing(false);
+      }, 10000); // 10 second timeout
+      
+      // Load transactions and payment methods in parallel
+      // Balance is managed by WalletContext
       const loadPromises = [
-        ENABLE_WALLET_BALANCE ? WalletService.getBalance(user.uid) : Promise.resolve(0),
-        WalletService.getTransactions(user.uid),
-        WalletService.getPaymentMethods(user.uid),
+        WalletService.getTransactions(user.uid).catch(err => {
+          console.error('Error loading transactions:', err);
+          return [];
+        }),
+        WalletService.getPaymentMethods(user.uid).catch(err => {
+          console.error('Error loading payment methods:', err);
+          return [];
+        }),
       ];
       
-      const [walletBalance, walletTransactions, walletPaymentMethods] = await Promise.all(loadPromises);
-
+      // Refresh balance from context (it will handle loading state)
+      // Don't await this - let it run in parallel and not block the UI
       if (ENABLE_WALLET_BALANCE) {
-        setBalance(walletBalance);
-      } else {
-        setBalance(0);
+        refreshBalance(user.uid).then(() => {
+          // Update last updated timestamp after balance loads
+          setLastUpdated('just now');
+          setTimeout(() => {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            setLastUpdated(`at ${timeStr}`);
+          }, 3000);
+        }).catch(err => {
+          console.error('Error refreshing balance:', err);
+        });
       }
+      
+      // Use Promise.allSettled to ensure we always resolve, even if one fails
+      const results = await Promise.allSettled(loadPromises);
+      const walletTransactions = results[0].status === 'fulfilled' ? (results[0].value || []) : [];
+      const walletPaymentMethods = results[1].status === 'fulfilled' ? (results[1].value || []) : [];
+      
       // Use real transactions from WalletService (no mock fallback)
-      setTransactions(walletTransactions || []);
+      setTransactions(walletTransactions);
       // Use real payment methods from WalletService (no mock fallback)
-      setPaymentMethods(walletPaymentMethods || []);
+      setPaymentMethods(walletPaymentMethods);
       setSelectedPaymentMethod(
         walletPaymentMethods?.find(pm => pm.isDefault) || null
       );
     } catch (error) {
       console.error('Error loading wallet data:', error);
       // Show empty state instead of mock data
-      setBalance(0);
+      // Balance is managed by WalletContext, no need to set it here
       setTransactions([]);
       setPaymentMethods([]);
       setSelectedPaymentMethod(null);
     } finally {
+      // Always set loading to false, even if there's an error
+      if (loadingTimeout) {
+        clearTimeout(loadingTimeout);
+      }
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.uid]);
+  }, [user?.uid, refreshBalance]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -432,6 +478,12 @@ export default function WalletScreen() {
               );
 
               if (result.success) {
+                // Update balance optimistically
+                updateWalletBalance(newAmount);
+                setLastUpdated('just now');
+                setBalanceChange({ type: 'increase', amount: newAmount });
+                setTimeout(() => setBalanceChange(null), 3000);
+                
                 // Track analytics
                 await trackWalletTransaction({
                   type: 'received',
@@ -444,7 +496,9 @@ export default function WalletScreen() {
                   amount: newAmount,
                 });
                 
-                // Reload wallet data to get updated balance
+                // Reload wallet data (transactions, payment methods)
+                // Balance is managed by WalletContext, refresh it
+                await refreshBalance(user.uid);
                 await loadWalletData();
                 setAmount('');
                 setShowAddFunds(false);
@@ -535,6 +589,12 @@ export default function WalletScreen() {
       );
 
       if (result.success) {
+        // Update balance optimistically
+        updateWalletBalance(-sendAmount);
+        setLastUpdated('just now');
+        setBalanceChange({ type: 'decrease', amount: sendAmount });
+        setTimeout(() => setBalanceChange(null), 3000);
+        
         // Track analytics
         await trackWalletTransaction({
           type: 'sent',
@@ -548,7 +608,9 @@ export default function WalletScreen() {
           amount: sendAmount,
         });
         
-        // Reload wallet data
+        // Reload wallet data (transactions, payment methods)
+        // Balance is managed by WalletContext, refresh it
+        await refreshBalance(user.uid);
         await loadWalletData();
         setAmount('');
         setRecipient('');
@@ -762,8 +824,64 @@ export default function WalletScreen() {
           backgroundColor: theme.isDark ? '#1a1a1a' : theme.primary,
           shadowColor: theme.primary,
         }]}>
-          <Text style={[styles.balanceLabel, { color: theme.isDark ? theme.primary : 'rgba(255,255,255,0.9)' }]}>Total Balance</Text>
-          <Text style={[styles.balanceAmount, { color: theme.isDark ? theme.primary : '#fff' }]}>${balance.toFixed(2)}</Text>
+          {/* Header with refresh indicator */}
+          <View style={styles.balanceHeader}>
+            <View style={styles.balanceHeaderLeft}>
+              <Ionicons 
+                name="wallet" 
+                size={20} 
+                color={theme.isDark ? theme.primary : 'rgba(255,255,255,0.9)'} 
+              />
+              <Text style={[styles.balanceLabel, { color: theme.isDark ? theme.primary : 'rgba(255,255,255,0.9)' }]}>
+                Total Balance
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => refreshBalance(user.uid)}
+              disabled={balanceRefreshing}
+              style={styles.refreshButton}
+            >
+              {balanceRefreshing ? (
+                <ActivityIndicator size="small" color={theme.isDark ? theme.primary : '#fff'} />
+              ) : (
+                <Ionicons 
+                  name="refresh" 
+                  size={20} 
+                  color={theme.isDark ? theme.primary : 'rgba(255,255,255,0.9)'} 
+                />
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* Balance Amount with loading indicator */}
+          <View style={styles.balanceAmountContainer}>
+            {balanceLoading && balance === 0 ? (
+              <ActivityIndicator size="large" color={theme.isDark ? theme.primary : '#fff'} />
+            ) : (
+              <>
+                <Text style={[styles.balanceAmount, { color: theme.isDark ? theme.primary : '#fff' }]}>
+                  ${typeof balance === 'number' ? balance.toFixed(2) : '0.00'}
+                </Text>
+                {/* Sync status indicator */}
+                <View style={styles.syncIndicator}>
+                  <View style={[styles.syncDot, { 
+                    backgroundColor: balanceRefreshing ? '#FFA500' : '#4CAF50',
+                    shadowColor: balanceRefreshing ? '#FFA500' : '#4CAF50',
+                  }]} />
+                  <Text style={[styles.syncText, { color: theme.isDark ? theme.primary : 'rgba(255,255,255,0.7)' }]}>
+                    {balanceRefreshing ? 'Updating...' : 'Synced'}
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+
+          {/* Last updated timestamp */}
+          {lastUpdated && (
+            <Text style={[styles.lastUpdatedText, { color: theme.isDark ? theme.primary : 'rgba(255,255,255,0.6)' }]}>
+              Updated {lastUpdated}
+            </Text>
+          )}
           <View style={styles.balanceActions}>
             {ENABLE_ADD_FUNDS && (
               <TouchableOpacity 
@@ -1902,7 +2020,6 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     padding: 28,
     borderRadius: 24,
-    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -1912,19 +2029,67 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
+  balanceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    width: '100%',
+  },
+  balanceHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  refreshButton: {
+    padding: 4,
+  },
   balanceLabel: {
     fontSize: 14,
-    marginBottom: 8,
     opacity: 0.9,
     fontWeight: '500',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
+  balanceAmountContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+    minHeight: 60,
+    justifyContent: 'center',
+    width: '100%',
+  },
   balanceAmount: {
     fontSize: 48,
     fontWeight: '700',
-    marginBottom: 28,
+    marginBottom: 8,
     letterSpacing: -1,
+  },
+  syncIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  syncText: {
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.7,
+  },
+  lastUpdatedText: {
+    fontSize: 11,
+    textAlign: 'center',
+    opacity: 0.6,
+    marginTop: 4,
+    width: '100%',
   },
   balanceActions: {
     flexDirection: 'row',

@@ -16,12 +16,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { createUserWithEmailAndPassword, createUserProfileIfMissing } from '../firebase';
 import { trackSignup, trackButtonClick, trackError } from '../services/AnalyticsService';
+import { signInWithGoogle, signInWithApple } from '../services/SocialAuthService';
 import GoogleDriveService from '../services/GoogleDriveService';
 import { authRateLimiter } from '../utils/rateLimiter';
 import { AUTH_ERRORS, getFirebaseErrorMessage } from '../constants/errorMessages';
 import { AUTH_STRINGS, GENERAL_STRINGS } from '../constants/strings';
 import { logError, logInfo, logWarn } from '../utils/logger';
+import { showErrorAlert } from '../utils/errorHandler';
 import M1ALogo from '../components/M1ALogo';
+import { Platform } from 'react-native';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
@@ -30,6 +33,7 @@ export default function SignupScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState({});
@@ -374,6 +378,60 @@ export default function SignupScreen({ navigation }) {
                 <Text style={styles.signupButtonText}>Create Account</Text>
               )}
             </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={styles.dividerContainer}>
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+              <Text style={[styles.dividerText, { color: theme.subtext }]}>OR</Text>
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            </View>
+
+            {/* Social Sign-Up Buttons */}
+            <TouchableOpacity
+              style={[styles.socialButton, styles.googleButton, { backgroundColor: '#FFFFFF', borderColor: theme.border }]}
+              onPress={async () => {
+                setSocialLoading(true);
+                try {
+                  await signInWithGoogle();
+                } catch (error) {
+                  showErrorAlert(error, 'Google Sign-Up');
+                } finally {
+                  setSocialLoading(false);
+                }
+              }}
+              disabled={socialLoading || loading}
+            >
+              <Ionicons name="logo-google" size={20} color="#4285F4" />
+              <Text style={[styles.socialButtonText, { color: theme.text }]}>
+                Sign up with Google
+              </Text>
+            </TouchableOpacity>
+
+            {Platform.OS === 'ios' && (
+              <TouchableOpacity
+                style={[styles.socialButton, styles.appleButton, { backgroundColor: theme.text, borderColor: theme.text }]}
+                onPress={async () => {
+                  setSocialLoading(true);
+                  try {
+                    await signInWithApple();
+                  } catch (error) {
+                    if (error.message?.includes('cancel')) {
+                      // User cancelled - don't show error
+                      return;
+                    }
+                    showErrorAlert(error, 'Apple Sign-Up');
+                  } finally {
+                    setSocialLoading(false);
+                  }
+                }}
+                disabled={socialLoading || loading}
+              >
+                <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
+                <Text style={[styles.socialButtonText, { color: '#FFFFFF' }]}>
+                  Sign up with Apple
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.footer}>
@@ -494,6 +552,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   loginLink: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    gap: 10,
+  },
+  googleButton: {
+    // Styled above
+  },
+  appleButton: {
+    // Styled above
+  },
+  socialButtonText: {
     fontSize: 16,
     fontWeight: '600',
   },

@@ -5,25 +5,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
 import {
-  createUserWithEmailAndPassword as firebaseCreateUser,
-  onAuthStateChanged as firebaseOnAuthStateChanged,
-  sendEmailVerification as firebaseSendEmailVerification,
-  sendPasswordResetEmail as firebaseSendPasswordResetEmail,
-  signInWithEmailAndPassword as firebaseSignIn,
-  signOut as firebaseSignOut,
-  updateProfile as firebaseUpdateProfile,
-  getAuth,
-  getReactNativePersistence,
-  initializeAuth
+    createUserWithEmailAndPassword as firebaseCreateUser,
+    onAuthStateChanged as firebaseOnAuthStateChanged,
+    sendEmailVerification as firebaseSendEmailVerification,
+    sendPasswordResetEmail as firebaseSendPasswordResetEmail,
+    signInWithEmailAndPassword as firebaseSignIn,
+    signOut as firebaseSignOut,
+    updateProfile as firebaseUpdateProfile,
+    getAuth,
+    getReactNativePersistence,
+    initializeAuth
 } from 'firebase/auth';
 import {
-  getFirestore
+    getFirestore
 } from 'firebase/firestore';
 import {
-  getFunctions
+    getFunctions
 } from 'firebase/functions';
 import {
-  getStorage
+    getStorage
 } from 'firebase/storage';
 import 'react-native-get-random-values';
 
@@ -255,6 +255,8 @@ export const createUserProfileIfMissing = async (uid, seed = {}) => {
       private: false,
       showOnlineStatus: true,
       allowMessages: true,
+      rating: 5.0, // New users start with 5 stars
+      reviews: 0, // No reviews initially
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       ...seed,
@@ -1251,7 +1253,7 @@ async function compressImageForAvatar(inputUri, maxSize = 1024, quality = 0.8) {
  * @param {number} maxSize - Max width/height for resizing (default: 1024 for avatars, 1200 for covers)
  * @returns {Promise<string>} Download URL
  */
-export const uploadImageAsync = async (uri, folder = 'avatars', maxSize = null) => {
+export const uploadImageAsync = async (uri, folder = 'avatars', maxSize = null, onProgress = null) => {
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('Not signed in');
 
@@ -1259,9 +1261,12 @@ export const uploadImageAsync = async (uri, folder = 'avatars', maxSize = null) 
   const resizeSize = maxSize || (folder === 'covers' ? 1200 : 1024);
 
   // 1) compress/resize first
+  if (onProgress) onProgress(10); // 10% - compression started
   const processed = await compressImageForAvatar(uri, resizeSize, 0.8);
+  if (onProgress) onProgress(30); // 30% - compression complete
 
   // 2) read file into Blob
+  if (onProgress) onProgress(40); // 40% - reading file
   const res = await fetch(processed.uri);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -1270,6 +1275,7 @@ export const uploadImageAsync = async (uri, folder = 'avatars', maxSize = null) 
   const blob = await res.blob();
   if (!blob || blob.size === 0) throw new Error('Selected file is empty or unreadable');
   if (blob.size > MAX_AVATAR_BYTES) throw new Error('Image exceeds 10MB limit');
+  if (onProgress) onProgress(50); // 50% - file read
 
   // 3) build path + metadata
   const filename = `${uuidv4()}.jpg`;
@@ -1282,14 +1288,51 @@ export const uploadImageAsync = async (uri, folder = 'avatars', maxSize = null) 
     size: blob.size,
   });
 
-  // 4) upload using Firebase Storage
-  const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+  // 4) upload using Firebase Storage with progress tracking
+  const { ref, uploadBytesResumable, getDownloadURL } = await import('firebase/storage');
   const storageRef = ref(storage, path);
   try {
-    await uploadBytes(storageRef, blob, metadata);
-    const downloadURL = await getDownloadURL(storageRef);
-    console.log('[Storage] Upload successful:', downloadURL);
-    return downloadURL;
+    // Use uploadBytesResumable for progress tracking if callback provided
+    if (onProgress) {
+      const uploadTask = uploadBytesResumable(storageRef, blob, metadata);
+      
+      return new Promise((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            // Calculate upload progress (50-90% range, since we're already at 50%)
+            const progress = 50 + (snapshot.bytesTransferred / snapshot.totalBytes) * 40;
+            onProgress(Math.min(Math.round(progress), 90));
+          },
+          (error) => {
+            console.error('[Storage upload error]', {
+              code: error?.code,
+              message: error?.message,
+            });
+            reject(error);
+          },
+          async () => {
+            // Upload complete
+            if (onProgress) onProgress(95); // 95% - getting download URL
+            try {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              if (onProgress) onProgress(100); // 100% - complete
+              console.log('[Storage] Upload successful:', downloadURL);
+              resolve(downloadURL);
+            } catch (err) {
+              reject(err);
+            }
+          }
+        );
+      });
+    } else {
+      // Fallback to uploadBytes if no progress callback
+      const { uploadBytes } = await import('firebase/storage');
+      await uploadBytes(storageRef, blob, metadata);
+      const downloadURL = await getDownloadURL(storageRef);
+      console.log('[Storage] Upload successful:', downloadURL);
+      return downloadURL;
+    }
   } catch (err) {
     console.error('[Storage upload error]', {
       code: err?.code,

@@ -322,7 +322,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
             <View style={styles.ratingRow}>
               <Ionicons name="star" size={18} color="#FFD700" />
               <Text style={[styles.rating, { color: theme.text }]}>
-                {user.rating || 4.5} ({user.reviews || 0} reviews)
+                {user.rating || 5.0} ({user.reviews || 0} reviews)
               </Text>
             </View>
 
