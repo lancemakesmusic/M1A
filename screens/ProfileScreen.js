@@ -20,6 +20,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import M1ALogo from '../components/M1ALogo';
 import ScrollIndicator from '../components/ScrollIndicator';
+import PostComments from '../components/PostComments';
+import PostReactions from '../components/PostReactions';
 import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -550,15 +552,30 @@ export default function ProfileScreen() {
       )}
 
       <View style={styles.postActions}>
-        <TouchableOpacity style={styles.postAction}>
-          <Ionicons name="heart-outline" size={20} color={theme.subtext} />
-          <Text style={[styles.postActionText, { color: theme.subtext }]}>{item.likes}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.postAction}>
-          <Ionicons name="chatbubble-outline" size={20} color={theme.subtext} />
-          <Text style={[styles.postActionText, { color: theme.subtext }]}>{item.comments}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.postAction}>
+        <PostReactions
+          postId={item.id}
+          onReactionCountChange={(count) => {
+            setPostReactionCounts(prev => ({ ...prev, [item.id]: count }));
+          }}
+        />
+        <PostComments
+          postId={item.id}
+          onCommentCountChange={(count) => {
+            setPostCommentCounts(prev => ({ ...prev, [item.id]: count }));
+          }}
+        />
+        <TouchableOpacity
+          style={styles.postAction}
+          onPress={() => {
+            try {
+              const shareUrl = `m1a://post/${item.id}`;
+              const shareMessage = `${item.content}\n\nView on M1A: ${shareUrl}`;
+              Share.share({ message: shareMessage });
+            } catch (error) {
+              console.error('Error sharing post:', error);
+            }
+          }}
+        >
           <Ionicons name="share-outline" size={20} color={theme.subtext} />
         </TouchableOpacity>
       </View>
