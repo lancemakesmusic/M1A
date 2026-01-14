@@ -19,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
 import ScrollIndicator from '../components/ScrollIndicator';
+import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -40,6 +41,7 @@ const itemWidth = (width - 36) / 2; // 2 columns with tighter padding
 export default function ExploreScreen() {
   const navigation = useNavigation();
   const { theme } = useTheme();
+  const { user } = useAuth();
   const { userPersona } = useM1APersonalization();
   const { preferences: notificationPrefs } = useNotificationPreferences();
   useScreenTracking('ExploreScreen');
