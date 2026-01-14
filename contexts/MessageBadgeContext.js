@@ -75,10 +75,18 @@ export function MessageBadgeProvider({ children }) {
       return;
     }
 
-    const unsubscribe = calculateUnreadCount(user.uid);
+    let unsubscribe = null;
+    
+    calculateUnreadCount(user.uid).then((unsub) => {
+      unsubscribe = unsub;
+    }).catch((error) => {
+      console.error('Error setting up unread count listener:', error);
+      setUnreadCount(0);
+      setLoading(false);
+    });
     
     return () => {
-      if (unsubscribe) {
+      if (unsubscribe && typeof unsubscribe === 'function') {
         unsubscribe();
       }
     };
