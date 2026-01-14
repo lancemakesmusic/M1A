@@ -802,7 +802,7 @@ export default function MessagesScreen() {
     }, 100);
 
     try {
-      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+      if (isFirebaseReady() && db && typeof db.collection === 'function') {
         console.log('📤 Sending message to conversation:', selectedConversation.id);
         console.log('📤 Message text:', messageText);
         console.log('📤 Image URL:', validImageUrl);

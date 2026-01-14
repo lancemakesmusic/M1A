@@ -32,6 +32,7 @@ import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackError, trackEventBookingCompleted, trackEventBookingStarted, trackFunnelStep } from '../services/AnalyticsService';
 import GoogleCalendarService from '../services/GoogleCalendarService';
 import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
+import { sendBookingConfirmationEmail, sendPaymentConfirmationEmail } from '../services/EmailService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import SharingService from '../services/SharingService';
 import StripeService from '../services/StripeService';
@@ -981,6 +982,28 @@ export default function ServiceBookingScreen({ route, navigation }) {
               status: 'confirmed',
             });
             
+            // Send email notifications
+            if (user?.email) {
+              await sendBookingConfirmationEmail({
+                userEmail: user.email,
+                userName: user.displayName || user.name || 'Valued Customer',
+                orderId,
+                serviceName: item.name,
+                amount: total,
+                paymentMethod: 'stripe',
+                date: formData.serviceDate ? new Date(formData.serviceDate) : null,
+                location: item.location || formData.location || null,
+              }).catch(err => console.warn('Failed to send booking email:', err));
+              
+              await sendPaymentConfirmationEmail({
+                userEmail: user.email,
+                userName: user.displayName || user.name || 'Valued Customer',
+                transactionId: orderId,
+                amount: total,
+                description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
+              }).catch(err => console.warn('Failed to send payment email:', err));
+            }
+            
             // Show success message
             setOrderNumber(orderId);
             setPaymentStep('success');
@@ -1111,6 +1134,28 @@ export default function ServiceBookingScreen({ route, navigation }) {
           id: orderId,
           status: 'confirmed',
         });
+        
+        // Send email notifications
+        if (user?.email) {
+          await sendBookingConfirmationEmail({
+            userEmail: user.email,
+            userName: user.displayName || user.name || 'Valued Customer',
+            orderId,
+            serviceName: item.name,
+            amount: total,
+            paymentMethod: 'wallet',
+            date: formData.serviceDate ? new Date(formData.serviceDate) : null,
+            location: item.location || formData.location || null,
+          }).catch(err => console.warn('Failed to send booking email:', err));
+          
+          await sendPaymentConfirmationEmail({
+            userEmail: user.email,
+            userName: user.displayName || user.name || 'Valued Customer',
+            transactionId: orderId,
+            amount: total,
+            description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
+          }).catch(err => console.warn('Failed to send payment email:', err));
+        }
         
         // Payment completed - show success
         setOrderNumber(orderId);

@@ -272,7 +272,15 @@ export default function CreatePostScreen({ navigation }) {
       ]);
     } catch (error) {
       console.error('Error creating post:', error);
-      Alert.alert('Error', 'Failed to create post. Please try again.');
+      const errorMessage = error?.message || 'Unknown error';
+      const friendlyMessage = errorMessage.includes('permission') 
+        ? 'You do not have permission to create posts. Please check your account status.'
+        : errorMessage.includes('network') || errorMessage.includes('fetch')
+        ? 'Network error. Please check your internet connection and try again.'
+        : errorMessage.includes('not authenticated')
+        ? 'You must be logged in to create posts. Please log in and try again.'
+        : `Failed to create post: ${errorMessage}`;
+      Alert.alert('Error', friendlyMessage);
     } finally {
       setPosting(false);
     }
