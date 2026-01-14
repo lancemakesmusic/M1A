@@ -202,16 +202,29 @@ export function M1AAssistantProvider({ children }) {
 
     // Auto-navigate if response has navigation action
     if (aiResponse.response?.action?.type === 'navigate' && aiResponse.response.action.screen) {
+      const targetScreen = aiResponse.response.action.screen;
+      
+      // Handle M1AChat specially - open chat modal instead of navigating
+      if (targetScreen === 'M1AChat' || targetScreen === 'chat' || targetScreen === 'assistant') {
+        // Chat is already open, just ensure it stays open
+        if (!isExpanded) {
+          setIsExpanded(true);
+        }
+        return aiResponse;
+      }
+      
       const nav = navigationRef.current;
       if (nav) {
         // Small delay to let user see the response
         setTimeout(() => {
           try {
-            nav.navigate(aiResponse.response.action.screen);
+            nav.navigate(targetScreen);
             // Don't hide bubble - keep it visible for continued use
             setIsExpanded(false); // Just close the chat modal
           } catch (error) {
             console.warn('Navigation error:', error);
+            // If navigation fails, it might be because the screen doesn't exist
+            // Don't throw - just log the warning
           }
         }, isInstant ? 200 : 500); // Faster navigation for instant responses
       }
