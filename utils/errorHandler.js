@@ -73,6 +73,13 @@ export const getUserFriendlyError = (error) => {
       return ERROR_MESSAGES.TIMEOUT;
     }
     
+    // Check for payment server errors (more specific than generic 404)
+    if (message.includes('Payment processing is currently unavailable') || 
+        message.includes('payment server is not configured') ||
+        message.includes('payment server')) {
+      return message; // Use the specific error message
+    }
+    
     // Check for 404 errors
     if (message.includes('404') || message.includes('not found')) {
       return ERROR_MESSAGES.NOT_FOUND;
