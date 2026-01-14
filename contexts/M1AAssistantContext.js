@@ -223,40 +223,61 @@ export function M1AAssistantProvider({ children }) {
         setTimeout(() => {
           try {
             // Use CommonActions.navigate for better nested navigation support
-            if (rootNavigationRef.isReady()) {
-              rootNavigationRef.dispatch(
-                CommonActions.navigate({
-                  name: targetScreen,
-                  params: {},
-                })
-              );
-              // Don't hide bubble - keep it visible for continued use
-              setIsExpanded(false); // Just close the chat modal
-            } else if (nav.navigate) {
-              // Fallback to regular navigation if root ref not ready
-              nav.navigate(targetScreen);
-              setIsExpanded(false);
-            } else {
-              console.warn('Navigation not available - waiting...');
-              // Retry after a short delay if not ready
-              setTimeout(() => {
+            const navigateToScreen = () => {
+              if (rootNavigationRef.isReady()) {
                 try {
-                  if (rootNavigationRef.isReady()) {
-                    rootNavigationRef.dispatch(
-                      CommonActions.navigate({
-                        name: targetScreen,
-                        params: {},
-                      })
-                    );
-                    setIsExpanded(false);
-                  } else if (nav.navigate) {
-                    nav.navigate(targetScreen);
-                    setIsExpanded(false);
+                  // Try simple navigation first
+                  rootNavigationRef.dispatch(
+                    CommonActions.navigate({
+                      name: targetScreen,
+                      params: {},
+                    })
+                  );
+                  setIsExpanded(false);
+                  return true;
+                } catch (simpleError) {
+                  // If simple navigation fails, try nested path for screens in HomeStack
+                  const nestedScreens = ['CreatePost', 'EventBooking', 'ServiceBooking', 'BarMenu', 'M1ADashboard', 'M1ASettings', 'Help', 'Feedback', 'Calendar', 'UserProfileView', 'BarCategory', 'BarMenuCategory', 'AutoPoster'];
+                  if (nestedScreens.includes(targetScreen)) {
+                    try {
+                      // Navigate to Home tab first, then to the screen
+                      rootNavigationRef.dispatch(
+                        CommonActions.navigate({
+                          name: 'MainApp',
+                          params: {
+                            screen: 'Home',
+                            params: {
+                              screen: targetScreen,
+                            },
+                          },
+                        })
+                      );
+                      setIsExpanded(false);
+                      return true;
+                    } catch (nestedError) {
+                      console.warn('Nested navigation failed:', nestedError.message);
+                      return false;
+                    }
                   }
-                } catch (retryError) {
-                  console.warn('Navigation retry failed:', retryError.message);
+                  console.warn('Simple navigation failed:', simpleError.message);
+                  return false;
                 }
-              }, 500);
+              }
+              return false;
+            };
+
+            if (!navigateToScreen() && nav?.navigate) {
+              // Fallback to context navigation ref
+              try {
+                nav.navigate(targetScreen);
+                setIsExpanded(false);
+              } catch (fallbackError) {
+                console.warn('Fallback navigation failed:', fallbackError.message);
+                // Retry after a short delay
+                setTimeout(() => {
+                  navigateToScreen();
+                }, 500);
+              }
             }
           } catch (error) {
             console.warn('Navigation error for screen:', targetScreen, error.message);
