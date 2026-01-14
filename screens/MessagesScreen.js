@@ -1098,7 +1098,7 @@ export default function MessagesScreen() {
                     opacity: text.trim() ? 1 : 0.5
                   }
                 ]} 
-                onPress={sendMessage} 
+                onPress={() => sendMessage()} 
                 activeOpacity={0.8}
                 disabled={!text.trim()}
               >
