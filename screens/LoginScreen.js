@@ -23,7 +23,6 @@ import { AUTH_STRINGS, GENERAL_STRINGS } from '../constants/strings';
 import { logError, logInfo } from '../utils/logger';
 import { showErrorAlert } from '../utils/errorHandler';
 import M1ALogo from '../components/M1ALogo';
-import { Platform } from 'react-native';
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
