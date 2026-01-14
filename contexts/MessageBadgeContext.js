@@ -1,5 +1,5 @@
 // contexts/MessageBadgeContext.js
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { useAuth } from './AuthContext';
@@ -12,15 +12,26 @@ export function MessageBadgeProvider({ children }) {
   const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const unsubscribeRef = useRef(null);
 
   /**
    * Calculate total unread count from all conversations
    */
   const calculateUnreadCount = useCallback((uid) => {
+    // Clean up previous listener if it exists
+    if (unsubscribeRef.current && typeof unsubscribeRef.current === 'function') {
+      try {
+        unsubscribeRef.current();
+      } catch (error) {
+        console.warn('Error cleaning up previous listener:', error);
+      }
+      unsubscribeRef.current = null;
+    }
+
     if (!uid || !isFirebaseReady() || !db || typeof db.collection !== 'function') {
       setUnreadCount(0);
       setLoading(false);
-      return null;
+      return;
     }
 
     try {
@@ -58,12 +69,12 @@ export function MessageBadgeProvider({ children }) {
         }
       );
 
-      return unsubscribe;
+      unsubscribeRef.current = unsubscribe;
     } catch (error) {
       console.error('Error setting up unread count listener:', error);
       setUnreadCount(0);
       setLoading(false);
-      return null;
+      unsubscribeRef.current = null;
     }
   }, []);
 
@@ -75,11 +86,16 @@ export function MessageBadgeProvider({ children }) {
       return;
     }
 
-    const unsubscribe = calculateUnreadCount(user.uid);
+    calculateUnreadCount(user.uid);
     
     return () => {
-      if (unsubscribe && typeof unsubscribe === 'function') {
-        unsubscribe();
+      if (unsubscribeRef.current && typeof unsubscribeRef.current === 'function') {
+        try {
+          unsubscribeRef.current();
+        } catch (error) {
+          console.warn('Error unsubscribing:', error);
+        }
+        unsubscribeRef.current = null;
       }
     };
   }, [user?.uid, calculateUnreadCount]);

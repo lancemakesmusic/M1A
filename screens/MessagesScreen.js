@@ -774,7 +774,11 @@ export default function MessagesScreen() {
   const sendMessage = async (imageUrl = null, attachmentType = null, attachmentName = null) => {
     const uid = auth.currentUser?.uid;
     const messageText = text.trim();
-    if (!uid || (!messageText && !imageUrl) || !selectedConversation) return;
+    
+    // Validate imageUrl - must be a string or null/undefined, not an event object
+    const validImageUrl = (imageUrl && typeof imageUrl === 'string') ? imageUrl : null;
+    
+    if (!uid || (!messageText && !validImageUrl) || !selectedConversation) return;
     
     setText('');
     
@@ -782,7 +786,7 @@ export default function MessagesScreen() {
     const newMessage = {
       id: Date.now().toString(),
       text: messageText,
-      imageUrl: imageUrl || null,
+      imageUrl: validImageUrl,
       attachmentType: attachmentType || null,
       attachmentName: attachmentName || null,
       senderId: uid,
@@ -801,7 +805,7 @@ export default function MessagesScreen() {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
         console.log('📤 Sending message to conversation:', selectedConversation.id);
         console.log('📤 Message text:', messageText);
-        console.log('📤 Image URL:', imageUrl);
+        console.log('📤 Image URL:', validImageUrl);
         console.log('📤 Sender ID:', uid);
         console.log('📤 Participant ID:', selectedConversation.participantId);
         
@@ -811,8 +815,8 @@ export default function MessagesScreen() {
           createdAt: serverTimestamp(),
         };
         
-        if (imageUrl) {
-          messageData.imageUrl = imageUrl;
+        if (validImageUrl) {
+          messageData.imageUrl = validImageUrl;
           messageData.attachmentType = attachmentType || 'image';
         }
         
