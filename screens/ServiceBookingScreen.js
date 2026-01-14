@@ -549,7 +549,10 @@ export default function ServiceBookingScreen({ route, navigation }) {
   };
 
   const handleStripePayment = async () => {
+    console.log('💳 Payment button clicked - handleStripePayment called');
+    
     if (!user) {
+      console.log('❌ User not logged in');
       Alert.alert(
         'Login Required',
         'Please log in to complete your order.',
@@ -568,6 +571,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
     }
 
     try {
+      console.log('✅ Starting payment process...');
       setProcessingPayment(true);
       setPaymentError(null);
       
@@ -874,8 +878,11 @@ export default function ServiceBookingScreen({ route, navigation }) {
       let paymentMethod = 'stripe';
       let useWalletPayment = false;
 
+      console.log(`💳 Processing payment: Total = $${total.toFixed(2)}, Stripe configured = ${StripeService.isConfigured()}`);
+
       // Try Stripe checkout first if configured
       if (StripeService.isConfigured()) {
+        console.log('💳 Attempting Stripe checkout...');
         try {
           // Save order to Firestore with PENDING payment status first
           // This ensures we have an order ID before redirecting to Stripe
@@ -982,6 +989,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
             // Stripe checkout failed, fall back to wallet
             console.log('Stripe checkout failed, falling back to wallet payment');
             useWalletPayment = true;
+            // orderId is already set, we'll update it instead of creating a new one
           }
         } catch (stripeError) {
           // Stripe error - check if it's a 404 or backend not configured
@@ -991,10 +999,12 @@ export default function ServiceBookingScreen({ route, navigation }) {
               errorMessage.includes('Payment processing is currently unavailable')) {
             console.log('Stripe backend not available, falling back to wallet payment');
             useWalletPayment = true;
+            // If orderId was already created, we'll update it; otherwise create new one
           } else {
             // Other Stripe error - try wallet as fallback
             console.log('Stripe error, falling back to wallet payment:', stripeError.message);
             useWalletPayment = true;
+            // If orderId was already created, we'll update it; otherwise create new one
           }
         }
       } else {
@@ -1005,25 +1015,63 @@ export default function ServiceBookingScreen({ route, navigation }) {
 
       // Fall back to wallet payment if Stripe failed or not configured
       if (useWalletPayment) {
+        console.log('💳 Falling back to wallet payment...');
         // Refresh wallet balance to get latest amount
         await refreshBalance();
         const currentBalance = await WalletService.getBalance(user.uid);
+        console.log(`💳 Current wallet balance: $${currentBalance.toFixed(2)}, Required: $${total.toFixed(2)}`);
         
         if (currentBalance < total) {
           const insufficientAmount = total - currentBalance;
+          // If order was already created, update it to failed status
+          if (orderId && isFirebaseReady() && db) {
+            try {
+              const { doc, updateDoc } = await import('firebase/firestore');
+              const collectionName = item.category === 'Events' ? 'eventOrders' : 'serviceOrders';
+              const orderRef = doc(db, collectionName, orderId);
+              await updateDoc(orderRef, {
+                paymentStatus: 'failed',
+                paymentError: 'Insufficient wallet balance',
+                updatedAt: serverTimestamp(),
+              });
+            } catch (updateError) {
+              console.warn('Failed to update order status:', updateError);
+            }
+          }
           throw new Error(
             `Insufficient wallet balance. You have $${currentBalance.toFixed(2)} but need $${total.toFixed(2)}. ` +
             `Please add $${insufficientAmount.toFixed(2)} to your wallet or use a different payment method.`
           );
         }
 
-        // Save order to Firestore with COMPLETED payment status (wallet payment is instant)
-        orderId = await saveOrderToFirestore({
-          ...orderData,
-          paymentStatus: 'completed',
-          paymentMethod: 'wallet',
-          backendBookingId: backendResult.bookingId || null,
-        });
+        // If orderId already exists (from failed Stripe attempt), update it; otherwise create new one
+        if (!orderId) {
+          // Save order to Firestore with COMPLETED payment status (wallet payment is instant)
+          orderId = await saveOrderToFirestore({
+            ...orderData,
+            paymentStatus: 'completed',
+            paymentMethod: 'wallet',
+            backendBookingId: backendResult.bookingId || null,
+          });
+        } else {
+          // Update existing order to completed status with wallet payment method
+          if (isFirebaseReady() && db) {
+            try {
+              const { doc, updateDoc } = await import('firebase/firestore');
+              const collectionName = item.category === 'Events' ? 'eventOrders' : 'serviceOrders';
+              const orderRef = doc(db, collectionName, orderId);
+              await updateDoc(orderRef, {
+                paymentStatus: 'completed',
+                paymentMethod: 'wallet',
+                updatedAt: serverTimestamp(),
+              });
+              console.log('✅ Updated existing order to wallet payment');
+            } catch (updateError) {
+              console.error('Failed to update order to wallet payment:', updateError);
+              throw new Error('Failed to update order. Please try again.');
+            }
+          }
+        }
 
         // Deduct from wallet
         const transactionId = `order_${orderId}_${Date.now()}`;
@@ -1159,6 +1207,21 @@ export default function ServiceBookingScreen({ route, navigation }) {
       setPaymentError(friendlyError);
       setPaymentStep('failed');
       setLoadingMessage('');
+      
+      // Show error alert to user
+      Alert.alert(
+        'Payment Failed',
+        friendlyError,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Reset payment step to allow retry
+              setPaymentStep('payment');
+            }
+          }
+        ]
+      );
       
       // Log error for debugging
       handleError(error, 'Service Booking Payment', 'Payment processing failed');
