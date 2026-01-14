@@ -17,7 +17,7 @@ export function MessageBadgeProvider({ children }) {
    * Calculate total unread count from all conversations
    */
   const calculateUnreadCount = useCallback((uid) => {
-    if (!uid || !isFirebaseReady() || !db || typeof db.collection === 'function') {
+    if (!uid || !isFirebaseReady() || !db || typeof db.collection !== 'function') {
       setUnreadCount(0);
       setLoading(false);
       return null;
