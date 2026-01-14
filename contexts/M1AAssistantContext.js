@@ -218,35 +218,36 @@ export function M1AAssistantProvider({ children }) {
         // Small delay to let user see the response
         setTimeout(() => {
           try {
-            // Try to navigate - React Navigation should handle nested screens automatically
-            // If the screen is in a nested stack, it will find it
-            const canNavigate = nav.canGoBack !== undefined || nav.navigate !== undefined;
-            if (canNavigate) {
+            // Check if navigation is ready (for root ref) or if it's a regular navigation object
+            const isReady = nav.isReady ? nav.isReady() : true;
+            const canNavigate = nav.navigate !== undefined;
+            
+            if (isReady && canNavigate) {
               nav.navigate(targetScreen);
               // Don't hide bubble - keep it visible for continued use
               setIsExpanded(false); // Just close the chat modal
             } else {
-              console.warn('Navigation not available - navigator not ready');
+              console.warn('Navigation not ready - waiting...');
+              // Retry after a short delay if not ready
+              setTimeout(() => {
+                try {
+                  if (nav.navigate) {
+                    nav.navigate(targetScreen);
+                    setIsExpanded(false);
+                  }
+                } catch (retryError) {
+                  console.warn('Navigation retry failed:', retryError.message);
+                }
+              }, 500);
             }
           } catch (error) {
             console.warn('Navigation error for screen:', targetScreen, error.message);
-            // If navigation fails, try alternative navigation methods
-            try {
-              // Try using the root navigator if available
-              if (nav.getParent) {
-                const parentNav = nav.getParent();
-                if (parentNav) {
-                  parentNav.navigate(targetScreen);
-                  setIsExpanded(false);
-                  return;
-                }
-              }
-            } catch (parentError) {
-              console.warn('Parent navigation also failed:', parentError.message);
-            }
             // Don't throw - just log the warning and continue
+            // The user can still manually navigate if needed
           }
         }, isInstant ? 200 : 500); // Faster navigation for instant responses
+      } else {
+        console.warn('Navigation ref not available');
       }
     }
 

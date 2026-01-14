@@ -1,5 +1,6 @@
 // App.js
 import { NavigationContainer } from '@react-navigation/native';
+import { createNavigationContainerRef } from '@react-navigation/native';
 import { Platform, StatusBar, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
@@ -43,6 +44,9 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
   `;
   document.head.appendChild(style);
 }
+
+// Create navigation ref for root-level navigation
+export const navigationRef = createNavigationContainerRef();
 
 export default function App() {
   const appState = useRef(AppState.currentState);
@@ -115,7 +119,7 @@ export default function App() {
                     <MessageBadgeProvider>
                       <M1AAssistantProvider>
                         <CartBubbleProvider>
-                        <NavigationContainer>
+                        <NavigationContainer ref={navigationRef}>
                           <StatusBar barStyle="dark-content" />
                           <RootNavigation />
                           <NavigationAwareM1A />

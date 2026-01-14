@@ -6,15 +6,18 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { useM1AAssistant } from '../contexts/M1AAssistantContext';
+import { navigationRef } from '../App';
 
 export default function NavigationAwareM1A() {
   const navigation = useNavigation();
   const { updateCurrentScreen, setNavigation } = useM1AAssistant();
   const [currentRoute, setCurrentRoute] = useState('Home');
   
-  // Set navigation reference in context
+  // Set navigation reference in context - prefer root navigation ref if available
   useEffect(() => {
-    setNavigation(navigation);
+    // Use root navigation ref if available (can navigate to all screens), otherwise use hook navigation
+    const navToUse = navigationRef.isReady() ? navigationRef : navigation;
+    setNavigation(navToUse);
   }, [navigation, setNavigation]);
   
   // Listen to navigation state changes using navigation listener
