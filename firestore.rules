@@ -152,7 +152,7 @@ service cloud.firestore {
       allow create: if canAccessConversation() &&
         request.resource.data.senderId == request.auth.uid &&
         ('createdAt' in request.resource.data) &&
-        request.resource.data.keys().hasOnly(['text', 'senderId', 'createdAt']);
+        request.resource.data.keys().hasOnly(['text', 'senderId', 'createdAt', 'imageUrl', 'attachmentType', 'attachmentName']);
     }
     
     // Service orders
