@@ -241,6 +241,8 @@ function ProfileStackNavigator() {
 
 export default function AppNavigator() {
   const { theme } = useTheme();
+  const messageBadge = useMessageBadge(); // Get unread count from context
+  const unreadCount = messageBadge?.unreadCount || 0; // Safely get unreadCount with fallback
   
   return (
     <Tab.Navigator
