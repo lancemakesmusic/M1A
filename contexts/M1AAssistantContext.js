@@ -145,6 +145,7 @@ export function M1AAssistantProvider({ children }) {
   }, [isExpanded, chatHistory.length]);
 
   const hideBubble = useCallback(() => {
+    // Only hide tips, but keep the bubble button visible
     setIsVisible(false);
     setIsExpanded(false);
   }, []);
@@ -207,7 +208,8 @@ export function M1AAssistantProvider({ children }) {
         setTimeout(() => {
           try {
             nav.navigate(aiResponse.response.action.screen);
-            hideBubble();
+            // Don't hide bubble - keep it visible for continued use
+            setIsExpanded(false); // Just close the chat modal
           } catch (error) {
             console.warn('Navigation error:', error);
           }
@@ -234,7 +236,9 @@ export function M1AAssistantProvider({ children }) {
     switch (tip.action.type) {
       case 'navigate':
         nav.navigate(tip.action.screen);
-        hideBubble();
+        // Don't hide bubble - keep it visible for continued use
+        setIsVisible(false); // Just hide the tip card
+        setIsExpanded(false); // Close chat if open
         break;
       case 'scroll':
         // Scroll to target (would need ref to scroll view)
@@ -261,8 +265,10 @@ export function M1AAssistantProvider({ children }) {
     await TipTrackingService.setTipsDisabled(true);
     setCurrentTip(null);
     setTips([]);
-    hideBubble();
-  }, [hideBubble]);
+    // Don't hide bubble - keep it visible for continued use
+    setIsVisible(false); // Just hide tips
+    setIsExpanded(false); // Close chat if open
+  }, []);
 
   const guidePurchaseFlow = useCallback(async (purchaseType, step = 1) => {
     const flowStep = M1AAssistantService.getPurchaseFlowGuidance(purchaseType, step);

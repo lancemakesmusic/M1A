@@ -86,13 +86,15 @@ export default function M1AChatBubble() {
     setDontShowAgain(false);
   }, [currentTip?.id]);
 
-  if (!isVisible) return null;
+  // Always show the chat bubble button, even if tips are hidden
+  // Only hide the tip card if isVisible is false, but keep the bubble button visible
 
   const translateY = slideAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [100, 0],
   });
 
+  // Always render the bubble button, regardless of isVisible state
   return (
     <>
       {/* Floating Chat Bubble */}
@@ -101,15 +103,15 @@ export default function M1AChatBubble() {
           styles.bubbleContainer,
           {
             transform: [
-              { translateY },
-              { scale: pulseAnim },
+              { translateY: isVisible ? translateY : 0 }, // Only animate tip card
+              { scale: isVisible && currentTip ? pulseAnim : 1 }, // Only pulse when tip is visible
             ],
           },
         ]}
         pointerEvents="box-none"
       >
-        {/* Tip Card (shown when not expanded) */}
-        {currentTip && !isExpanded && (
+        {/* Tip Card (shown when not expanded and visible) */}
+        {currentTip && !isExpanded && isVisible && (
           <TouchableOpacity
             style={[styles.tipCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
             onPress={toggleExpanded}
