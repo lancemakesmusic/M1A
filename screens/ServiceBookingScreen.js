@@ -32,7 +32,7 @@ import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackError, trackEventBookingCompleted, trackEventBookingStarted, trackFunnelStep } from '../services/AnalyticsService';
 import GoogleCalendarService from '../services/GoogleCalendarService';
 import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
-import { sendBookingConfirmationEmail, sendPaymentConfirmationEmail } from '../services/EmailService';
+import { sendBookingConfirmationEmail, sendPaymentConfirmationEmail, sendRSVPConfirmationEmail } from '../services/EmailService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import SharingService from '../services/SharingService';
 import StripeService from '../services/StripeService';
@@ -1092,24 +1092,44 @@ export default function ServiceBookingScreen({ route, navigation }) {
             
             // Send email notifications
             if (user?.email) {
-              await sendBookingConfirmationEmail({
-                userEmail: user.email,
-                userName: user.displayName || user.name || 'Valued Customer',
-                orderId,
-                serviceName: item.name,
-                amount: total,
-                paymentMethod: 'stripe',
-                date: formData.serviceDate ? new Date(formData.serviceDate) : null,
-                location: item.location || formData.location || null,
-              }).catch(err => console.warn('Failed to send booking email:', err));
+              if (item.category === 'Events') {
+                // Send RSVP confirmation for event tickets
+                await sendRSVPConfirmationEmail({
+                  userEmail: user.email,
+                  userName: user.displayName || user.name || 'Valued Customer',
+                  orderId,
+                  eventName: item.name,
+                  ticketType: formData.ticketType || 'General Admission',
+                  quantity: formData.quantity || 1,
+                  amount: total,
+                  paymentMethod: 'stripe',
+                  eventDate: item.eventDate ? new Date(item.eventDate) : (formData.serviceDate ? new Date(formData.serviceDate) : null),
+                  location: item.location || formData.location || null,
+                }).catch(err => console.warn('Failed to send RSVP email:', err));
+              } else {
+                // Send booking confirmation for services
+                await sendBookingConfirmationEmail({
+                  userEmail: user.email,
+                  userName: user.displayName || user.name || 'Valued Customer',
+                  orderId,
+                  serviceName: item.name,
+                  amount: total,
+                  paymentMethod: 'stripe',
+                  date: formData.serviceDate ? new Date(formData.serviceDate) : null,
+                  location: item.location || formData.location || null,
+                }).catch(err => console.warn('Failed to send booking email:', err));
+              }
               
-              await sendPaymentConfirmationEmail({
-                userEmail: user.email,
-                userName: user.displayName || user.name || 'Valued Customer',
-                transactionId: orderId,
-                amount: total,
-                description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
-              }).catch(err => console.warn('Failed to send payment email:', err));
+              // Send payment confirmation (only if not free)
+              if (total > 0) {
+                await sendPaymentConfirmationEmail({
+                  userEmail: user.email,
+                  userName: user.displayName || user.name || 'Valued Customer',
+                  transactionId: orderId,
+                  amount: total,
+                  description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
+                }).catch(err => console.warn('Failed to send payment email:', err));
+              }
             }
             
             // Sync to Google Calendar (admin@merkabaent.com)
@@ -1250,24 +1270,44 @@ export default function ServiceBookingScreen({ route, navigation }) {
         
         // Send email notifications
         if (user?.email) {
-          await sendBookingConfirmationEmail({
-            userEmail: user.email,
-            userName: user.displayName || user.name || 'Valued Customer',
-            orderId,
-            serviceName: item.name,
-            amount: total,
-            paymentMethod: 'wallet',
-            date: formData.serviceDate ? new Date(formData.serviceDate) : null,
-            location: item.location || formData.location || null,
-          }).catch(err => console.warn('Failed to send booking email:', err));
+          if (item.category === 'Events') {
+            // Send RSVP confirmation for event tickets
+            await sendRSVPConfirmationEmail({
+              userEmail: user.email,
+              userName: user.displayName || user.name || 'Valued Customer',
+              orderId,
+              eventName: item.name,
+              ticketType: formData.ticketType || 'General Admission',
+              quantity: formData.quantity || 1,
+              amount: total,
+              paymentMethod: total > 0 ? 'wallet' : 'free',
+              eventDate: item.eventDate ? new Date(item.eventDate) : (formData.serviceDate ? new Date(formData.serviceDate) : null),
+              location: item.location || formData.location || null,
+            }).catch(err => console.warn('Failed to send RSVP email:', err));
+          } else {
+            // Send booking confirmation for services
+            await sendBookingConfirmationEmail({
+              userEmail: user.email,
+              userName: user.displayName || user.name || 'Valued Customer',
+              orderId,
+              serviceName: item.name,
+              amount: total,
+              paymentMethod: 'wallet',
+              date: formData.serviceDate ? new Date(formData.serviceDate) : null,
+              location: item.location || formData.location || null,
+            }).catch(err => console.warn('Failed to send booking email:', err));
+          }
           
-          await sendPaymentConfirmationEmail({
-            userEmail: user.email,
-            userName: user.displayName || user.name || 'Valued Customer',
-            transactionId: orderId,
-            amount: total,
-            description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
-          }).catch(err => console.warn('Failed to send payment email:', err));
+          // Send payment confirmation (only if not free)
+          if (total > 0) {
+            await sendPaymentConfirmationEmail({
+              userEmail: user.email,
+              userName: user.displayName || user.name || 'Valued Customer',
+              transactionId: orderId,
+              amount: total,
+              description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
+            }).catch(err => console.warn('Failed to send payment email:', err));
+          }
         }
         
         // Sync to Google Calendar (admin@merkabaent.com)
