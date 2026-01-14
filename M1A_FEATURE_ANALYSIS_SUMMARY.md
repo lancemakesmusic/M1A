@@ -133,7 +133,7 @@
 1. ✅ ~~**Complete Social Features**~~ **FIXED** - Comments/reactions UI components fully implemented with real-time updates
 
 ### Low Priority:
-1. **Accessibility** - Enhanced screen reader support (basic accessibility exists)
+1. **Accessibility** - Enhanced screen reader support (basic accessibility exists, can be improved)
 
 ---
 
