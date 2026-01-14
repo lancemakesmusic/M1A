@@ -5,9 +5,11 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { CommonActions } from '@react-navigation/native';
 import M1AAssistantService from '../services/M1AAssistantService';
 import TipTrackingService from '../services/TipTrackingService';
 import { useM1APersonalization } from './M1APersonalizationContext';
+import { navigationRef as rootNavigationRef } from '../App';
 
 const M1AAssistantContext = createContext();
 const CHAT_HISTORY_KEY = 'm1a_chat_history';
@@ -213,25 +215,41 @@ export function M1AAssistantProvider({ children }) {
         return aiResponse;
       }
       
-      const nav = navigationRef.current;
+      // Use root navigation ref if available, otherwise fall back to context ref
+      const nav = rootNavigationRef.isReady() ? rootNavigationRef : navigationRef.current;
+      
       if (nav) {
         // Small delay to let user see the response
         setTimeout(() => {
           try {
-            // Check if navigation is ready (for root ref) or if it's a regular navigation object
-            const isReady = nav.isReady ? nav.isReady() : true;
-            const canNavigate = nav.navigate !== undefined;
-            
-            if (isReady && canNavigate) {
-              nav.navigate(targetScreen);
+            // Use CommonActions.navigate for better nested navigation support
+            if (rootNavigationRef.isReady()) {
+              rootNavigationRef.dispatch(
+                CommonActions.navigate({
+                  name: targetScreen,
+                  params: {},
+                })
+              );
               // Don't hide bubble - keep it visible for continued use
               setIsExpanded(false); // Just close the chat modal
+            } else if (nav.navigate) {
+              // Fallback to regular navigation if root ref not ready
+              nav.navigate(targetScreen);
+              setIsExpanded(false);
             } else {
-              console.warn('Navigation not ready - waiting...');
+              console.warn('Navigation not available - waiting...');
               // Retry after a short delay if not ready
               setTimeout(() => {
                 try {
-                  if (nav.navigate) {
+                  if (rootNavigationRef.isReady()) {
+                    rootNavigationRef.dispatch(
+                      CommonActions.navigate({
+                        name: targetScreen,
+                        params: {},
+                      })
+                    );
+                    setIsExpanded(false);
+                  } else if (nav.navigate) {
                     nav.navigate(targetScreen);
                     setIsExpanded(false);
                   }
