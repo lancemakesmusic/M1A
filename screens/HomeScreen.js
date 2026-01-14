@@ -26,6 +26,7 @@ import { useWallet } from '../contexts/WalletContext';
 import { getPersonaWelcomeMessage, getPersonaQuickActions, getPersonaRecommendedFeatures } from '../utils/personaFilters';
 import { searchFeatures, getSearchSuggestions } from '../utils/searchUtils';
 import { db, isFirebaseReady } from '../firebase';
+import { dataCache } from '../utils/dataCache';
 
 export default function HomeScreen({ navigation }) {
   const { user: authUser, loading: authLoading } = useAuth();
@@ -124,7 +125,7 @@ export default function HomeScreen({ navigation }) {
   }, [authUser?.uid]);
 
   const loadUserStats = async () => {
-    if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
+    if (!isFirebaseReady() || !db || typeof db.collection !== 'function') {
       return;
     }
 
