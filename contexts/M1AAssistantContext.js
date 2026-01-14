@@ -279,15 +279,23 @@ export function M1AAssistantProvider({ children }) {
   const handleTipAction = useCallback((tip) => {
     if (!tip.action) return;
 
-    const nav = navigationRef.current;
-    if (!nav) {
-      console.warn('Navigation not available for tip action');
-      return;
-    }
-
     switch (tip.action.type) {
       case 'navigate':
-        nav.navigate(tip.action.screen);
+        // Use root navigation ref with CommonActions for nested screen support
+        if (rootNavigationRef.isReady()) {
+          rootNavigationRef.dispatch(
+            CommonActions.navigate({
+              name: tip.action.screen,
+              params: {},
+            })
+          );
+        } else if (navigationRef.current?.navigate) {
+          // Fallback to context navigation ref
+          navigationRef.current.navigate(tip.action.screen);
+        } else {
+          console.warn('Navigation not available for tip action');
+          return;
+        }
         // Don't hide bubble - keep it visible for continued use
         setIsVisible(false); // Just hide the tip card
         setIsExpanded(false); // Close chat if open
