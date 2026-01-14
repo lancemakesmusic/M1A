@@ -457,17 +457,16 @@ export default function ProfileScreen() {
         ] : []),
         {
           text: 'Share Post',
-          onPress: () => {
+          onPress: async () => {
             // Share functionality
             // Share post functionality
             try {
               const shareUrl = `m1a://post/${post.id}`;
               const shareMessage = `${post.content}\n\nView on M1A: ${shareUrl}`;
               
-              if (await Share.share({ message: shareMessage })) {
-                // Share was successful
-                console.log('Post shared successfully');
-              }
+              await Share.share({ message: shareMessage });
+              // Share was successful
+              console.log('Post shared successfully');
             } catch (error) {
               console.error('Error sharing post:', error);
               Alert.alert('Error', 'Unable to share post. Please try again.');
