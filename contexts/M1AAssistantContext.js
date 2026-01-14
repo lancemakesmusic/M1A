@@ -218,13 +218,33 @@ export function M1AAssistantProvider({ children }) {
         // Small delay to let user see the response
         setTimeout(() => {
           try {
-            nav.navigate(targetScreen);
-            // Don't hide bubble - keep it visible for continued use
-            setIsExpanded(false); // Just close the chat modal
+            // Try to navigate - React Navigation should handle nested screens automatically
+            // If the screen is in a nested stack, it will find it
+            const canNavigate = nav.canGoBack !== undefined || nav.navigate !== undefined;
+            if (canNavigate) {
+              nav.navigate(targetScreen);
+              // Don't hide bubble - keep it visible for continued use
+              setIsExpanded(false); // Just close the chat modal
+            } else {
+              console.warn('Navigation not available - navigator not ready');
+            }
           } catch (error) {
-            console.warn('Navigation error:', error);
-            // If navigation fails, it might be because the screen doesn't exist
-            // Don't throw - just log the warning
+            console.warn('Navigation error for screen:', targetScreen, error.message);
+            // If navigation fails, try alternative navigation methods
+            try {
+              // Try using the root navigator if available
+              if (nav.getParent) {
+                const parentNav = nav.getParent();
+                if (parentNav) {
+                  parentNav.navigate(targetScreen);
+                  setIsExpanded(false);
+                  return;
+                }
+              }
+            } catch (parentError) {
+              console.warn('Parent navigation also failed:', parentError.message);
+            }
+            // Don't throw - just log the warning and continue
           }
         }, isInstant ? 200 : 500); // Faster navigation for instant responses
       }
