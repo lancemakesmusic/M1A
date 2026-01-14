@@ -41,6 +41,114 @@ import { handleError, getUserFriendlyError } from '../utils/errorHandler';
 const TAX_RATE = 0.08; // 8% tax
 const SERVICE_FEE = 0.03; // 3% service fee
 
+/**
+ * Sync booking to Google Calendar (admin@merkabaent.com)
+ * This function creates a calendar event for the booking
+ */
+const syncBookingToCalendar = async (orderId, item, formData, total, user) => {
+  try {
+    // Check if Google Calendar is connected
+    const isConnected = await GoogleCalendarService.isConnected();
+    if (!isConnected) {
+      console.log('📅 Google Calendar not connected - skipping calendar sync');
+      return { success: false, error: 'Calendar not connected' };
+    }
+
+    // Only sync if we have date/time information
+    if (!formData.serviceDate || !formData.serviceTime) {
+      console.log('📅 No date/time information - skipping calendar sync');
+      return { success: false, error: 'No date/time information' };
+    }
+
+    // Parse service date (format: "Monday, January 1, 2024")
+    const dateMatch = formData.serviceDate.match(/(\w+), (\w+) (\d+), (\d+)/);
+    if (!dateMatch) {
+      console.warn('📅 Invalid date format:', formData.serviceDate);
+      return { success: false, error: 'Invalid date format' };
+    }
+
+    const [, , monthName, day, year] = dateMatch;
+    const monthMap = {
+      'January': 0, 'February': 1, 'March': 2, 'April': 3, 'May': 4, 'June': 5,
+      'July': 6, 'August': 7, 'September': 8, 'October': 9, 'November': 10, 'December': 11
+    };
+    const month = monthMap[monthName] ?? 0;
+
+    // Parse time (format: "6:00 PM" or "18:00")
+    let startHour, startMinute;
+    if (formData.serviceTime.includes('AM') || formData.serviceTime.includes('PM')) {
+      const timeParts = formData.serviceTime.replace(/[AP]M/i, '').trim().split(':');
+      startHour = parseInt(timeParts[0] || 0);
+      startMinute = parseInt(timeParts[1] || 0);
+      if (formData.serviceTime.toUpperCase().includes('PM') && startHour !== 12) {
+        startHour += 12;
+      } else if (formData.serviceTime.toUpperCase().includes('AM') && startHour === 12) {
+        startHour = 0;
+      }
+    } else {
+      const timeParts = formData.serviceTime.split(':');
+      startHour = parseInt(timeParts[0] || 0);
+      startMinute = parseInt(timeParts[1] || 0);
+    }
+
+    const startDate = new Date(parseInt(year), month, parseInt(day), startHour, startMinute);
+
+    // Calculate end date based on service duration
+    // For deals, use dealHours; otherwise estimate 1 hour per service
+    const durationHours = item.isDeal && item.dealHours 
+      ? item.dealHours * (formData.quantity || 1) 
+      : (formData.quantity || 1);
+    const endDate = new Date(startDate);
+    endDate.setHours(startDate.getHours() + durationHours);
+
+    // Check availability (non-blocking - just log warnings)
+    const availability = await GoogleCalendarService.checkAvailability(startDate, endDate);
+    if (availability && !availability.available && !availability.warning) {
+      console.warn('⚠️ Service time slot may have conflicts:', availability.reason);
+    }
+
+    // Create calendar event
+    const eventTitle = `${item.name} - ${formData.contactName || user?.displayName || 'Customer'}`;
+    const eventDescription = `Service: ${item.name}\n` +
+      `Quantity: ${formData.quantity || 1}\n` +
+      (item.isDeal && item.dealHours ? `Hours: ${item.dealHours * (formData.quantity || 1)}\n` : '') +
+      `Total Cost: $${total.toFixed(2)}\n` +
+      `Contact: ${formData.contactEmail || user?.email || 'N/A'} | ${formData.contactPhone || 'N/A'}\n` +
+      (formData.specialRequests ? `Special Requests: ${formData.specialRequests}\n` : '') +
+      `Order ID: ${orderId}`;
+
+    // Include admin@merkabaent.com and customer email as attendees
+    const attendees = [
+      { email: 'admin@merkabaent.com' },
+    ];
+    if (formData.contactEmail || user?.email) {
+      attendees.push({ email: formData.contactEmail || user.email });
+    }
+
+    const calendarResult = await GoogleCalendarService.createEvent({
+      title: eventTitle,
+      description: eventDescription,
+      startTime: startDate.toISOString(),
+      endTime: endDate.toISOString(),
+      location: item.location || formData.location || 'Merkaba Venue',
+      attendees: attendees,
+      timeZone: 'America/New_York',
+    });
+
+    if (calendarResult.success) {
+      console.log('✅ Booking synced to Google Calendar:', calendarResult.eventId);
+      return { success: true, eventId: calendarResult.eventId };
+    } else {
+      console.warn('⚠️ Failed to sync booking to calendar:', calendarResult.message);
+      return { success: false, error: calendarResult.message };
+    }
+  } catch (error) {
+    console.error('❌ Error syncing booking to calendar:', error);
+    // Don't throw - calendar sync failure shouldn't break booking
+    return { success: false, error: error.message };
+  }
+};
+
 export default function ServiceBookingScreen({ route, navigation }) {
   const { theme } = useTheme();
   const { user } = useAuth();
@@ -1004,6 +1112,11 @@ export default function ServiceBookingScreen({ route, navigation }) {
               }).catch(err => console.warn('Failed to send payment email:', err));
             }
             
+            // Sync to Google Calendar (admin@merkabaent.com)
+            await syncBookingToCalendar(orderId, item, formData, total, user).catch(err => 
+              console.warn('Failed to sync booking to calendar:', err)
+            );
+            
             // Show success message
             setOrderNumber(orderId);
             setPaymentStep('success');
@@ -1156,6 +1269,11 @@ export default function ServiceBookingScreen({ route, navigation }) {
             description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
           }).catch(err => console.warn('Failed to send payment email:', err));
         }
+        
+        // Sync to Google Calendar (admin@merkabaent.com)
+        await syncBookingToCalendar(orderId, item, formData, total, user).catch(err => 
+          console.warn('Failed to sync booking to calendar:', err)
+        );
         
         // Payment completed - show success
         setOrderNumber(orderId);

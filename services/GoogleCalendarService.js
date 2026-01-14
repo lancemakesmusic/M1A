@@ -10,8 +10,8 @@ const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 const CALENDAR_ID_KEY = 'm1a_google_calendar_id';
 const ACCESS_TOKEN_KEY = 'm1a_google_access_token';
 const REFRESH_TOKEN_KEY = 'm1a_google_refresh_token';
-// Google Business Calendar ID - Update this with your actual Google Business Calendar ID
-const VENUE_CALENDAR_ID = process.env.EXPO_PUBLIC_GOOGLE_BUSINESS_CALENDAR_ID || 'merkaba.venue.calendar@gmail.com';
+// Google Business Calendar ID - Admin calendar for syncing all bookings
+const VENUE_CALENDAR_ID = process.env.EXPO_PUBLIC_GOOGLE_BUSINESS_CALENDAR_ID || 'admin@merkabaent.com';
 
 class GoogleCalendarService {
   /**
