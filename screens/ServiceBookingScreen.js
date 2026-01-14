@@ -25,7 +25,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useWallet } from '../contexts/WalletContext';
 import { db, isFirebaseReady } from '../firebase';
+import WalletService from '../services/WalletService';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackError, trackEventBookingCompleted, trackEventBookingStarted, trackFunnelStep } from '../services/AnalyticsService';
 import GoogleCalendarService from '../services/GoogleCalendarService';
@@ -41,6 +43,7 @@ const SERVICE_FEE = 0.03; // 3% service fee
 export default function ServiceBookingScreen({ route, navigation }) {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { balance: walletBalance, refreshBalance } = useWallet();
   useScreenTracking('ServiceBookingScreen');
   
   const routeItem = route.params?.item;
@@ -866,103 +869,208 @@ export default function ServiceBookingScreen({ route, navigation }) {
         return;
       }
 
-      // For paid tickets, proceed with Stripe checkout
-      // Check if Stripe is configured
-      if (!StripeService.isConfigured()) {
-        throw new Error(
-          'Payment processing is not configured. Please contact support or configure Stripe keys. ' +
-          'Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY in your environment variables.'
-        );
-      }
+      // For paid tickets, try Stripe checkout first, then fall back to wallet payment
+      let orderId;
+      let paymentMethod = 'stripe';
+      let useWalletPayment = false;
 
-      // Save order to Firestore with PENDING payment status first
-      // This ensures we have an order ID before redirecting to Stripe
-      const orderId = await saveOrderToFirestore({
-        ...orderData,
-        paymentStatus: 'pending', // Will be updated to 'completed' via webhook
-        paymentMethod: 'stripe',
-        backendBookingId: backendResult.bookingId || null,
-      });
-
-      // Create success and cancel URLs for Stripe Checkout redirect
-      const baseUrl = Linking.createURL('/');
-      const successUrl = `${baseUrl}payment-success?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`;
-      const cancelUrl = `${baseUrl}payment-cancel?orderId=${orderId}`;
-
-      // Create Stripe Checkout Session
-      const checkoutResult = await StripeService.createCheckoutSession(
-        total,
-        'usd',
-        {
-          type: item.category === 'Events' ? 'event_booking' : 'service_booking',
-          orderType: item.category === 'Events' ? 'event_booking' : 'service_booking',
-          serviceId: item.id,
-          serviceName: item.name,
-          eventId: item.category === 'Events' ? item.id : null,
-          eventName: item.category === 'Events' ? item.name : null,
-          userId: user.uid,
-          orderId: orderId,
-          ticketType: item.category === 'Events' ? formData.ticketType : null,
-          discountCode: item.category === 'Events' && formData.discountApplied ? formData.discountCode : null,
-        },
-        orderItems,
-        successUrl,
-        cancelUrl
-      );
-
-      if (!checkoutResult.success || !checkoutResult.url) {
-        throw new Error(checkoutResult.error || 'Failed to create checkout session. Please try again.');
-      }
-
-      // Update order with checkout session ID
-      try {
-        if (isFirebaseReady() && db) {
-          // Using Firestore v9 syntax
-          const { doc, updateDoc } = await import('firebase/firestore');
-          // Use correct collection based on item category
-          const collectionName = item.category === 'Events' ? 'eventOrders' : 'serviceOrders';
-          const orderRef = doc(db, collectionName, orderId);
-          await updateDoc(orderRef, {
-            checkoutSessionId: checkoutResult.sessionId,
-            updatedAt: serverTimestamp(),
+      // Try Stripe checkout first if configured
+      if (StripeService.isConfigured()) {
+        try {
+          // Save order to Firestore with PENDING payment status first
+          // This ensures we have an order ID before redirecting to Stripe
+          orderId = await saveOrderToFirestore({
+            ...orderData,
+            paymentStatus: 'pending', // Will be updated to 'completed' via webhook
+            paymentMethod: 'stripe',
+            backendBookingId: backendResult.bookingId || null,
           });
-          console.log('✅ Updated order with checkout session ID');
+
+          // Create success and cancel URLs for Stripe Checkout redirect
+          const baseUrl = Linking.createURL('/');
+          const successUrl = `${baseUrl}payment-success?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`;
+          const cancelUrl = `${baseUrl}payment-cancel?orderId=${orderId}`;
+
+          // Create Stripe Checkout Session
+          const checkoutResult = await StripeService.createCheckoutSession(
+            total,
+            'usd',
+            {
+              type: item.category === 'Events' ? 'event_booking' : 'service_booking',
+              orderType: item.category === 'Events' ? 'event_booking' : 'service_booking',
+              serviceId: item.id,
+              serviceName: item.name,
+              eventId: item.category === 'Events' ? item.id : null,
+              eventName: item.category === 'Events' ? item.name : null,
+              userId: user.uid,
+              orderId: orderId,
+              ticketType: item.category === 'Events' ? formData.ticketType : null,
+              discountCode: item.category === 'Events' && formData.discountApplied ? formData.discountCode : null,
+            },
+            orderItems,
+            successUrl,
+            cancelUrl
+          );
+
+          if (checkoutResult.success && checkoutResult.url) {
+            // Update order with checkout session ID
+            try {
+              if (isFirebaseReady() && db) {
+                // Using Firestore v9 syntax
+                const { doc, updateDoc } = await import('firebase/firestore');
+                // Use correct collection based on item category
+                const collectionName = item.category === 'Events' ? 'eventOrders' : 'serviceOrders';
+                const orderRef = doc(db, collectionName, orderId);
+                await updateDoc(orderRef, {
+                  checkoutSessionId: checkoutResult.sessionId,
+                  updatedAt: serverTimestamp(),
+                });
+                console.log('✅ Updated order with checkout session ID');
+              }
+            } catch (updateError) {
+              console.warn('Failed to update order with checkout session ID:', updateError);
+              // Continue anyway - order will still be processed via webhook
+            }
+
+            // Open Stripe Checkout in browser
+            console.log('Opening Stripe Checkout:', checkoutResult.url);
+            
+            // Use WebBrowser for better UX - opens in-app browser
+            const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
+              showTitle: true,
+              toolbarColor: theme.primary,
+              enableBarCollapsing: false,
+            });
+
+            // If user closes browser without completing payment, they'll be redirected to cancelUrl
+            if (result.type === 'cancel') {
+              // User canceled - keep order as pending
+              setPaymentStep('payment');
+              setPaymentError('Payment was canceled. You can try again.');
+              setProcessingPayment(false);
+              return;
+            }
+
+            // Payment completed - webhook will handle the rest
+            // Track analytics and send notifications before showing success
+            await trackEventBookingCompleted({
+              id: orderId,
+              eventType: item.name,
+              total,
+            });
+              
+            await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.SERVICE_BOOKED, {
+              serviceName: item.name,
+              total,
+              quantity: formData.quantity,
+            });
+              
+            await sendPaymentConfirmation({
+              id: orderId,
+              amount: total,
+            });
+            await sendOrderStatusUpdate({
+              id: orderId,
+              status: 'confirmed',
+            });
+            
+            // Show success message
+            setOrderNumber(orderId);
+            setPaymentStep('success');
+            return; // Exit early - Stripe payment successful
+          } else {
+            // Stripe checkout failed, fall back to wallet
+            console.log('Stripe checkout failed, falling back to wallet payment');
+            useWalletPayment = true;
+          }
+        } catch (stripeError) {
+          // Stripe error - check if it's a 404 or backend not configured
+          const errorMessage = stripeError.message || '';
+          if (errorMessage.includes('404') || 
+              errorMessage.includes('payment server is not configured') ||
+              errorMessage.includes('Payment processing is currently unavailable')) {
+            console.log('Stripe backend not available, falling back to wallet payment');
+            useWalletPayment = true;
+          } else {
+            // Other Stripe error - try wallet as fallback
+            console.log('Stripe error, falling back to wallet payment:', stripeError.message);
+            useWalletPayment = true;
+          }
         }
-      } catch (updateError) {
-        console.warn('Failed to update order with checkout session ID:', updateError);
-        // Continue anyway - order will still be processed via webhook
+      } else {
+        // Stripe not configured, use wallet payment
+        console.log('Stripe not configured, using wallet payment');
+        useWalletPayment = true;
       }
 
-      // Open Stripe Checkout in browser
-      console.log('Opening Stripe Checkout:', checkoutResult.url);
-      
-      // Use WebBrowser for better UX - opens in-app browser
-      const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
-        showTitle: true,
-        toolbarColor: theme.primary,
-        enableBarCollapsing: false,
-      });
+      // Fall back to wallet payment if Stripe failed or not configured
+      if (useWalletPayment) {
+        // Refresh wallet balance to get latest amount
+        await refreshBalance();
+        const currentBalance = await WalletService.getBalance(user.uid);
+        
+        if (currentBalance < total) {
+          const insufficientAmount = total - currentBalance;
+          throw new Error(
+            `Insufficient wallet balance. You have $${currentBalance.toFixed(2)} but need $${total.toFixed(2)}. ` +
+            `Please add $${insufficientAmount.toFixed(2)} to your wallet or use a different payment method.`
+          );
+        }
 
-      // Note: After payment succeeds, Stripe will redirect to successUrl
-      // The webhook will handle:
-      // 1. Updating order status to 'completed'
-      // 2. Creating calendar events in Google Calendar
-      // 3. Updating wallet balance
-      
-      // If user closes browser without completing payment, they'll be redirected to cancelUrl
-      // For now, we'll show success message - the webhook will update status when payment completes
-      if (result.type === 'cancel') {
-        // User canceled - keep order as pending
-        setPaymentStep('payment');
-        setPaymentError('Payment was canceled. You can try again.');
-        setProcessingPayment(false);
-        return;
+        // Save order to Firestore with COMPLETED payment status (wallet payment is instant)
+        orderId = await saveOrderToFirestore({
+          ...orderData,
+          paymentStatus: 'completed',
+          paymentMethod: 'wallet',
+          backendBookingId: backendResult.bookingId || null,
+        });
+
+        // Deduct from wallet
+        const transactionId = `order_${orderId}_${Date.now()}`;
+        await WalletService.updateBalance(user.uid, -total, transactionId);
+        
+        // Add transaction record
+        await WalletService.addTransaction(user.uid, {
+          type: 'payment',
+          amount: -total,
+          description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
+          status: 'completed',
+          orderId: orderId,
+          orderType: item.category === 'Events' ? 'event_booking' : 'service_booking',
+          transactionId: transactionId,
+        });
+
+        // Refresh wallet balance in context
+        await refreshBalance();
+
+        console.log(`✅ Wallet payment successful: Deducted $${total.toFixed(2)} for order ${orderId}`);
+        
+        // Track analytics and send notifications
+        await trackEventBookingCompleted({
+          id: orderId,
+          eventType: item.name,
+          total,
+        });
+          
+        await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.SERVICE_BOOKED, {
+          serviceName: item.name,
+          total,
+          quantity: formData.quantity,
+        });
+          
+        await sendPaymentConfirmation({
+          id: orderId,
+          amount: total,
+        });
+        await sendOrderStatusUpdate({
+          id: orderId,
+          status: 'confirmed',
+        });
+        
+        // Payment completed - show success
+        setOrderNumber(orderId);
+        setPaymentStep('success');
       }
-
-      // Payment completed - webhook will handle the rest
-      // Show success message
-      setOrderNumber(orderId);
-      setPaymentStep('success');
       
       // OLD CODE - Keep for reference but now using backend
       /*let calendarResult = { success: false };
@@ -1043,32 +1151,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
         // Don't block booking if calendar sync fails
       }*/
       
-      // Track analytics
-      await trackEventBookingCompleted({
-        id: orderId,
-        eventType: item.name,
-        total,
-      });
-        
-      // Record positive action
-      await RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.SERVICE_BOOKED, {
-        serviceName: item.name,
-        total,
-        quantity: formData.quantity,
-      });
-        
-      // Send notifications
-      await sendPaymentConfirmation({
-        id: orderId,
-        amount: total,
-      });
-      await sendOrderStatusUpdate({
-        id: orderId,
-        status: 'confirmed',
-      });
-        
-      setOrderNumber(orderId);
-      setPaymentStep('success');
+      // Analytics and notifications are now handled within each payment method branch above
     } catch (error) {
       console.error('Payment error:', error);
       trackError('service_payment_failed', { error: error.message, serviceId: item.id });
