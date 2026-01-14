@@ -992,20 +992,12 @@ export default function ServiceBookingScreen({ route, navigation }) {
             // orderId is already set, we'll update it instead of creating a new one
           }
         } catch (stripeError) {
-          // Stripe error - check if it's a 404 or backend not configured
+          // Stripe error - always fall back to wallet payment
           const errorMessage = stripeError.message || '';
-          if (errorMessage.includes('404') || 
-              errorMessage.includes('payment server is not configured') ||
-              errorMessage.includes('Payment processing is currently unavailable')) {
-            console.log('Stripe backend not available, falling back to wallet payment');
-            useWalletPayment = true;
-            // If orderId was already created, we'll update it; otherwise create new one
-          } else {
-            // Other Stripe error - try wallet as fallback
-            console.log('Stripe error, falling back to wallet payment:', stripeError.message);
-            useWalletPayment = true;
-            // If orderId was already created, we'll update it; otherwise create new one
-          }
+          console.log('❌ Stripe error caught:', errorMessage);
+          console.log('💳 Falling back to wallet payment due to Stripe error');
+          useWalletPayment = true;
+          // If orderId was already created, we'll update it; otherwise create new one
         }
       } else {
         // Stripe not configured, use wallet payment
@@ -1016,10 +1008,15 @@ export default function ServiceBookingScreen({ route, navigation }) {
       // Fall back to wallet payment if Stripe failed or not configured
       if (useWalletPayment) {
         console.log('💳 Falling back to wallet payment...');
+        console.log('💳 useWalletPayment flag is true, proceeding with wallet payment');
         // Refresh wallet balance to get latest amount
         await refreshBalance();
         const currentBalance = await WalletService.getBalance(user.uid);
         console.log(`💳 Current wallet balance: $${currentBalance.toFixed(2)}, Required: $${total.toFixed(2)}`);
+        
+        if (!user?.uid) {
+          throw new Error('User not authenticated. Please log in and try again.');
+        }
         
         if (currentBalance < total) {
           const insufficientAmount = total - currentBalance;
