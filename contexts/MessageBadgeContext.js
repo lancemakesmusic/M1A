@@ -16,11 +16,11 @@ export function MessageBadgeProvider({ children }) {
   /**
    * Calculate total unread count from all conversations
    */
-  const calculateUnreadCount = useCallback(async (uid) => {
+  const calculateUnreadCount = useCallback((uid) => {
     if (!uid || !isFirebaseReady() || !db || typeof db.collection === 'function') {
       setUnreadCount(0);
       setLoading(false);
-      return;
+      return null;
     }
 
     try {
@@ -75,15 +75,7 @@ export function MessageBadgeProvider({ children }) {
       return;
     }
 
-    let unsubscribe = null;
-    
-    calculateUnreadCount(user.uid).then((unsub) => {
-      unsubscribe = unsub;
-    }).catch((error) => {
-      console.error('Error setting up unread count listener:', error);
-      setUnreadCount(0);
-      setLoading(false);
-    });
+    const unsubscribe = calculateUnreadCount(user.uid);
     
     return () => {
       if (unsubscribe && typeof unsubscribe === 'function') {
