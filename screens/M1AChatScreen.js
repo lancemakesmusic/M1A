@@ -5,6 +5,8 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
@@ -20,6 +22,8 @@ import {
   Alert,
   ScrollView,
   RefreshControl,
+  Image,
+  Animated,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,7 +34,7 @@ import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import M1AAssistantService from '../services/M1AAssistantService';
 import M1ALogo from '../components/M1ALogo';
 import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, uploadImageAsync } from '../firebase';
 
 export default function M1AChatScreen({ onClose }) {
   const { user } = useAuth();

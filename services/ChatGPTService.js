@@ -119,13 +119,45 @@ class ChatGPTService {
 
   /**
    * Get intelligent fallback response based on query intent
+   * Enhanced with better context awareness and conversation flow
    */
   getIntelligentFallback(message, context = {}) {
     const lowerMessage = message.toLowerCase();
-    const { userPersona } = context;
+    const { userPersona, conversationContext, chatHistory = [] } = context;
+    
+    // Enhanced: Use conversation context if available
+    if (conversationContext) {
+      // If user mentioned a screen recently, reference it
+      if (conversationContext.mentionedScreens && conversationContext.mentionedScreens.length > 0) {
+        const lastScreen = conversationContext.mentionedScreens[conversationContext.mentionedScreens.length - 1];
+        const screenNames = {
+          'EventBooking': 'Event Booking',
+          'BarMenu': 'Bar Menu',
+          'Wallet': 'Wallet',
+          'Explore': 'Explore Services',
+        };
+        return {
+          message: `Based on our conversation, I can help you with ${screenNames[lastScreen] || lastScreen}. Would you like me to take you there or answer questions about it?`,
+          metadata: { error: true, fallback: true, source: 'contextual-fallback' },
+          suggestions: [`Take me to ${screenNames[lastScreen] || lastScreen}`, 'Tell me more', 'What can I do there?'],
+          action: { type: 'navigate', screen: lastScreen },
+        };
+      }
+      
+      // Use user preferences if detected
+      if (conversationContext.userPreferences && conversationContext.userPreferences.drinkType) {
+        const drinkType = conversationContext.userPreferences.drinkType;
+        return {
+          message: `I remember you like ${drinkType}! Let me show you our ${drinkType} selection.`,
+          metadata: { error: true, fallback: true, source: 'preference-fallback' },
+          suggestions: [`Show me ${drinkType}`, 'What else do you have?', 'Recommend something'],
+          action: { type: 'navigate', screen: 'BarMenu' },
+        };
+      }
+    }
 
-    // Event-related fallbacks
-    if (lowerMessage.includes('event') || lowerMessage.includes('booking') || lowerMessage.includes('create')) {
+    // Event-related fallbacks (enhanced)
+    if (lowerMessage.includes('event') || lowerMessage.includes('booking') || lowerMessage.includes('create') || lowerMessage.includes('schedule')) {
       return {
         message: 'I can help you create an event! Go to Event Booking to get started. You\'ll need to choose an event type, set the date and time, configure pricing, and optionally add a bar package. Weekend events typically perform better!',
         metadata: { error: true, fallback: true, source: 'fallback' },

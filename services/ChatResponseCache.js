@@ -9,12 +9,23 @@ const CACHE_KEY = 'm1a_chat_cache';
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
 
 // Pre-loaded responses for common questions
+// Enhanced with more variations and better responses
 const PRELOADED_RESPONSES = {
-  // Event-related
+  // Event-related (enhanced with more variations)
   'how do i create an event': {
     message: 'Creating an event is easy! Here\'s how:\n\n1. Go to Event Booking from the home screen\n2. Choose your event type (concert, party, corporate, etc.)\n3. Set the date, time, and expected guest count\n4. Configure pricing tiers (I recommend multiple tiers for better sales)\n5. Add a bar package to increase revenue per guest\n6. Review and submit\n\nPro tip: Weekend events typically sell 3x more tickets, and early bird pricing can increase sales by 40%!',
     action: { type: 'navigate', screen: 'EventBooking' },
     suggestions: ['Take me to Event Booking', 'What pricing should I use?', 'Tell me about bar packages'],
+  },
+  'i want to create an event': {
+    message: 'Great! I\'ll help you create an event. Let me take you to Event Booking where you can set everything up. You\'ll need to choose an event type, set the date and time, configure pricing, and optionally add a bar package.',
+    action: { type: 'navigate', screen: 'EventBooking' },
+    suggestions: ['What information do I need?', 'Pricing tips', 'How do bar packages work?'],
+  },
+  'i need to schedule an event': {
+    message: 'Perfect! I can help you schedule an event. Weekend events typically perform 3x better, so consider Fridays or Saturdays. Let me take you to Event Booking to get started!',
+    action: { type: 'navigate', screen: 'EventBooking' },
+    suggestions: ['What dates work best?', 'How do I set pricing?', 'Tell me about packages'],
   },
   'how to create an event': {
     message: 'Creating an event is easy! Here\'s how:\n\n1. Go to Event Booking from the home screen\n2. Choose your event type (concert, party, corporate, etc.)\n3. Set the date, time, and expected guest count\n4. Configure pricing tiers (I recommend multiple tiers for better sales)\n5. Add a bar package to increase revenue per guest\n6. Review and submit\n\nPro tip: Weekend events typically sell 3x more tickets, and early bird pricing can increase sales by 40%!',

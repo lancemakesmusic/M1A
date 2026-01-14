@@ -153,13 +153,14 @@ export function M1AAssistantProvider({ children }) {
     setIsVisible(true);
   }, []);
 
-  const addMessage = useCallback((role, message, isSystem = false) => {
+  const addMessage = useCallback((role, message, isSystem = false, imageUrl = null) => {
     const newMessage = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       role, // 'user' or 'assistant'
       message,
       timestamp: new Date(),
       isSystem,
+      imageUrl, // Enhanced: Support image attachments
     };
     setChatHistory(prev => {
       const updated = [...prev, newMessage];

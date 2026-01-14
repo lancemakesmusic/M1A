@@ -758,8 +758,8 @@ class M1AAssistantService {
 
   /**
    * Generate intelligent AI response with navigation and purchase assistance
-   * Now uses ChatGPT for in-depth responses while maintaining navigation capabilities
-   * Checks cache first for instant responses
+   * Enhanced with better fallback, context awareness, and proactive suggestions
+   * Checks cache first for instant responses, falls back gracefully when API unavailable
    */
   async generateAIResponse(query, context = {}) {
     if (!query || typeof query !== 'string') {
@@ -776,6 +776,10 @@ class M1AAssistantService {
     const intent = this.detectIntent(query);
     const lowerQuery = query.toLowerCase();
     const userPersona = context?.userPersona;
+    const chatHistory = context.chatHistory || [];
+    
+    // Enhanced: Check for conversation context (remember previous messages)
+    const conversationContext = this.extractConversationContext(query, chatHistory);
     
     // For navigation and simple actions, use rule-based (fast and reliable)
     if (intent.type === 'navigate' && intent.screen) {
@@ -787,21 +791,22 @@ class M1AAssistantService {
           message: `I'll take you there right away! You're being navigated to ${this.getScreenName(intent.screen)}.`,
           action: { type: 'navigate', screen: intent.screen },
         },
-        suggestions: this.getContextualSuggestions(intent.screen),
+        suggestions: this.getEnhancedContextualSuggestions(intent.screen, conversationContext),
         metadata: { instant: true, source: 'rule-based' },
       };
     }
     
-    // For everything else, use ChatGPT (which checks cache first for instant responses)
+    // Enhanced: Try ChatGPT with better error handling and fallback
     try {
       const aiResponse = await ChatGPTService.generateChatResponse(query, {
-        chatHistory: context.chatHistory || [],
+        chatHistory,
         userPersona,
         currentScreen: context.screen || 'Home',
         userBehavior: context.userBehavior || {},
+        conversationContext, // Pass conversation context
       });
       
-      // Merge AI response with navigation capabilities
+      // Enhanced: Merge AI response with navigation capabilities and context
       const response = {
         type: intent.type || 'general',
         intent,
@@ -810,8 +815,9 @@ class M1AAssistantService {
           message: aiResponse.message,
           action: aiResponse.action || (intent.screen ? { type: 'navigate', screen: intent.screen } : null),
         },
-        suggestions: aiResponse.suggestions || this.getContextualSuggestions(context.screen),
+        suggestions: aiResponse.suggestions || this.getEnhancedContextualSuggestions(context.screen, conversationContext),
         metadata: aiResponse.metadata || { instant: false },
+        conversationContext, // Include context in response
       };
       
       // If AI detected navigation, ensure it's included
@@ -822,13 +828,135 @@ class M1AAssistantService {
       return response;
     } catch (error) {
       console.error('Error generating AI response:', error);
-      // Fallback to rule-based response
-      const fallback = this.generateFallbackResponse(query, intent, lowerQuery, context);
+      // Enhanced: Better fallback with conversation context
+      const fallback = this.generateEnhancedFallbackResponse(query, intent, lowerQuery, context, conversationContext);
       return {
         ...fallback,
-        metadata: { instant: false, fallback: true, error: error.message },
+        metadata: { instant: false, fallback: true, error: error.message, source: 'enhanced-fallback' },
       };
     }
+  }
+  
+  /**
+   * Extract conversation context from chat history
+   * Enhanced: Better context extraction for more natural conversations
+   */
+  extractConversationContext(currentQuery, chatHistory) {
+    if (!chatHistory || chatHistory.length === 0) {
+      return null;
+    }
+    
+    // Get last 5 messages for context
+    const recentMessages = chatHistory.slice(-5);
+    const context = {
+      recentTopics: [],
+      mentionedScreens: [],
+      userPreferences: {},
+      ongoingTasks: [],
+    };
+    
+    // Extract topics and screens mentioned
+    recentMessages.forEach(msg => {
+      const message = (msg.message || '').toLowerCase();
+      
+      // Detect mentioned screens
+      const screenMap = this.getScreenMap();
+      for (const [keyword, screen] of Object.entries(screenMap)) {
+        if (message.includes(keyword)) {
+          if (!context.mentionedScreens.includes(screen)) {
+            context.mentionedScreens.push(screen);
+          }
+        }
+      }
+      
+      // Detect preferences (e.g., "I like cocktails", "I prefer weekends")
+      if (message.includes('like') || message.includes('prefer') || message.includes('favorite')) {
+        // Extract preference
+        if (message.includes('cocktail')) context.userPreferences.drinkType = 'cocktails';
+        if (message.includes('wine')) context.userPreferences.drinkType = 'wine';
+        if (message.includes('beer')) context.userPreferences.drinkType = 'beer';
+        if (message.includes('weekend')) context.userPreferences.eventTiming = 'weekend';
+        if (message.includes('weekday')) context.userPreferences.eventTiming = 'weekday';
+      }
+      
+      // Detect ongoing tasks
+      if (message.includes('creating') || message.includes('booking') || message.includes('planning')) {
+        if (message.includes('event')) context.ongoingTasks.push('event-creation');
+        if (message.includes('service')) context.ongoingTasks.push('service-booking');
+      }
+    });
+    
+    return context;
+  }
+  
+  /**
+   * Enhanced fallback response with conversation context
+   */
+  generateEnhancedFallbackResponse(query, intent, lowerQuery, context, conversationContext) {
+    // Use conversation context if available
+    if (conversationContext) {
+      // If user mentioned a screen recently, reference it
+      if (conversationContext.mentionedScreens.length > 0) {
+        const lastScreen = conversationContext.mentionedScreens[conversationContext.mentionedScreens.length - 1];
+        return {
+          type: 'contextual',
+          intent,
+          response: {
+            title: 'Continuing our conversation',
+            message: `Based on our conversation, I can help you with ${this.getScreenName(lastScreen)}. Would you like me to take you there or answer questions about it?`,
+            action: { type: 'navigate', screen: lastScreen },
+          },
+          suggestions: this.getEnhancedContextualSuggestions(lastScreen, conversationContext),
+        };
+      }
+      
+      // Use user preferences if detected
+      if (conversationContext.userPreferences.drinkType) {
+        const drinkType = conversationContext.userPreferences.drinkType;
+        return {
+          type: 'preference-based',
+          intent,
+          response: {
+            title: 'Based on your preferences',
+            message: `I remember you like ${drinkType}! Let me show you our ${drinkType} selection.`,
+            action: { type: 'navigate', screen: 'BarMenu' },
+          },
+          suggestions: [`Show me ${drinkType}`, 'What else do you have?', 'Recommend something'],
+        };
+      }
+    }
+    
+    // Fall back to original fallback logic
+    return this.generateFallbackResponse(query, intent, lowerQuery, context);
+  }
+  
+  /**
+   * Enhanced contextual suggestions with conversation awareness
+   */
+  getEnhancedContextualSuggestions(screen, conversationContext) {
+    const baseSuggestions = this.getContextualSuggestions(screen);
+    
+    // Add context-aware suggestions
+    if (conversationContext) {
+      if (conversationContext.ongoingTasks.includes('event-creation')) {
+        return [
+          'Continue creating event',
+          'What pricing should I use?',
+          'Tell me about bar packages',
+          ...baseSuggestions,
+        ];
+      }
+      
+      if (conversationContext.userPreferences.drinkType) {
+        return [
+          `Show me ${conversationContext.userPreferences.drinkType}`,
+          'What else do you recommend?',
+          ...baseSuggestions,
+        ];
+      }
+    }
+    
+    return baseSuggestions;
   }
   
   /**
