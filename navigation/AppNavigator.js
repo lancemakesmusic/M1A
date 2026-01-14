@@ -291,7 +291,7 @@ export default function AppNavigator() {
       <Tab.Screen 
         name="Messages" 
         component={MessagesScreen}
-        options={{
+        options={() => ({
           tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
           tabBarBadgeStyle: {
             backgroundColor: '#FF3B30',
@@ -302,7 +302,7 @@ export default function AppNavigator() {
             height: 18,
             borderRadius: 9,
           },
-        }}
+        })}
       />
       <Tab.Screen name="Wallet" component={WalletScreen} />
       <Tab.Screen
