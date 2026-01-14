@@ -319,6 +319,12 @@ class StripeService {
 
       if (!response.ok) {
         const errorText = await response.text();
+        // Handle 404 specifically - backend endpoint not found
+        if (response.status === 404) {
+          console.warn('Backend payment endpoint not found (404) - payment processing may not be configured');
+          throw new Error('Payment processing is currently unavailable. The payment server is not configured. Please contact support or try again later.');
+        }
+        // Handle other errors
         throw new Error(`Failed to create checkout session: ${errorText || response.statusText}`);
       }
 
@@ -329,7 +335,15 @@ class StripeService {
         console.error('Checkout session request timed out');
         throw new Error('Request timed out. Please check your connection and try again.');
       }
+      // If error message already set, use it; otherwise provide generic message
+      if (error.message && error.message.includes('Payment processing is currently unavailable')) {
+        throw error; // Re-throw the user-friendly error
+      }
       console.error('Error creating checkout session:', error);
+      // Provide a more user-friendly error message
+      if (error.message && error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        throw new Error('Unable to connect to payment server. Please check your internet connection and try again.');
+      }
       throw error;
     }
   }
