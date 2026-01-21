@@ -101,7 +101,9 @@ Submit:
 eas submit --platform ios --profile production --latest
 ```
 
-If Apple upload returns IrisAPI 500, use Transporter to upload the IPA.
+If Apple upload returns IrisAPI 500, use Transporter to upload the IPA:
+1. Download the IPA from the EAS build URL
+2. Open Transporter and drag the IPA to upload
 
 ---
 
