@@ -366,6 +366,16 @@ except (ImportError, Exception) as e:
     import traceback
     traceback.print_exc()
 
+# Email routes
+try:
+    from api.email import router as email_router
+    app.include_router(email_router)
+    print("[OK] Email routes loaded successfully")
+except (ImportError, Exception) as e:
+    print(f"[WARN] Email routes not available: {e}")
+    import traceback
+    traceback.print_exc()
+
 # SMS routes
 try:
     from api.sms import router as sms_router

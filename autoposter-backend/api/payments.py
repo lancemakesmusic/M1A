@@ -9,10 +9,11 @@ from fastapi import APIRouter, HTTPException, Depends, status, Request, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 import httpx
+from .notification_utils import send_email_via_sendgrid, send_sms_via_twilio, normalize_phone
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -801,6 +802,13 @@ async def handle_payment_succeeded(payment_intent: dict):
                 # Create calendar event for service bookings
                 if order_type == 'service_booking' and order_data.get('serviceDate') and order_data.get('serviceTime'):
                     await create_calendar_event_from_order(order_data, userId, payment_intent_id)
+                
+                # Create calendar event for event bookings
+                if order_type == 'event_booking' and order_data.get('eventDate') and order_data.get('eventStartTime'):
+                    await create_calendar_event_from_event_order(order_data, userId, payment_intent_id)
+
+                # Send confirmation email/SMS
+                await send_order_confirmations(order_type, order_data, amount, payment_intent_id)
             else:
                 print(f"⚠️ Order not found for payment intent: {payment_intent_id}")
             # Deduct from wallet balance for purchases
@@ -951,52 +959,250 @@ async def handle_payment_succeeded(payment_intent: dict):
         raise
 
 
+def _parse_human_date_time(date_str: str, time_str: str) -> Optional[datetime]:
+    if not date_str or not time_str:
+        return None
+
+    import re
+    date_match = re.match(r'(\w+), (\w+) (\d+), (\d+)', date_str)
+    if not date_match:
+        return None
+
+    _, month_name, day, year = date_match.groups()
+    month_map = {
+        'January': 0, 'February': 1, 'March': 2, 'April': 3, 'May': 4, 'June': 5,
+        'July': 6, 'August': 7, 'September': 8, 'October': 9, 'November': 10, 'December': 11
+    }
+    month = month_map.get(month_name, 0)
+
+    start_hour, start_minute = 0, 0
+    if 'AM' in time_str.upper() or 'PM' in time_str.upper():
+        time_parts = re.sub(r'[AP]M', '', time_str, flags=re.IGNORECASE).strip().split(':')
+        start_hour = int(time_parts[0])
+        start_minute = int(time_parts[1] if len(time_parts) > 1 else 0)
+        if 'PM' in time_str.upper() and start_hour != 12:
+            start_hour += 12
+        elif 'AM' in time_str.upper() and start_hour == 12:
+            start_hour = 0
+    else:
+        time_parts = time_str.split(':')
+        start_hour = int(time_parts[0])
+        start_minute = int(time_parts[1] if len(time_parts) > 1 else 0)
+
+    return datetime(int(year), month + 1, int(day), start_hour, start_minute)
+
+
+def _build_items_summary(items: list) -> str:
+    if not items:
+        return "None"
+    lines = []
+    for item in items:
+        name = item.get('name', 'Item')
+        qty = item.get('quantity', 1)
+        price = item.get('price', 0)
+        lines.append(f"- {name} x{qty} (${float(price):.2f})")
+    return "\n".join(lines)
+
+
+async def send_order_confirmations(
+    order_type: str,
+    order_data: dict,
+    amount: float,
+    payment_intent_id: str,
+):
+    try:
+        safe_payment_id = payment_intent_id or ""
+        contact_email = (
+            order_data.get('contactEmail')
+            or order_data.get('userEmail')
+            or order_data.get('email')
+        )
+        contact_phone = (
+            order_data.get('contactPhone')
+            or order_data.get('phone')
+        )
+        contact_name = order_data.get('contactName') or order_data.get('fullName') or order_data.get('firstName') or ''
+        order_id = order_data.get('backendBookingId') or order_data.get('id') or (safe_payment_id[-8:] if safe_payment_id else 'unknown')
+        total = order_data.get('total', amount)
+
+        subject = "M1A Confirmation"
+        html = f"<p>Your order has been confirmed.</p><p>Order ID: {order_id}</p>"
+        text = f"Your order has been confirmed. Order ID: {order_id}"
+        sms_message = f"M1A confirmed. Order #{order_id}."
+
+        if order_type == 'service_booking':
+            service_name = order_data.get('serviceName', 'Service')
+            service_date = order_data.get('serviceDate', '')
+            service_time = order_data.get('serviceTime', '')
+            subject = f"Service Booking Confirmed - {service_name}"
+            html = (
+                f"<p>Hi {contact_name or 'there'},</p>"
+                f"<p>Your service booking is confirmed.</p>"
+                f"<p><strong>Service:</strong> {service_name}<br/>"
+                f"<strong>Date:</strong> {service_date}<br/>"
+                f"<strong>Time:</strong> {service_time}<br/>"
+                f"<strong>Total:</strong> ${float(total):.2f}<br/>"
+                f"<strong>Order ID:</strong> {order_id}</p>"
+            )
+            text = (
+                f"Your service booking is confirmed.\n"
+                f"Service: {service_name}\nDate: {service_date}\nTime: {service_time}\n"
+                f"Total: ${float(total):.2f}\nOrder ID: {order_id}"
+            )
+            sms_message = f"M1A booking confirmed: {service_name} on {service_date} at {service_time}. Order #{order_id}."
+
+        elif order_type == 'event_booking':
+            event_type = order_data.get('eventType', 'Event')
+            event_date = order_data.get('eventDate', '')
+            event_time = order_data.get('eventStartTime', '')
+            subject = f"Event Booking Confirmed - {event_type}"
+            html = (
+                f"<p>Hi {contact_name or 'there'},</p>"
+                f"<p>Your event booking is confirmed.</p>"
+                f"<p><strong>Event:</strong> {event_type}<br/>"
+                f"<strong>Date:</strong> {event_date}<br/>"
+                f"<strong>Time:</strong> {event_time}<br/>"
+                f"<strong>Total:</strong> ${float(total):.2f}<br/>"
+                f"<strong>Order ID:</strong> {order_id}</p>"
+            )
+            text = (
+                f"Your event booking is confirmed.\n"
+                f"Event: {event_type}\nDate: {event_date}\nTime: {event_time}\n"
+                f"Total: ${float(total):.2f}\nOrder ID: {order_id}"
+            )
+            sms_message = f"M1A event confirmed: {event_type} on {event_date} at {event_time}. Order #{order_id}."
+
+        elif order_type == 'bar':
+            items_summary = _build_items_summary(order_data.get('items', []))
+            subject = "Bar Order Confirmed"
+            html = (
+                f"<p>Your bar order is confirmed.</p>"
+                f"<p><strong>Order ID:</strong> {order_id}<br/>"
+                f"<strong>Total:</strong> ${float(total):.2f}</p>"
+                f"<p><strong>Items:</strong><br/><pre>{items_summary}</pre></p>"
+            )
+            text = (
+                f"Your bar order is confirmed.\nOrder ID: {order_id}\n"
+                f"Total: ${float(total):.2f}\nItems:\n{items_summary}"
+            )
+            sms_message = f"M1A bar order confirmed. Order #{order_id}. Total ${float(total):.2f}."
+
+        if contact_email:
+            email_result = send_email_via_sendgrid(
+                to_emails=[contact_email],
+                subject=subject,
+                html=html,
+                text=text,
+            )
+            if not email_result.get("success"):
+                print(f"⚠️ Email confirmation failed: {email_result.get('error')}")
+        else:
+            print("⚠️ No email on order; skipping email confirmation.")
+
+        normalized_phone = normalize_phone(contact_phone)
+        if normalized_phone:
+            sms_result = send_sms_via_twilio(normalized_phone, sms_message)
+            if not sms_result.get("success"):
+                print(f"⚠️ SMS confirmation failed: {sms_result.get('error')}")
+        else:
+            print("ℹ️ No phone on order; skipping SMS confirmation.")
+
+    except Exception as e:
+        print(f"⚠️ Error sending confirmations: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+
+async def create_calendar_event_from_event_order(order_data: dict, userId: str, payment_intent_id: str):
+    """Create calendar event for event bookings after payment succeeds"""
+    try:
+        event_date_str = order_data.get('eventDate', '')
+        event_time_str = order_data.get('eventStartTime', '')
+        start_date = _parse_human_date_time(event_date_str, event_time_str)
+
+        if not start_date:
+            print(f"⚠️ Missing/invalid event date/time, skipping calendar event creation")
+            return
+
+        duration_hours = order_data.get('duration', 4)
+        try:
+            duration_hours = int(duration_hours)
+        except Exception:
+            duration_hours = 4
+        end_date = start_date + timedelta(hours=duration_hours)
+
+        event_type = order_data.get('eventType', 'Event Booking')
+        contact_name = order_data.get('firstName', '')
+        if order_data.get('lastName'):
+            contact_name = f"{contact_name} {order_data.get('lastName')}".strip()
+        contact_email = order_data.get('email', '')
+        total_cost = order_data.get('total', 0)
+        guest_count = order_data.get('guestCount', '')
+
+        event_title = f"{event_type} - {contact_name or 'Guest'}"
+        event_description = (
+            f"Event: {event_type}\n"
+            f"Guests: {guest_count}\n"
+            f"Total Cost: ${float(total_cost):.2f}\n"
+            f"Contact: {contact_email} | {order_data.get('phone', 'N/A')}\n"
+            f"Payment Intent: {payment_intent_id}"
+        )
+
+        safe_payment_id = payment_intent_id or ""
+        calendar_event_data = {
+            "title": event_title,
+            "description": event_description,
+            "startTime": start_date.isoformat(),
+            "endTime": end_date.isoformat(),
+            "location": "Merkaba Venue",
+            "attendees": [{"email": contact_email}] if contact_email else [],
+            "bookingId": order_data.get('backendBookingId') or (safe_payment_id[-8:] if safe_payment_id else 'unknown'),
+            "bookingType": "event",
+            "userEmail": contact_email
+        }
+
+        try:
+            from .calendar_events import create_calendar_event_internal
+            result = await create_calendar_event_internal(calendar_event_data, userId)
+            if result.get('success'):
+                admin_event_id = result.get('results', {}).get('admin_calendar', {}).get('eventId')
+                print(f"✅ Calendar event created successfully: {admin_event_id}")
+            else:
+                error_msg = result.get('error', 'Unknown error')
+                print(f"⚠️ Calendar event creation failed: {error_msg}")
+        except ImportError as import_error:
+            print(f"⚠️ Calendar event creation skipped - calendar_events module not available: {import_error}")
+            print(f"   Event data: {event_title} on {start_date.isoformat()}")
+        except Exception as calendar_error:
+            print(f"⚠️ Error creating calendar event: {calendar_error}")
+            import traceback
+            traceback.print_exc()
+
+    except Exception as e:
+        print(f"⚠️ Error creating event booking calendar entry: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+
 async def create_calendar_event_from_order(order_data: dict, userId: str, payment_intent_id: str):
     """Create calendar event from order data after payment succeeds"""
     try:
-        # Parse service date and time from order data
         service_date_str = order_data.get('serviceDate', '')
         service_time_str = order_data.get('serviceTime', '')
-        
-        if not service_date_str or not service_time_str:
-            print(f"⚠️ Missing service date/time in order data, skipping calendar event creation")
+
+        start_date = _parse_human_date_time(service_date_str, service_time_str)
+        if not start_date:
+            print(f"⚠️ Missing/invalid service date/time, skipping calendar event creation")
             return
-        
-        # Parse date (format: "Monday, January 1, 2024")
-        import re
-        date_match = re.match(r'(\w+), (\w+) (\d+), (\d+)', service_date_str)
-        if not date_match:
-            print(f"⚠️ Invalid date format: {service_date_str}, skipping calendar event creation")
-            return
-        
-        _, month_name, day, year = date_match.groups()
-        month_map = {
-            'January': 0, 'February': 1, 'March': 2, 'April': 3, 'May': 4, 'June': 5,
-            'July': 6, 'August': 7, 'September': 8, 'October': 9, 'November': 10, 'December': 11
-        }
-        month = month_map.get(month_name, 0)
-        
-        # Parse time (format: "6:00 PM" or "18:00")
-        start_hour, start_minute = 0, 0
-        if 'AM' in service_time_str.upper() or 'PM' in service_time_str.upper():
-            time_parts = re.sub(r'[AP]M', '', service_time_str, flags=re.IGNORECASE).strip().split(':')
-            start_hour = int(time_parts[0])
-            start_minute = int(time_parts[1] if len(time_parts) > 1 else 0)
-            if 'PM' in service_time_str.upper() and start_hour != 12:
-                start_hour += 12
-            elif 'AM' in service_time_str.upper() and start_hour == 12:
-                start_hour = 0
-        else:
-            time_parts = service_time_str.split(':')
-            start_hour = int(time_parts[0])
-            start_minute = int(time_parts[1] if len(time_parts) > 1 else 0)
-        
-        start_date = datetime(int(year), month + 1, int(day), start_hour, start_minute)
         
         # Calculate end date based on service duration
         # Default to 1 hour if not specified
         duration_hours = order_data.get('dealHours', order_data.get('quantity', 1))
-        end_date = datetime(int(year), month + 1, int(day), start_hour + duration_hours, start_minute)
+        try:
+            duration_hours = int(duration_hours)
+        except Exception:
+            duration_hours = 1
+        end_date = start_date + timedelta(hours=duration_hours)
         
         # Prepare calendar event data
         service_name = order_data.get('serviceName', 'Service')
@@ -1015,6 +1221,7 @@ async def create_calendar_event_from_order(order_data: dict, userId: str, paymen
             (f"Special Requests: {special_requests}\n" if special_requests else '') + \
             f"Payment Intent: {payment_intent_id}"
         
+        safe_payment_id = payment_intent_id or ""
         calendar_event_data = {
             "title": event_title,
             "description": event_description,
@@ -1022,7 +1229,7 @@ async def create_calendar_event_from_order(order_data: dict, userId: str, paymen
             "endTime": end_date.isoformat(),
             "location": "Merkaba Venue",
             "attendees": [{"email": contact_email}] if contact_email else [],
-            "bookingId": order_data.get('backendBookingId') or payment_intent_id[-8:],
+            "bookingId": order_data.get('backendBookingId') or (safe_payment_id[-8:] if safe_payment_id else 'unknown'),
             "bookingType": "service",
             "userEmail": contact_email
         }

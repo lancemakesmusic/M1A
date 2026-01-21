@@ -131,7 +131,7 @@ export default function MessagesScreen() {
         !conversationId ||
         !isFirebaseReady() ||
         !db ||
-        typeof db.collection === 'function'
+        typeof db.collection !== 'function'
       ) {
         setMessages([]);
         return;
@@ -180,7 +180,7 @@ export default function MessagesScreen() {
       let isOnline = params.isOnline || false;
 
       try {
-        if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        if (isFirebaseReady() && db && typeof db.collection === 'function') {
           const conversationRef = doc(db, 'conversations', params.conversationId);
           const conversationSnap = await getDoc(conversationRef);
 
