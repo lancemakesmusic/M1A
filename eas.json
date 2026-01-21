@@ -37,7 +37,8 @@
         "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "m1alive.firebasestorage.app",
         "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "83002254287",
         "EXPO_PUBLIC_FIREBASE_APP_ID": "1:83002254287:web:b802e1e040cb51494668ba",
-        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "83002254287-5mg3vgalrm4ebeaj30qg8cvs21enhns6.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "83002254287-5mg3vgalrm4ebeaj30qg8cvs21enhns6.apps.googleusercontent.com",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51Rlfu7IinkSRXhqM6wHhI23c99CdqhZivwTDJljY2BI9NIFqZCH2txFCa89ntZ53ETdHxsxGNvk7QuHzN4Iru4xg008UTrafnQ"
       },
       "node": "20.18.0"
     }
