@@ -41,19 +41,22 @@ import { handleError, getUserFriendlyError } from '../utils/errorHandler';
 const TAX_RATE = 0.08; // 8% tax
 const SERVICE_FEE = 0.03; // 3% service fee
 
+const getApiBaseUrl = () => {
+  if (process.env.EXPO_PUBLIC_API_BASE_URL) {
+    return process.env.EXPO_PUBLIC_API_BASE_URL;
+  }
+  if (__DEV__) {
+    return 'http://localhost:8001';
+  }
+  return null;
+};
+
 /**
  * Sync booking to Google Calendar (admin@merkabaent.com)
  * This function creates a calendar event for the booking
  */
 const syncBookingToCalendar = async (orderId, item, formData, total, user) => {
   try {
-    // Check if Google Calendar is connected
-    const isConnected = await GoogleCalendarService.isConnected();
-    if (!isConnected) {
-      console.log('📅 Google Calendar not connected - skipping calendar sync');
-      return { success: false, error: 'Calendar not connected' };
-    }
-
     // Only sync if we have date/time information
     if (!formData.serviceDate || !formData.serviceTime) {
       console.log('📅 No date/time information - skipping calendar sync');
@@ -125,7 +128,7 @@ const syncBookingToCalendar = async (orderId, item, formData, total, user) => {
       attendees.push({ email: formData.contactEmail || user.email });
     }
 
-    const calendarResult = await GoogleCalendarService.createEvent({
+    const calendarEventData = {
       title: eventTitle,
       description: eventDescription,
       startTime: startDate.toISOString(),
@@ -133,7 +136,45 @@ const syncBookingToCalendar = async (orderId, item, formData, total, user) => {
       location: item.location || formData.location || 'Merkaba Venue',
       attendees: attendees,
       timeZone: 'America/New_York',
-    });
+      bookingId: orderId,
+      bookingType: 'service',
+      userEmail: formData.contactEmail || user?.email || null,
+    };
+
+    const apiBaseUrl = getApiBaseUrl();
+    if (apiBaseUrl && user?.getIdToken) {
+      try {
+        const idToken = await user.getIdToken();
+        const response = await fetch(`${apiBaseUrl}/api/calendar/create-event`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+          },
+          body: JSON.stringify(calendarEventData),
+        });
+
+        if (response.ok) {
+          const data = await response.json().catch(() => ({}));
+          console.log('✅ Booking synced to Google Calendar (backend):', data);
+          return { success: true, eventId: data?.results?.admin_calendar?.eventId || data?.eventId };
+        }
+
+        const errorData = await response.json().catch(() => ({}));
+        console.warn('⚠️ Backend calendar sync failed:', errorData);
+      } catch (error) {
+        console.warn('⚠️ Backend calendar sync error:', error);
+      }
+    }
+
+    // Fallback to client-side OAuth flow if backend is unavailable
+    const isConnected = await GoogleCalendarService.isConnected();
+    if (!isConnected) {
+      console.log('📅 Google Calendar not connected - skipping calendar sync');
+      return { success: false, error: 'Calendar not connected' };
+    }
+
+    const calendarResult = await GoogleCalendarService.createEvent(calendarEventData);
 
     if (calendarResult.success) {
       console.log('✅ Booking synced to Google Calendar:', calendarResult.eventId);

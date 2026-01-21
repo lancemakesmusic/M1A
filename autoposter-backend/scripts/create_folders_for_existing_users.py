@@ -202,8 +202,50 @@ def sanitize_folder_name(name):
     
     return name
 
-def create_folder_for_user(drive_service, parent_folder_id, username, user_id, max_retries=3, logger=None):
-    """Create a Google Drive folder for a user with retry logic"""
+def find_or_create_subfolder(drive_service, parent_id, name, logger=None):
+    """Find a subfolder by name under a parent, or create it if missing."""
+    if logger is None:
+        import logging
+        logger = logging.getLogger('create_folders')
+
+    query = (
+        f"'{parent_id}' in parents and "
+        f"mimeType='application/vnd.google-apps.folder' and "
+        f"name='{name}' and trashed=false"
+    )
+    try:
+        results = drive_service.files().list(
+            q=query,
+            fields='files(id, name, webViewLink)',
+            pageSize=1
+        ).execute()
+        files = results.get('files', [])
+        if files:
+            return files[0]
+    except Exception as e:
+        logger.debug(f"  [WARN] Could not search for folder '{name}': {e}")
+
+    folder = drive_service.files().create(
+        body={
+            'name': name,
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [parent_id],
+        },
+        fields='id, name, webViewLink'
+    ).execute()
+    return folder
+
+
+def create_folder_for_user(
+    drive_service,
+    parent_folder_id,
+    username,
+    user_id,
+    existing_root_id=None,
+    max_retries=3,
+    logger=None
+):
+    """Create Google Drive folder structure for a user with retry logic."""
     if logger is None:
         import logging
         logger = logging.getLogger('create_folders')
@@ -220,31 +262,36 @@ def create_folder_for_user(drive_service, parent_folder_id, username, user_id, m
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
-            # Create folder metadata
-            folder_metadata = {
-                'name': folder_name,
-                'mimeType': 'application/vnd.google-apps.folder',
-                'parents': [parent_folder_id]
-            }
-            
-            # Create the folder
-            folder = drive_service.files().create(
-                body=folder_metadata,
-                fields='id, name, webViewLink'
-            ).execute()
-            
-            folder_id = folder.get('id')
-            folder_url = folder.get('webViewLink')
+            # Determine root folder (use existing if provided)
+            root_folder = None
+            if existing_root_id:
+                root_id = existing_root_id
+                root_folder = {'id': root_id, 'name': folder_name, 'webViewLink': None}
+            else:
+                root_folder = drive_service.files().create(
+                    body={
+                        'name': folder_name,
+                        'mimeType': 'application/vnd.google-apps.folder',
+                        'parents': [parent_folder_id],
+                    },
+                    fields='id, name, webViewLink'
+                ).execute()
+                root_id = root_folder.get('id')
+
+            # Create/find subfolder: ProjectFiles
+            project_files_folder = find_or_create_subfolder(drive_service, root_id, 'ProjectFiles', logger=logger)
             
             symbols = get_unicode_symbols()
-            logger.debug(f"  {symbols['success']} Created folder: {folder_name}")
-            logger.debug(f"      {symbols['folder']} Folder ID: {folder_id}")
-            logger.debug(f"      {symbols['info']} URL: {folder_url}")
+            logger.debug(f"  {symbols['success']} Folder structure ready: {folder_name}")
+            logger.debug(f"      {symbols['folder']} Root ID: {root_id}")
+            logger.debug(f"      {symbols['folder']} ProjectFiles ID: {project_files_folder['id']}")
             
             return {
-                'folder_id': folder_id,
-                'folder_name': folder_name,
-                'folder_url': folder_url,
+                'root_folder_id': root_id,
+                'root_folder_name': folder_name,
+                'root_folder_url': root_folder.get('webViewLink'),
+                'project_files_folder_id': project_files_folder.get('id'),
+                'project_files_folder_url': project_files_folder.get('webViewLink'),
                 'user_id': user_id
             }
         except HttpError as e:
@@ -288,9 +335,13 @@ def update_user_folder_info(user_id, folder_info, logger=None):
     try:
         user_ref = db.collection('users').document(user_id)
         user_ref.update({
-            'googleDriveFolderId': folder_info['folder_id'],
-            'googleDriveFolderName': folder_info['folder_name'],
-            'googleDriveFolderUrl': folder_info['folder_url'],
+            'googleDriveFolderId': folder_info['project_files_folder_id'],
+            'googleDriveFolderName': 'ProjectFiles',
+            'googleDriveFolderUrl': folder_info.get('project_files_folder_url'),
+            'googleDriveRootFolderId': folder_info.get('root_folder_id'),
+            'googleDriveRootFolderName': folder_info.get('root_folder_name'),
+            'googleDriveRootFolderUrl': folder_info.get('root_folder_url'),
+            'googleDriveProjectFilesFolderId': folder_info.get('project_files_folder_id'),
             'googleDriveFolderCreatedAt': firestore.SERVER_TIMESTAMP,
         })
         logger.info(f"  [OK] Updated Firestore document")
@@ -306,9 +357,9 @@ def update_user_folder_info(user_id, folder_info, logger=None):
             logger.info(f"  [INFO] To update Firestore, either:")
             logger.info(f"         1. Grant Firestore write permissions to the service account, OR")
             logger.info(f"         2. Manually update the user document with:")
-            logger.info(f"            googleDriveFolderId: {folder_info['folder_id']}")
-            logger.info(f"            googleDriveFolderName: {folder_info['folder_name']}")
-            logger.info(f"            googleDriveFolderUrl: {folder_info['folder_url']}")
+            logger.info(f"            googleDriveFolderId: {folder_info['project_files_folder_id']}")
+            logger.info(f"            googleDriveRootFolderId: {folder_info.get('root_folder_id')}")
+            logger.info(f"            googleDriveProjectFilesFolderId: {folder_info.get('project_files_folder_id')}")
         elif "404" in error_msg or "not found" in error_msg.lower():
             logger.warning(f"  [WARN] User document not found in Firestore")
             logger.info(f"  [INFO] User ID '{user_id}' doesn't exist in Firestore.")
@@ -318,9 +369,9 @@ def update_user_folder_info(user_id, folder_info, logger=None):
             logger.warning(f"  [WARN] Could not update Firestore: {error_msg}")
             logger.info(f"  [INFO] Folder created successfully, but Firestore update failed.")
             logger.info(f"  [INFO] You may need to manually update the user document with:")
-            logger.info(f"         googleDriveFolderId: {folder_info['folder_id']}")
-            logger.info(f"         googleDriveFolderName: {folder_info['folder_name']}")
-            logger.info(f"         googleDriveFolderUrl: {folder_info['folder_url']}")
+            logger.info(f"         googleDriveFolderId: {folder_info['project_files_folder_id']}")
+            logger.info(f"         googleDriveRootFolderId: {folder_info.get('root_folder_id')}")
+            logger.info(f"         googleDriveProjectFilesFolderId: {folder_info.get('project_files_folder_id')}")
         return False
 
 def get_unicode_symbols():
@@ -535,11 +586,12 @@ def main():
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
                     username = user_data.get('username') or user_data.get('displayName') or user_data.get('email', '').split('@')[0]
-                    if not user_data.get('googleDriveFolderId'):
+                    if not user_data.get('googleDriveProjectFilesFolderId') or not user_data.get('googleDriveRootFolderId'):
                         users_to_process.append({
                             'id': user_id,
                             'username': username,
-                            'email': user_data.get('email', 'N/A')
+                            'email': user_data.get('email', 'N/A'),
+                            'existing_root_id': user_data.get('googleDriveRootFolderId'),
                         })
                     else:
                         logger.info(f"  {symbols['info']} User {user_id} already has a folder")
@@ -585,12 +637,13 @@ def main():
                     continue
                 
                 user_data = user_doc.to_dict()
-                if not user_data.get('googleDriveFolderId'):
+                if not user_data.get('googleDriveProjectFilesFolderId') or not user_data.get('googleDriveRootFolderId'):
                     username = user_data.get('username') or user_data.get('displayName') or user_data.get('email', '').split('@')[0]
                     users_to_process.append({
                         'id': user_id,
                         'username': username,
-                        'email': user_data.get('email', 'N/A')
+                        'email': user_data.get('email', 'N/A'),
+                        'existing_root_id': user_data.get('googleDriveRootFolderId'),
                     })
                 else:
                     users_processed.add(user_id)
@@ -637,11 +690,12 @@ def main():
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
                     username = user_data.get('username') or user_data.get('displayName') or user_data.get('email', '').split('@')[0]
-                    if not user_data.get('googleDriveFolderId'):
+                    if not user_data.get('googleDriveProjectFilesFolderId') or not user_data.get('googleDriveRootFolderId'):
                         users_to_process.append({
                             'id': user_id,
                             'username': username,
-                            'email': user_data.get('email', 'N/A')
+                            'email': user_data.get('email', 'N/A'),
+                            'existing_root_id': user_data.get('googleDriveRootFolderId'),
                         })
                     else:
                         logger.info(f"  {symbols['info']} User {user_id} already has a folder")
@@ -730,6 +784,7 @@ def main():
             parent_folder_id, 
             user['username'], 
             user['id'],
+            existing_root_id=user.get('existing_root_id'),
             logger=logger
         )
         

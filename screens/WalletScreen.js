@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import * as Linking from 'expo-linking';
 import { collection, limit as firestoreLimit, getDocs, orderBy, query, where } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -116,16 +115,19 @@ export default function WalletScreen() {
   const checkGoogleDriveConnection = useCallback(async () => {
     try {
       const connected = await GoogleDriveService.isConnected();
-      setGoogleDriveConnected(connected);
+      let isConnected = connected;
       
       // Also get current folder ID if connected
-      if (connected && user?.uid) {
+      if (user?.uid) {
         const folderId = await GoogleDriveService.getClientFolderId(user.uid);
         setCurrentFolderId(folderId);
         if (folderId) {
           setFolderIdInput(folderId);
+          isConnected = true;
         }
       }
+
+      setGoogleDriveConnected(isConnected);
     } catch (error) {
       console.error('Error checking Google Drive connection:', error);
       setGoogleDriveConnected(false);
@@ -244,10 +246,10 @@ export default function WalletScreen() {
       setLoadingContent(true);
       const contentItems = [];
 
-      // Try to load from Google Drive first if connected
-      if (googleDriveConnected) {
+      // Try to load from Google Drive first if connected or a folder is set
+      if (googleDriveConnected || currentFolderId) {
         try {
-          const folderId = await GoogleDriveService.getClientFolderId(user.uid);
+          const folderId = currentFolderId || await GoogleDriveService.getClientFolderId(user.uid);
           if (folderId) {
             const driveFiles = await GoogleDriveService.listFiles(user.uid, folderId);
             
@@ -268,7 +270,9 @@ export default function WalletScreen() {
               });
             });
             
-            setContentSource('googledrive');
+            if (driveFiles.length > 0) {
+              setContentSource('googledrive');
+            }
           }
         } catch (driveError) {
           console.error('Error loading from Google Drive:', driveError);
@@ -1075,32 +1079,28 @@ export default function WalletScreen() {
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>Your Content</Text>
               <View style={styles.sectionHeaderRight}>
-                {!googleDriveConnected ? (
-                  <TouchableOpacity
-                    style={[styles.connectButton, { backgroundColor: theme.primary }]}
-                    onPress={async () => {
-                      try {
-                        const oauthUrl = GoogleDriveService.getOAuthUrl();
-                        await Linking.openURL(oauthUrl);
-                      } catch (error) {
-                        Alert.alert('Error', 'Failed to connect Google Drive. Please check your configuration.');
-                      }
-                    }}
+                <TouchableOpacity
+                  style={[
+                    googleDriveConnected
+                      ? [styles.settingsButton, { borderColor: theme.border }]
+                      : [styles.connectButton, { backgroundColor: theme.primary }]
+                  ]}
+                  onPress={() => setShowFolderIdModal(true)}
+                >
+                  <Ionicons
+                    name={googleDriveConnected ? 'folder-outline' : 'folder-open'}
+                    size={16}
+                    color={googleDriveConnected ? theme.primary : '#fff'}
+                  />
+                  <Text
+                    style={[
+                      googleDriveConnected ? styles.settingsButtonText : styles.connectButtonText,
+                      { color: googleDriveConnected ? theme.primary : '#fff' }
+                    ]}
                   >
-                    <Ionicons name="cloud-upload" size={16} color="#fff" />
-                    <Text style={styles.connectButtonText}>Connect Drive</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.settingsButton, { borderColor: theme.border }]}
-                    onPress={() => setShowFolderIdModal(true)}
-                  >
-                    <Ionicons name="folder-outline" size={16} color={theme.primary} />
-                    <Text style={[styles.settingsButtonText, { color: theme.primary }]}>
-                      {currentFolderId ? 'Change Folder' : 'Set Folder'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
+                    {currentFolderId ? 'Change Folder' : 'Set Folder'}
+                  </Text>
+                </TouchableOpacity>
                 <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
                   {contentLibrary.length} items
                 </Text>

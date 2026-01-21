@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List, Optional, Dict, Any
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -115,16 +116,47 @@ def get_google_credentials(user_id: str) -> Optional[Credentials]:
         print(f"Error getting Google credentials: {str(e)}")
         return None
 
-def get_drive_service(user_id: str):
-    """Get Google Drive service instance for a user"""
+def get_drive_service(user_id: str, allow_service_account: bool = False):
+    """Get Google Drive service instance for a user, optionally falling back to service account."""
     credentials = get_google_credentials(user_id)
-    if not credentials:
+    if credentials:
+        return build('drive', 'v3', credentials=credentials)
+
+    if not allow_service_account:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Google Drive not connected. Please connect your Google Drive account."
         )
-    
-    return build('drive', 'v3', credentials=credentials)
+
+    service_account_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if service_account_file and os.path.exists(service_account_file):
+        scopes = ['https://www.googleapis.com/auth/drive.readonly']
+        sa_credentials = service_account.Credentials.from_service_account_file(
+            service_account_file,
+            scopes=scopes
+        )
+        return build('drive', 'v3', credentials=sa_credentials)
+
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Google Drive not connected and service account not configured."
+    )
+
+
+def get_user_folder_id(user_id: str) -> Optional[str]:
+    """Get user's Google Drive folder ID from Firestore."""
+    try:
+        if not firestore:
+            return None
+        db = firestore.client()
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            return None
+        return user_doc.to_dict().get('googleDriveFolderId')
+    except Exception as e:
+        print(f"Error fetching user folder ID: {str(e)}")
+        return None
 
 @router.get("/files")
 async def list_files(
@@ -133,7 +165,13 @@ async def list_files(
 ):
     """List files in a Google Drive folder"""
     try:
-        drive_service = get_drive_service(user["userId"])
+        stored_folder_id = get_user_folder_id(user["userId"])
+        if stored_folder_id:
+            folderId = stored_folder_id
+        elif not folderId:
+            return {"files": []}
+
+        drive_service = get_drive_service(user["userId"], allow_service_account=True)
         
         # List files in the folder
         results = drive_service.files().list(
@@ -191,7 +229,20 @@ async def get_download_url(
 ):
     """Get download URL for a file (pass-through)"""
     try:
-        drive_service = get_drive_service(user["userId"])
+        drive_service = get_drive_service(user["userId"], allow_service_account=True)
+
+        # If using service account, ensure file belongs to user's folder
+        stored_folder_id = get_user_folder_id(user["userId"])
+        if stored_folder_id:
+            parents = drive_service.files().get(
+                fileId=file_id,
+                fields="parents"
+            ).execute().get('parents', [])
+            if stored_folder_id not in parents:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="File is not in the user's content folder."
+                )
         
         # Get file metadata
         file_metadata = drive_service.files().get(
@@ -237,7 +288,16 @@ async def get_thumbnail(
 ):
     """Get thumbnail URL for a file"""
     try:
-        drive_service = get_drive_service(user["userId"])
+        drive_service = get_drive_service(user["userId"], allow_service_account=True)
+
+        stored_folder_id = get_user_folder_id(user["userId"])
+        if stored_folder_id:
+            parents = drive_service.files().get(
+                fileId=file_id,
+                fields="parents"
+            ).execute().get('parents', [])
+            if stored_folder_id not in parents:
+                return {"thumbnailUrl": None}
         
         # Get file metadata with thumbnail
         file_metadata = drive_service.files().get(
@@ -268,12 +328,35 @@ async def create_folder(
 ):
     """Create a Google Drive folder for a user"""
     try:
-        if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        service_account_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+        has_service_account = bool(service_account_file and os.path.exists(service_account_file))
+        has_oauth = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+        if not has_service_account and not has_oauth:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Google Drive integration not configured"
             )
         
+        # If user already has a folder structure, return existing IDs
+        if firestore:
+            try:
+                db = firestore.client()
+                user_ref = db.collection('users').document(user["userId"])
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    existing_folder_id = user_data.get('googleDriveFolderId')
+                    existing_root_id = user_data.get('googleDriveRootFolderId')
+                    if existing_folder_id or existing_root_id:
+                        return {
+                            "success": True,
+                            "folderId": existing_folder_id,
+                            "rootFolderId": existing_root_id,
+                            "message": "Folder already configured"
+                        }
+            except Exception as read_error:
+                print(f"Warning: could not read existing folder ID: {read_error}")
+
         # Get service account credentials or user credentials
         # For automatic folder creation, we'll use a service account
         # or create folder in a shared parent folder
@@ -319,25 +402,32 @@ async def create_folder(
             drive_service = build('drive', 'v3', credentials=credentials)
             print("[OK] Using user OAuth credentials for Google Drive")
         
-        # Create folder metadata
-        folder_metadata = {
+        # Create root folder: Username
+        root_folder_metadata = {
             'name': folder_name,
             'mimeType': 'application/vnd.google-apps.folder',
         }
-        
-        # Add parent folder if specified
         if PARENT_FOLDER_ID:
-            folder_metadata['parents'] = [PARENT_FOLDER_ID]
-        
-        # Create the folder
-        folder = drive_service.files().create(
-            body=folder_metadata,
+            root_folder_metadata['parents'] = [PARENT_FOLDER_ID]
+
+        root_folder = drive_service.files().create(
+            body=root_folder_metadata,
             fields='id, name, webViewLink'
         ).execute()
-        
-        folder_id = folder.get('id')
-        
-        # Store folder ID in Firestore
+        root_folder_id = root_folder.get('id')
+
+        # Create subfolder: ProjectFiles
+        project_files_folder = drive_service.files().create(
+            body={
+                'name': 'ProjectFiles',
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [root_folder_id],
+            },
+            fields='id, name, webViewLink'
+        ).execute()
+        project_files_folder_id = project_files_folder.get('id')
+
+        # Store folder IDs in Firestore
         if not firestore:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -346,18 +436,23 @@ async def create_folder(
         db = firestore.client()
         user_ref = db.collection('users').document(user["userId"])
         user_ref.set({
-            'googleDriveFolderId': folder_id,
-            'googleDriveFolderName': folder_name,
-            'googleDriveFolderUrl': folder.get('webViewLink'),
+            'googleDriveFolderId': project_files_folder_id,
+            'googleDriveFolderName': 'ProjectFiles',
+            'googleDriveFolderUrl': project_files_folder.get('webViewLink'),
+            'googleDriveRootFolderId': root_folder_id,
+            'googleDriveRootFolderName': folder_name,
+            'googleDriveRootFolderUrl': root_folder.get('webViewLink'),
+            'googleDriveProjectFilesFolderId': project_files_folder_id,
             'googleDriveFolderCreatedAt': firestore.SERVER_TIMESTAMP,
         }, merge=True)
-        
+
         return {
             "success": True,
-            "folderId": folder_id,
-            "folderName": folder_name,
-            "folderUrl": folder.get('webViewLink'),
-            "message": "Folder created successfully"
+            "folderId": project_files_folder_id,
+            "folderName": "ProjectFiles",
+            "folderUrl": project_files_folder.get('webViewLink'),
+            "rootFolderId": root_folder_id,
+            "message": "Folder structure created successfully"
         }
     except HttpError as e:
         raise HTTPException(

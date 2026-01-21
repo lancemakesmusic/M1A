@@ -5,7 +5,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Linking from 'expo-linking';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
@@ -91,6 +91,24 @@ class GoogleDriveService {
     }
   }
 
+  async getAuthHeaders() {
+    try {
+      const { auth } = await import('../firebase');
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('User not authenticated');
+      }
+      const idToken = await currentUser.getIdToken();
+      return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      };
+    } catch (error) {
+      console.error('Error getting auth headers:', error);
+      throw error;
+    }
+  }
+
   /**
    * Get client's Google Drive folder ID from Firestore
    */
@@ -150,11 +168,10 @@ class GoogleDriveService {
       }
 
       // Call backend API to list files
+      const headers = await this.getAuthHeaders();
       const response = await fetch(`${API_BASE_URL}/api/google-drive/files?folderId=${folderId}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       });
 
       if (!response.ok) {
@@ -176,11 +193,10 @@ class GoogleDriveService {
   async getFileDownloadUrl(fileId) {
     try {
       // Get download URL from backend (which will proxy the request)
+      const headers = await this.getAuthHeaders();
       const response = await fetch(`${API_BASE_URL}/api/google-drive/files/${fileId}/download-url`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       });
 
       if (!response.ok) {
