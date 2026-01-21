@@ -50,7 +50,7 @@ export default function AvatarPicker({ currentUrl }: { currentUrl?: string }) {
       <Pressable onPress={pickAndUpload} disabled={uploading} style={{ opacity: uploading ? 0.5 : 1 }}>
         <Image
           key={cacheBust}
-          source={displayUrl ? { uri: displayUrl } : require('../assets/avatar-placeholder.png')}
+          source={displayUrl ? { uri: displayUrl } : require('../assets/images/icon.png')}
           style={{ width: 120, height: 120, borderRadius: 60 }}
         />
       </Pressable>
