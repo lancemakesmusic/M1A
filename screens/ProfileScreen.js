@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ResizeMode, Video } from 'expo-av';
 import M1ALogo from '../components/M1ALogo';
 import ScrollIndicator from '../components/ScrollIndicator';
 import PostComments from '../components/PostComments';
@@ -546,8 +547,18 @@ export default function ProfileScreen() {
 
       <Text style={[styles.postContent, { color: theme.text }]}>{item.content}</Text>
 
-      {item.media && (
-        <Image source={{ uri: item.media }} style={styles.postMedia} />
+      {(item.mediaUrl || item.imageUrl || item.media) && (
+        item.type === 'video' ? (
+          <Video
+            source={{ uri: item.mediaUrl || item.imageUrl || item.media }}
+            style={styles.postMedia}
+            useNativeControls
+            resizeMode={ResizeMode.COVER}
+            isLooping={false}
+          />
+        ) : (
+          <Image source={{ uri: item.mediaUrl || item.imageUrl || item.media }} style={styles.postMedia} />
+        )
       )}
 
       <View style={styles.postActions}>
@@ -788,16 +799,14 @@ export default function ProfileScreen() {
             <TouchableOpacity 
               style={styles.statItem}
               onPress={() => {
-                if (stats.followers > 0) {
-                  // Navigate to followers list if screen exists, otherwise show alert
-                  try {
-                    navigation.navigate('FollowersList', { userId: user.id, type: 'followers' });
-                  } catch (e) {
-                    Alert.alert('Followers', `This user has ${stats.followers} follower${stats.followers !== 1 ? 's' : ''}.`);
-                  }
+                // Navigate to followers list if screen exists, otherwise show alert
+                try {
+                  navigation.navigate('FollowersList', { userId: user.id, type: 'followers' });
+                } catch (e) {
+                  Alert.alert('Followers', `This user has ${stats.followers} follower${stats.followers !== 1 ? 's' : ''}.`);
                 }
               }}
-              activeOpacity={stats.followers > 0 ? 0.7 : 1}
+              activeOpacity={0.7}
             >
               {loadingStats ? (
                 <ActivityIndicator size="small" color={theme.primary} />
@@ -811,16 +820,14 @@ export default function ProfileScreen() {
             <TouchableOpacity 
               style={styles.statItem}
               onPress={() => {
-                if (stats.following > 0) {
-                  // Navigate to following list if screen exists, otherwise show alert
-                  try {
-                    navigation.navigate('FollowersList', { userId: user.id, type: 'following' });
-                  } catch (e) {
-                    Alert.alert('Following', `Following ${stats.following} user${stats.following !== 1 ? 's' : ''}.`);
-                  }
+                // Navigate to following list if screen exists, otherwise show alert
+                try {
+                  navigation.navigate('FollowersList', { userId: user.id, type: 'following' });
+                } catch (e) {
+                  Alert.alert('Following', `Following ${stats.following} user${stats.following !== 1 ? 's' : ''}.`);
                 }
               }}
-              activeOpacity={stats.following > 0 ? 0.7 : 1}
+              activeOpacity={0.7}
             >
               {loadingStats ? (
                 <ActivityIndicator size="small" color={theme.primary} />
@@ -1025,10 +1032,20 @@ export default function ProfileScreen() {
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={theme.primary} />
               </View>
-            ) : posts.filter(post => post.media || post.imageUrl).length > 0 ? (
-              posts.filter(post => post.media || post.imageUrl).map((post) => (
+            ) : posts.filter(post => post.mediaUrl || post.imageUrl || post.media).length > 0 ? (
+              posts.filter(post => post.mediaUrl || post.imageUrl || post.media).map((post) => (
                 <TouchableOpacity key={post.id} style={styles.mediaItem}>
-                  <Image source={{ uri: post.media || post.imageUrl }} style={styles.mediaImage} />
+                  {post.type === 'video' ? (
+                    <Video
+                      source={{ uri: post.mediaUrl || post.imageUrl || post.media }}
+                      style={styles.mediaImage}
+                      useNativeControls
+                      resizeMode={ResizeMode.COVER}
+                      isLooping={false}
+                    />
+                  ) : (
+                    <Image source={{ uri: post.mediaUrl || post.imageUrl || post.media }} style={styles.mediaImage} />
+                  )}
                   {post.type === 'video' && (
                     <View style={styles.videoOverlay}>
                       <Ionicons name="play" size={24} color="#fff" />
@@ -1056,7 +1073,7 @@ export default function ProfileScreen() {
         <View style={styles.footer}>
           <M1ALogo size={40} variant="minimal" style={styles.footerLogo} />
           <Text style={[styles.footerText, { color: theme.subtext }]}>
-            Powered by M1A
+            Powered by Merkaba Ent.
           </Text>
         </View>
         </ScrollView>

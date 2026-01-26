@@ -196,9 +196,9 @@ export default function CreatePostScreen({ navigation }) {
       if (mediaType === 'photo') {
         downloadURL = await uploadImageAsync(mediaUri, 'posts', 1920);
       } else if (mediaType === 'video') {
-        downloadURL = await uploadFileAsync(mediaUri, 'posts/videos', 'video');
+        downloadURL = await uploadFileAsync(mediaUri, 'posts', 'video');
       } else if (mediaType === 'audio') {
-        downloadURL = await uploadFileAsync(mediaUri, 'posts/audio', 'audio');
+        downloadURL = await uploadFileAsync(mediaUri, 'posts', 'audio');
       }
 
       if (downloadURL) {
@@ -249,6 +249,8 @@ export default function CreatePostScreen({ navigation }) {
         content: content.trim(),
         type: mediaType || 'text',
         mediaUrl: uploadedMediaUrl || null,
+        imageUrl: mediaType === 'photo' ? (uploadedMediaUrl || null) : null,
+        media: uploadedMediaUrl || null,
         likes: 0,
         comments: 0,
         createdAt: serverTimestamp(),

@@ -3,7 +3,9 @@ Google Drive API endpoints for client content library
 Provides pass-through access to Google Drive files
 """
 import os
+import io
 from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List, Optional, Dict, Any
 from google.oauth2.credentials import Credentials
@@ -11,6 +13,7 @@ from google.oauth2 import service_account
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload
 from google.auth.transport.requests import Request
 
 # Initialize Firebase Admin if not already initialized
@@ -158,6 +161,50 @@ def get_user_folder_id(user_id: str) -> Optional[str]:
         print(f"Error fetching user folder ID: {str(e)}")
         return None
 
+def is_file_in_user_folder(
+    drive_service,
+    file_id: str,
+    folder_id: Optional[str],
+    max_hops: int = 25
+) -> bool:
+    """Return True if file_id is inside folder_id (direct or nested)."""
+    if not folder_id:
+        return True
+    if file_id == folder_id:
+        return True
+
+    checked = set()
+    queue = [file_id]
+    hops = 0
+
+    while queue and hops < max_hops:
+        current_id = queue.pop(0)
+        if current_id in checked:
+            continue
+        checked.add(current_id)
+        hops += 1
+
+        metadata = drive_service.files().get(
+            fileId=current_id,
+            fields="id, parents, mimeType, shortcutDetails",
+            supportsAllDrives=True
+        ).execute()
+
+        if metadata.get("mimeType") == "application/vnd.google-apps.shortcut":
+            target_id = metadata.get("shortcutDetails", {}).get("targetId")
+            if target_id and target_id not in checked:
+                queue.append(target_id)
+
+        parents = metadata.get("parents") or []
+        if folder_id in parents:
+            return True
+
+        for parent_id in parents:
+            if parent_id not in checked:
+                queue.append(parent_id)
+
+    return False
+
 @router.get("/files")
 async def list_files(
     folderId: str = Query(..., description="Google Drive folder ID"),
@@ -177,7 +224,9 @@ async def list_files(
         results = drive_service.files().list(
             q=f"'{folderId}' in parents and trashed=false",
             fields="files(id, name, mimeType, size, modifiedTime, thumbnailLink, webViewLink, webContentLink)",
-            orderBy="modifiedTime desc"
+            orderBy="modifiedTime desc",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
         ).execute()
         
         files = results.get('files', [])
@@ -233,21 +282,17 @@ async def get_download_url(
 
         # If using service account, ensure file belongs to user's folder
         stored_folder_id = get_user_folder_id(user["userId"])
-        if stored_folder_id:
-            parents = drive_service.files().get(
-                fileId=file_id,
-                fields="parents"
-            ).execute().get('parents', [])
-            if stored_folder_id not in parents:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="File is not in the user's content folder."
-                )
+        if not is_file_in_user_folder(drive_service, file_id, stored_folder_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="File is not in the user's content folder."
+            )
         
         # Get file metadata
         file_metadata = drive_service.files().get(
             fileId=file_id,
-            fields="id, name, mimeType, webContentLink"
+            fields="id, name, mimeType, webContentLink",
+            supportsAllDrives=True
         ).execute()
         
         # For files that can be downloaded directly
@@ -281,6 +326,73 @@ async def get_download_url(
             detail=f"Failed to get download URL: {str(e)}"
         )
 
+
+@router.get("/files/{file_id}/download")
+async def download_file(
+    file_id: str,
+    user: dict = Depends(verify_token)
+):
+    """Download a file through the backend (handles auth)."""
+    try:
+        drive_service = get_drive_service(user["userId"], allow_service_account=True)
+
+        stored_folder_id = get_user_folder_id(user["userId"])
+        if not is_file_in_user_folder(drive_service, file_id, stored_folder_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="File is not in the user's content folder."
+            )
+
+        file_metadata = drive_service.files().get(
+            fileId=file_id,
+            fields="id, name, mimeType",
+            supportsAllDrives=True
+        ).execute()
+
+        filename = file_metadata.get('name') or 'download'
+        mime_type = file_metadata.get('mimeType') or 'application/octet-stream'
+
+        if 'google-apps' in mime_type:
+            request = drive_service.files().export_media(
+                fileId=file_id,
+                mimeType='application/pdf',
+                supportsAllDrives=True
+            )
+            mime_type = 'application/pdf'
+            if not filename.lower().endswith('.pdf'):
+                filename = f"{filename}.pdf"
+        else:
+            request = drive_service.files().get_media(
+                fileId=file_id,
+                supportsAllDrives=True
+            )
+
+        file_buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(file_buffer, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+
+        file_buffer.seek(0)
+        return Response(
+            content=file_buffer.read(),
+            media_type=mime_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+    except HttpError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Google Drive API error: {str(e)}"
+        )
+    except Exception as e:
+        print(f"Error downloading file: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download file: {str(e)}"
+        )
+
 @router.get("/files/{file_id}/thumbnail")
 async def get_thumbnail(
     file_id: str,
@@ -291,18 +403,14 @@ async def get_thumbnail(
         drive_service = get_drive_service(user["userId"], allow_service_account=True)
 
         stored_folder_id = get_user_folder_id(user["userId"])
-        if stored_folder_id:
-            parents = drive_service.files().get(
-                fileId=file_id,
-                fields="parents"
-            ).execute().get('parents', [])
-            if stored_folder_id not in parents:
-                return {"thumbnailUrl": None}
+        if not is_file_in_user_folder(drive_service, file_id, stored_folder_id):
+            return {"thumbnailUrl": None}
         
         # Get file metadata with thumbnail
         file_metadata = drive_service.files().get(
             fileId=file_id,
-            fields="thumbnailLink"
+            fields="thumbnailLink",
+            supportsAllDrives=True
         ).execute()
         
         thumbnail_url = file_metadata.get('thumbnailLink')

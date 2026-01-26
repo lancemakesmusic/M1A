@@ -1,6 +1,6 @@
 {
   "name": "m1a",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
@@ -31,6 +31,7 @@
     "@react-navigation/native-stack": "^7.3.24",
     "@react-navigation/stack": "^7.4.5",
     "expo": "~54.0.31",
+    "expo-av": "^16.0.8",
     "expo-blur": "~15.0.8",
     "expo-constants": "~18.0.9",
     "expo-file-system": "~19.0.19",

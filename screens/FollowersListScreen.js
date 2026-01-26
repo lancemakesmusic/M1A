@@ -5,6 +5,7 @@ import { useCallback, useContext, useState } from 'react';
 import {
     ActivityIndicator,
     FlatList,
+    Image,
     StyleSheet,
     Text,
     TextInput,

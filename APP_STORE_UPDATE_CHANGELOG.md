@@ -1,52 +1,37 @@
-# App Store Update - Version 1.0.1
+# App Store Update - Version 1.0.5
 
 ## What's New in This Version
 
-This update includes critical bug fixes and improvements to enhance your M1A experience.
+This update focuses on messaging reliability, profile navigation, and media playback improvements.
 
 ### 🐛 Bug Fixes
 
-**Profile & Social Features**
-- Fixed issue where users were unable to follow each other on profiles
-- Added functional follow/unfollow buttons with proper status indicators
-- Fixed profile follower and following counts not updating correctly
+**Messaging**
+- Sent messages now persist and reload correctly
+- Reduced extra spacing above the keyboard for a tighter chat layout
 
-**Payment & Checkout**
-- Fixed checkout process that was not actually processing payments
-- Resolved Stripe checkout method not confirming purchases
-- Payment confirmations now properly handled via secure backend webhooks
-- Fixed wallet balance not reflecting purchases correctly
-- Wallet now accurately deducts funds when hours/services are purchased
+**Profile & Social**
+- Followers/Following lists now open reliably
+- Plus button on Profile correctly opens Create Post
+- User profiles opened from Explore show full profile details and posts
 
-**User Experience**
-- Fixed home screen greeting to display user's first name instead of email
-- New accounts now properly capture first name during signup
-- Updated default profile photo placeholder to use M1A logo instead of generic avatar
-- Improved profile photo display consistency across the app
+**Media**
+- Post images and videos render correctly after posting
+- Video uploads use valid storage paths
+- Video posts are now playable in profile feeds
 
-**Message & Post Options**
-- Added functional message options menu with delete conversation feature
-- Added post options menu with delete, edit, and share options
-- Users can now delete their own posts and conversations
-- Improved action menu accessibility throughout the app
+**Content Downloads**
+- Google Drive downloads support nested folders and shared drives
 
 ### ✨ Improvements
 
-- Enhanced payment security with proper webhook handling
-- Improved wallet transaction tracking and balance accuracy
-- Better error handling for payment processing
-- More intuitive user interface with consistent branding
-- Improved profile management and editing capabilities
+- Updated profile footer branding to “Powered by Merkaba Ent.”
+- Better media consistency across profile grids and feeds
 
-### 🔒 Security & Stability
+### 🔒 Stability
 
-- Strengthened payment processing security
-- Improved data consistency for wallet transactions
-- Enhanced error handling and user feedback
+- Improved error handling around media uploads and downloads
 
----
-
-**Note:** This update requires users to update to continue using payment features. We recommend updating as soon as possible for the best experience.
 
 
 

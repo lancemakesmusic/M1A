@@ -126,7 +126,13 @@ service cloud.firestore {
           request.auth.uid in resource.data.participants;
       }
 
-      allow read: if isConversationParticipant();
+      function isParticipantIdInDocId() {
+        return isAuthenticated() &&
+          conversationId.matches('.*' + request.auth.uid + '.*');
+      }
+
+      // Allow read if participant or if docId includes user (for create flow)
+      allow read: if isConversationParticipant() || isParticipantIdInDocId();
 
       allow create: if isAuthenticated() &&
         participantsList(request.resource.data) &&

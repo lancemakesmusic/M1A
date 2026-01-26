@@ -802,7 +802,7 @@ export default function MessagesScreen() {
     }, 100);
 
     try {
-      if (isFirebaseReady() && db && typeof db.collection === 'function') {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
         console.log('📤 Sending message to conversation:', selectedConversation.id);
         console.log('📤 Message text:', messageText);
         console.log('📤 Image URL:', validImageUrl);
@@ -912,9 +912,7 @@ export default function MessagesScreen() {
   if (selectedConversation) {
     // Calculate keyboard offset - account for header and safe area
     const headerHeight = Platform.OS === 'ios' ? 56 : 64;
-    const keyboardOffset = Platform.OS === 'ios' 
-      ? headerHeight + insets.top 
-      : headerHeight;
+    const keyboardOffset = 0;
 
     return (
       <KeyboardAvoidingView
@@ -996,7 +994,10 @@ export default function MessagesScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={[
               styles.messagesContainer,
-              { paddingBottom: keyboardHeight > 0 ? 10 : 16 }
+              {
+                paddingBottom: keyboardHeight > 0 ? 4 : 8,
+                justifyContent: filteredMessages.length === 0 ? 'center' : 'flex-end',
+              },
             ]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
@@ -1054,13 +1055,13 @@ export default function MessagesScreen() {
           />
 
           {/* Message Composer */}
-          <SafeAreaView edges={['bottom']} style={{ backgroundColor: theme.background }}>
+          <SafeAreaView edges={[]} style={{ backgroundColor: theme.background }}>
             <View style={[
               styles.composer, 
               { 
                 backgroundColor: theme.background, 
                 borderTopColor: theme.border,
-                paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 8) : 8
+                paddingBottom: 0
               }
             ]}>
               <TouchableOpacity 

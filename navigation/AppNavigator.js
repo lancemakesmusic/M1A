@@ -235,6 +235,11 @@ function ProfileStackNavigator() {
         component={NotificationsScreen}
         options={{ title: 'Notifications' }}
       />
+      <Stack.Screen
+        name="CreatePost"
+        component={CreatePostScreen}
+        options={{ title: 'Create Post' }}
+      />
     </Stack.Navigator>
   );
 }

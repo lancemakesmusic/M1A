@@ -217,13 +217,16 @@ class GoogleDriveService {
    */
   async downloadFile(fileId, fileName) {
     try {
-      // Get download URL
-      const downloadUrl = await this.getFileDownloadUrl(fileId);
+      const headers = await this.getAuthHeaders();
+      const safeFileName = (fileName || 'download')
+        .replace(/[\\/:*?"<>|]+/g, '-')
+        .trim();
+      const downloadUrl = `${API_BASE_URL}/api/google-drive/files/${fileId}/download`;
+      const fileUri = `${FileSystem.documentDirectory}${safeFileName}`;
       
-      // Download to device's temporary directory
-      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
-      
-      const downloadResult = await FileSystem.downloadAsync(downloadUrl, fileUri);
+      const downloadResult = await FileSystem.downloadAsync(downloadUrl, fileUri, {
+        headers,
+      });
       
       // Share the file (opens native share dialog)
       if (await Sharing.isAvailableAsync()) {

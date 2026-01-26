@@ -5,7 +5,19 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  doc,
+  getCountFromServer,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  where,
+} from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -21,6 +33,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ResizeMode, Video } from 'expo-av';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { blockUser, db, followUser, getFollowers, getFollowing, isBlocked, isFirebaseReady, isFollowing, isMuted, muteUser, reportUser, trackProfileView, unfollowUser, unmuteUser } from '../firebase';
@@ -53,6 +66,8 @@ export default function UserProfileViewScreen({ route, navigation }) {
   const [updatingFollow, setUpdatingFollow] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [stats, setStats] = useState({ followers: 0, following: 0, posts: 0 });
+  const [posts, setPosts] = useState([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
 
   useEffect(() => {
     if (userId && !userData) {
@@ -73,6 +88,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
     if (user?.id && currentUser?.uid) {
       checkUserStatus();
       loadStats();
+      loadPosts();
     }
   }, [user?.id, currentUser?.uid]);
 
@@ -96,14 +112,67 @@ export default function UserProfileViewScreen({ route, navigation }) {
   const loadStats = async () => {
     if (!user?.id) return;
     try {
-      const [followers, following] = await Promise.all([
+      const [followers, following, postsCount] = await Promise.all([
         getFollowers(user.id, 1).then(list => list.length),
         getFollowing(user.id, 1).then(list => list.length),
+        (async () => {
+          if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+            const postsQuery = query(collection(db, 'posts'), where('userId', '==', user.id));
+            const snapshot = await getCountFromServer(postsQuery);
+            return snapshot.data().count;
+          }
+          return 0;
+        })(),
       ]);
-      // Get posts count would require a query, but for now we'll skip it
-      setStats({ followers, following, posts: 0 });
+      setStats({ followers, following, posts: postsCount });
     } catch (error) {
       logError('Error loading stats:', error);
+    }
+  };
+
+  const formatTimestamp = (date) => {
+    if (!date) return 'Unknown';
+    const now = new Date();
+    const diff = now - date;
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+    if (minutes < 1) return 'now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  const loadPosts = async () => {
+    if (!user?.id) return;
+    setLoadingPosts(true);
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        const postsQuery = query(
+          collection(db, 'posts'),
+          where('userId', '==', user.id),
+          orderBy('createdAt', 'desc'),
+          limit(20)
+        );
+        const postsSnapshot = await getDocs(postsQuery);
+        const postsData = postsSnapshot.docs.map(docSnap => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+          timestamp: docSnap.data().createdAt?.toDate
+            ? formatTimestamp(docSnap.data().createdAt.toDate())
+            : 'Unknown',
+        }));
+        setPosts(postsData);
+      } else {
+        setPosts([]);
+      }
+    } catch (error) {
+      console.error('Error loading user posts:', error);
+      setPosts([]);
+    } finally {
+      setLoadingPosts(false);
     }
   };
 
@@ -465,6 +534,53 @@ export default function UserProfileViewScreen({ route, navigation }) {
             </View>
           </View>
         )}
+
+        {/* Posts */}
+        <View style={[styles.section, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Posts</Text>
+          {loadingPosts ? (
+            <View style={styles.loadingPosts}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <Text style={[styles.loadingPostsText, { color: theme.subtext }]}>Loading posts...</Text>
+            </View>
+          ) : posts.length > 0 ? (
+            posts.map((post) => (
+              <View key={post.id} style={[styles.postCard, { borderColor: theme.border }]}>
+                <View style={styles.postHeader}>
+                  {hasAvatar(user) ? (
+                    <Image source={getAvatarSource(user)} style={styles.postAvatar} />
+                  ) : (
+                    <View style={[styles.postAvatar, { backgroundColor: theme.cardBackground, justifyContent: 'center', alignItems: 'center' }]}>
+                      <M1ALogo size={styles.postAvatar.width || 36} variant="icon" color={theme.primary} />
+                    </View>
+                  )}
+                  <View style={styles.postHeaderText}>
+                    <Text style={[styles.postUserName, { color: theme.text }]}>{user.displayName || 'User'}</Text>
+                    <Text style={[styles.postTime, { color: theme.subtext }]}>{post.timestamp}</Text>
+                  </View>
+                </View>
+                {!!post.content && (
+                  <Text style={[styles.postContent, { color: theme.text }]}>{post.content}</Text>
+                )}
+                {(post.mediaUrl || post.imageUrl || post.media) && (
+                  post.type === 'video' ? (
+                    <Video
+                      source={{ uri: post.mediaUrl || post.imageUrl || post.media }}
+                      style={styles.postMedia}
+                      useNativeControls
+                      resizeMode={ResizeMode.COVER}
+                      isLooping={false}
+                    />
+                  ) : (
+                    <Image source={{ uri: post.mediaUrl || post.imageUrl || post.media }} style={styles.postMedia} />
+                  )
+                )}
+              </View>
+            ))
+          ) : (
+            <Text style={[styles.emptyPostsText, { color: theme.subtext }]}>No posts yet</Text>
+          )}
+        </View>
       </ScrollView>
 
       {/* Message Modal */}
@@ -984,6 +1100,55 @@ const styles = StyleSheet.create({
   socialLinkText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  loadingPosts: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  loadingPostsText: {
+    fontSize: 14,
+  },
+  emptyPostsText: {
+    fontSize: 14,
+  },
+  postCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+    backgroundColor: 'transparent',
+  },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 10,
+  },
+  postAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  postHeaderText: {
+    flex: 1,
+  },
+  postUserName: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  postTime: {
+    fontSize: 12,
+  },
+  postContent: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  postMedia: {
+    width: '100%',
+    height: 220,
+    borderRadius: 8,
   },
   modalOverlay: {
     flex: 1,
