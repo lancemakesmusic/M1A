@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
 import { auth, db, uploadFileAsync, uploadImageAsync, isFirebaseReady } from '../firebase';
+import { log, logError } from '../utils/logger';
 
 export default function CreatePostScreen({ navigation }) {
   const { user } = useContext(UserContext);
@@ -72,7 +73,7 @@ export default function CreatePostScreen({ navigation }) {
         setMediaUrl(null);
       }
     } catch (error) {
-      console.error('Error picking photo:', error);
+      logError('Error picking photo:', error);
       Alert.alert('Error', 'Failed to pick photo. Please try again.');
     }
   };
@@ -95,7 +96,7 @@ export default function CreatePostScreen({ navigation }) {
         setMediaUrl(null);
       }
     } catch (error) {
-      console.error('Error taking photo:', error);
+      logError('Error taking photo:', error);
       Alert.alert('Error', 'Failed to take photo. Please try again.');
     }
   };
@@ -118,7 +119,7 @@ export default function CreatePostScreen({ navigation }) {
         setMediaUrl(null);
       }
     } catch (error) {
-      console.error('Error picking video:', error);
+      logError('Error picking video:', error);
       Alert.alert('Error', 'Failed to pick video. Please try again.');
     }
   };
@@ -141,7 +142,7 @@ export default function CreatePostScreen({ navigation }) {
         setMediaUrl(null);
       }
     } catch (error) {
-      console.error('Error taking video:', error);
+      logError('Error taking video:', error);
       Alert.alert('Error', 'Failed to take video. Please try again.');
     }
   };
@@ -169,13 +170,13 @@ export default function CreatePostScreen({ navigation }) {
           setMediaType('audio');
           setMediaUri(asset.uri);
           setMediaUrl(null); // Will be set after upload
-          console.log('✅ Audio file selected:', asset.uri);
+          log('✅ Audio file selected:', asset.uri);
         } else {
           Alert.alert('Invalid File', 'Please select an audio file (MP3, M4A, or WAV).');
         }
       }
     } catch (error) {
-      console.error('Error picking audio:', error);
+      logError('Error picking audio:', error);
       Alert.alert('Error', `Failed to pick audio file: ${error.message || 'Please try again.'}`);
     }
   };
@@ -207,7 +208,7 @@ export default function CreatePostScreen({ navigation }) {
       }
       return null;
     } catch (error) {
-      console.error('Error uploading media:', error);
+      logError('Error uploading media:', error);
       Alert.alert('Upload failed', 'Failed to upload media. Please try again.');
       return null;
     } finally {
@@ -273,7 +274,7 @@ export default function CreatePostScreen({ navigation }) {
         },
       ]);
     } catch (error) {
-      console.error('Error creating post:', error);
+      logError('Error creating post:', error);
       const errorMessage = error?.message || 'Unknown error';
       const friendlyMessage = errorMessage.includes('permission') 
         ? 'You do not have permission to create posts. Please check your account status.'

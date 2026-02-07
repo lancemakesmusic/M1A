@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import { logError } from '../utils/logger';
 
 const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 const CALENDAR_ID_KEY = 'm1a_google_calendar_id';
@@ -42,7 +43,7 @@ class GoogleCalendarService {
       const token = await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
       return !!token;
     } catch (error) {
-      console.error('Error checking connection:', error);
+      logError('Error checking connection:', error);
       return false;
     }
   }
@@ -54,7 +55,7 @@ class GoogleCalendarService {
     try {
       return await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
     } catch (error) {
-      console.error('Error getting access token:', error);
+      logError('Error getting access token:', error);
       return null;
     }
   }
@@ -73,7 +74,7 @@ class GoogleCalendarService {
       }
       return true;
     } catch (error) {
-      console.error('Error saving tokens:', error);
+      logError('Error saving tokens:', error);
       return false;
     }
   }
@@ -90,7 +91,7 @@ class GoogleCalendarService {
       ]);
       return true;
     } catch (error) {
-      console.error('Error disconnecting:', error);
+      logError('Error disconnecting:', error);
       return false;
     }
   }
@@ -159,7 +160,7 @@ class GoogleCalendarService {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const errorMessage = errorData.error?.message || `HTTP ${response.status}`;
-        console.error('Google Calendar availability check failed:', errorMessage);
+        logError('Google Calendar availability check failed:', errorMessage);
         // Return available but with warning - don't block bookings on API errors
         return { 
           available: true, 
@@ -178,7 +179,7 @@ class GoogleCalendarService {
         reason: busy.length > 0 ? 'Time slot is already booked' : 'Available',
       };
     } catch (error) {
-      console.error('Error checking availability:', error);
+      logError('Error checking availability:', error);
       // Return available but with warning - don't block bookings on errors
       return { 
         available: true, 
@@ -213,7 +214,7 @@ class GoogleCalendarService {
 
       return { success: true, events: mockEvents };
     } catch (error) {
-      console.error('Error getting events:', error);
+      logError('Error getting events:', error);
       return { success: false, events: [], error: error.message };
     }
   }
@@ -280,7 +281,7 @@ class GoogleCalendarService {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`;
-        console.error('Google Calendar API error:', errorMessage);
+        logError('Google Calendar API error:', errorMessage);
         return {
           success: false,
           error: errorMessage,
@@ -296,7 +297,7 @@ class GoogleCalendarService {
         message: 'Event created successfully in Google Calendar',
       };
     } catch (error) {
-      console.error('Error creating event:', error);
+      logError('Error creating event:', error);
       return {
         success: false,
         error: error.message,
@@ -329,7 +330,7 @@ class GoogleCalendarService {
       // Similar to createEvent but with PUT/PATCH
       return { success: true, message: 'Event updated (mock)' };
     } catch (error) {
-      console.error('Error updating event:', error);
+      logError('Error updating event:', error);
       return { success: false, error: error.message };
     }
   }
@@ -355,7 +356,7 @@ class GoogleCalendarService {
       // Mock delete
       return { success: true, message: 'Event deleted (mock)' };
     } catch (error) {
-      console.error('Error deleting event:', error);
+      logError('Error deleting event:', error);
       return { success: false, error: error.message };
     }
   }
@@ -387,7 +388,7 @@ class GoogleCalendarService {
         ],
       };
     } catch (error) {
-      console.error('Error getting calendar list:', error);
+      logError('Error getting calendar list:', error);
       return { success: false, calendars: [] };
     }
   }

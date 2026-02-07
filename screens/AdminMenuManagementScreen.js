@@ -25,6 +25,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
 import EmptyState from '../components/EmptyState';
+import { log, logError } from '../utils/logger';
 
 export default function AdminMenuManagementScreen({ navigation }) {
   const { user } = useAuth();
@@ -77,11 +78,11 @@ export default function AdminMenuManagementScreen({ navigation }) {
           setMenuItems([]);
         }
       } catch (error) {
-        console.log('Menu items collection may not exist yet:', error);
+        log('Menu items collection may not exist yet:', error);
         setMenuItems([]);
       }
     } catch (error) {
-      console.error('Error loading menu items:', error);
+      logError('Error loading menu items:', error);
       Alert.alert('Error', 'Failed to load menu items');
     } finally {
       setLoading(false);
@@ -157,7 +158,7 @@ export default function AdminMenuManagementScreen({ navigation }) {
       setShowAddModal(false);
       loadMenuItems();
     } catch (error) {
-      console.error('Error saving menu item:', error);
+      logError('Error saving menu item:', error);
       Alert.alert('Error', 'Failed to save menu item');
     } finally {
       setProcessing(false);
@@ -179,7 +180,7 @@ export default function AdminMenuManagementScreen({ navigation }) {
               Alert.alert('Success', 'Menu item deleted successfully');
               loadMenuItems();
             } catch (error) {
-              console.error('Error deleting menu item:', error);
+              logError('Error deleting menu item:', error);
               Alert.alert('Error', 'Failed to delete menu item');
             }
           },

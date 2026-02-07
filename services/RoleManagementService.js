@@ -8,6 +8,7 @@ import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serv
 import { db } from '../firebase';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
+import { logError } from '../utils/logger';
 
 class RoleManagementService {
   /**
@@ -90,7 +91,7 @@ class RoleManagementService {
         message: 'Employee account created successfully',
       };
     } catch (error) {
-      console.error('Error creating employee account:', error);
+      logError('Error creating employee account:', error);
       throw error;
     }
   }
@@ -166,7 +167,7 @@ class RoleManagementService {
         message: 'Admin account created successfully',
       };
     } catch (error) {
-      console.error('Error creating admin account:', error);
+      logError('Error creating admin account:', error);
       throw error;
     }
   }
@@ -277,7 +278,7 @@ class RoleManagementService {
         message: `User upgraded from ${userData.role} to ${newRole}`,
       };
     } catch (error) {
-      console.error('Error upgrading user:', error);
+      logError('Error upgrading user:', error);
       throw error;
     }
   }
@@ -359,7 +360,7 @@ class RoleManagementService {
         message: `User role revoked. Downgraded from ${userData.role} to client`,
       };
     } catch (error) {
-      console.error('Error revoking user role:', error);
+      logError('Error revoking user role:', error);
       throw error;
     }
   }
@@ -415,7 +416,7 @@ class RoleManagementService {
         message: `User role updated to ${newRole}`,
       };
     } catch (error) {
-      console.error('Error updating user role:', error);
+      logError('Error updating user role:', error);
       throw error;
     }
   }
@@ -449,7 +450,7 @@ class RoleManagementService {
         ...doc.data(),
       }));
     } catch (error) {
-      console.error('Error getting employees:', error);
+      logError('Error getting employees:', error);
       throw error;
     }
   }
@@ -484,7 +485,7 @@ class RoleManagementService {
         ...doc.data(),
       }));
     } catch (error) {
-      console.error('Error getting admins:', error);
+      logError('Error getting admins:', error);
       throw error;
     }
   }
@@ -534,7 +535,7 @@ class RoleManagementService {
         message: 'User account deactivated',
       };
     } catch (error) {
-      console.error('Error deactivating user:', error);
+      logError('Error deactivating user:', error);
       throw error;
     }
   }
@@ -578,7 +579,7 @@ class RoleManagementService {
         message: 'User account reactivated',
       };
     } catch (error) {
-      console.error('Error reactivating user:', error);
+      logError('Error reactivating user:', error);
       throw error;
     }
   }
@@ -614,7 +615,7 @@ class RoleManagementService {
         message: 'Employee account deactivated',
       };
     } catch (error) {
-      console.error('Error deactivating employee:', error);
+      logError('Error deactivating employee:', error);
       throw error;
     }
   }

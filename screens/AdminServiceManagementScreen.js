@@ -25,6 +25,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
 import EmptyState from '../components/EmptyState';
+import { logError } from '../utils/logger';
 
 export default function AdminServiceManagementScreen({ navigation }) {
   const { user } = useAuth();
@@ -68,7 +69,7 @@ export default function AdminServiceManagementScreen({ navigation }) {
       }));
       setServices(servicesData);
     } catch (error) {
-      console.error('Error loading services:', error);
+      logError('Error loading services:', error);
       Alert.alert('Error', 'Failed to load services');
     } finally {
       setLoading(false);
@@ -141,7 +142,7 @@ export default function AdminServiceManagementScreen({ navigation }) {
       setShowAddModal(false);
       loadServices();
     } catch (error) {
-      console.error('Error saving service:', error);
+      logError('Error saving service:', error);
       Alert.alert('Error', 'Failed to save service');
     } finally {
       setProcessing(false);
@@ -163,7 +164,7 @@ export default function AdminServiceManagementScreen({ navigation }) {
               Alert.alert('Success', 'Service deleted successfully');
               loadServices();
             } catch (error) {
-              console.error('Error deleting service:', error);
+              logError('Error deleting service:', error);
               Alert.alert('Error', 'Failed to delete service');
             }
           },

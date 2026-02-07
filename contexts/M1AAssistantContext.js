@@ -10,6 +10,7 @@ import M1AAssistantService from '../services/M1AAssistantService';
 import TipTrackingService from '../services/TipTrackingService';
 import { useM1APersonalization } from './M1APersonalizationContext';
 import { navigationRef as rootNavigationRef } from '../App';
+import { log, logWarn, logError } from '../utils/logger';
 
 const M1AAssistantContext = createContext();
 const CHAT_HISTORY_KEY = 'm1a_chat_history';
@@ -53,7 +54,7 @@ export function M1AAssistantProvider({ children }) {
         setChatHistory(historyWithDates);
       }
     } catch (error) {
-      console.error('Error loading chat history:', error);
+      logError('Error loading chat history:', error);
     } finally {
       setIsLoadingHistory(false);
     }
@@ -63,7 +64,7 @@ export function M1AAssistantProvider({ children }) {
     try {
       await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(chatHistory));
     } catch (error) {
-      console.error('Error saving chat history:', error);
+      logError('Error saving chat history:', error);
     }
   };
   
@@ -169,7 +170,7 @@ export function M1AAssistantProvider({ children }) {
       const updated = [...prev, newMessage];
       // Auto-save to AsyncStorage
       AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updated)).catch(err => {
-        console.error('Error auto-saving chat history:', err);
+        logError('Error auto-saving chat history:', err);
       });
       return updated;
     });
@@ -255,11 +256,11 @@ export function M1AAssistantProvider({ children }) {
                       setIsExpanded(false);
                       return true;
                     } catch (nestedError) {
-                      console.warn('Nested navigation failed:', nestedError.message);
+                      logWarn('Nested navigation failed:', nestedError.message);
                       return false;
                     }
                   }
-                  console.warn('Simple navigation failed:', simpleError.message);
+                  logWarn('Simple navigation failed:', simpleError.message);
                   return false;
                 }
               }
@@ -272,7 +273,7 @@ export function M1AAssistantProvider({ children }) {
                 nav.navigate(targetScreen);
                 setIsExpanded(false);
               } catch (fallbackError) {
-                console.warn('Fallback navigation failed:', fallbackError.message);
+                logWarn('Fallback navigation failed:', fallbackError.message);
                 // Retry after a short delay
                 setTimeout(() => {
                   navigateToScreen();
@@ -280,13 +281,13 @@ export function M1AAssistantProvider({ children }) {
               }
             }
           } catch (error) {
-            console.warn('Navigation error for screen:', targetScreen, error.message);
+            logWarn('Navigation error for screen:', targetScreen, error.message);
             // Don't throw - just log the warning and continue
             // The user can still manually navigate if needed
           }
         }, isInstant ? 200 : 500); // Faster navigation for instant responses
       } else {
-        console.warn('Navigation ref not available');
+        logWarn('Navigation ref not available');
       }
     }
 
@@ -314,7 +315,7 @@ export function M1AAssistantProvider({ children }) {
           // Fallback to context navigation ref
           navigationRef.current.navigate(tip.action.screen);
         } else {
-          console.warn('Navigation not available for tip action');
+          logWarn('Navigation not available for tip action');
           return;
         }
         // Don't hide bubble - keep it visible for continued use
@@ -323,13 +324,13 @@ export function M1AAssistantProvider({ children }) {
         break;
       case 'scroll':
         // Scroll to target (would need ref to scroll view)
-        console.log('Scroll to:', tip.action.target);
+        log('Scroll to:', tip.action.target);
         break;
       case 'show':
         // Show specific content (like service request modal)
         if (tip.action.type === 'service-request') {
           // This will be handled by the chat screen
-          console.log('Service request action triggered');
+          log('Service request action triggered');
         }
         break;
     }
@@ -365,7 +366,7 @@ export function M1AAssistantProvider({ children }) {
           try {
             nav.navigate(flowStep.action.screen);
           } catch (error) {
-            console.warn('Navigation error:', error);
+            logWarn('Navigation error:', error);
           }
         }, 500);
       }
@@ -377,7 +378,7 @@ export function M1AAssistantProvider({ children }) {
   const startTour = useCallback((screenName) => {
     const tourSteps = M1AAssistantService.getTourSteps(screenName, userPersona);
     // Tour implementation would go here
-    console.log('Starting tour:', tourSteps);
+    log('Starting tour:', tourSteps);
     return tourSteps;
   }, [userPersona]);
 
@@ -390,7 +391,7 @@ export function M1AAssistantProvider({ children }) {
     try {
       await AsyncStorage.removeItem(CHAT_HISTORY_KEY);
     } catch (error) {
-      console.error('Error clearing chat history:', error);
+      logError('Error clearing chat history:', error);
     }
   }, []);
 

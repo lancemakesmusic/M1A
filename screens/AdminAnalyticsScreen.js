@@ -24,6 +24,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
+import { logError } from '../utils/logger';
 
 const { width } = Dimensions.get('window');
 const CHART_HEIGHT = 150;
@@ -212,7 +213,7 @@ export default function AdminAnalyticsScreen({ navigation }) {
         recentActivity: [],
       });
     } catch (error) {
-      console.error('Error loading analytics:', error);
+      logError('Error loading analytics:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -169,7 +169,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
         setPosts([]);
       }
     } catch (error) {
-      console.error('Error loading user posts:', error);
+      logError('Error loading user posts:', error);
       setPosts([]);
     } finally {
       setLoadingPosts(false);
@@ -190,7 +190,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
         throw new Error('Firestore not ready');
       }
     } catch (error) {
-      console.error('Error loading user profile:', error);
+      logError('Error loading user profile:', error);
       Alert.alert('Error', 'Failed to load user profile');
     } finally {
       setLoading(false);
@@ -227,7 +227,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
       setMessageText('');
       navigation.navigate('Messages');
     } catch (error) {
-      console.error('Error sending message:', error);
+      logError('Error sending message:', error);
       Alert.alert('Error', 'Failed to send message. Please try again.');
     }
   };
@@ -273,7 +273,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
         }}]
       );
     } catch (error) {
-      console.error('Error sending inquiry:', error);
+      logError('Error sending inquiry:', error);
       Alert.alert('Error', 'Failed to send inquiry. Please try again.');
     }
   };

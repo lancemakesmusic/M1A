@@ -6,6 +6,7 @@
 import { collection, addDoc, query, where, orderBy, limit, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
 import { trackFeedback, trackBugReport, trackFeatureRequest, trackSurvey, trackError } from './AnalyticsService';
+import { log, logWarn, logError } from '../utils/logger';
 
 const FEEDBACK_COLLECTION = 'feedback';
 const SURVEY_COLLECTION = 'surveys';
@@ -75,13 +76,13 @@ class FeedbackService {
 
           return { success: true, id: feedbackRef.id };
         } catch (firebaseError) {
-          console.warn('Firebase feedback submission failed, using mock:', firebaseError);
+          logWarn('Firebase feedback submission failed, using mock:', firebaseError);
           // Fall through to mock
         }
       }
 
       // Mock implementation for development
-      console.log('📝 Mock Feedback Submitted:', feedbackDoc);
+      log('📝 Mock Feedback Submitted:', feedbackDoc);
       await trackFeedback(type, !!rating, !!sanitizedEmail, sanitizedText.length);
       
       // Track specific feedback types
@@ -93,7 +94,7 @@ class FeedbackService {
 
       return { success: true, id: `mock_${Date.now()}` };
     } catch (error) {
-      console.error('Error submitting feedback:', error);
+      logError('Error submitting feedback:', error);
       trackError(error.message || 'Feedback submission failed', 'feedback_submission_error', 'FeedbackScreen');
       throw error;
     }
@@ -144,18 +145,18 @@ class FeedbackService {
 
           return { success: true, id: surveyRef.id };
         } catch (firebaseError) {
-          console.warn('Firebase survey submission failed, using mock:', firebaseError);
+          logWarn('Firebase survey submission failed, using mock:', firebaseError);
           // Fall through to mock
         }
       }
 
       // Mock implementation
-      console.log('📊 Mock Survey Submitted:', surveyDoc);
+      log('📊 Mock Survey Submitted:', surveyDoc);
       await trackSurvey(surveyId, Object.keys(responses).length, 0, responses);
 
       return { success: true, id: `mock_${Date.now()}` };
     } catch (error) {
-      console.error('Error submitting survey:', error);
+      logError('Error submitting survey:', error);
       trackError(error.message || 'Survey submission failed', 'survey_submission_error', 'FeedbackScreen');
       throw error;
     }
@@ -182,7 +183,7 @@ class FeedbackService {
           const snapshot = await getDocs(q);
           return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (firebaseError) {
-          console.warn('Firebase feedback fetch failed, using mock:', firebaseError);
+          logWarn('Firebase feedback fetch failed, using mock:', firebaseError);
           // Fall through to mock
         }
       }
@@ -190,7 +191,7 @@ class FeedbackService {
       // Mock implementation
       return [];
     } catch (error) {
-      console.error('Error fetching user feedback:', error);
+      logError('Error fetching user feedback:', error);
       return [];
     }
   }

@@ -3,6 +3,7 @@
 
 import * as FileSystem from 'expo-file-system';
 import { Image } from 'react-native';
+import { logWarn } from './logger';
 
 class ImageCache {
   constructor() {
@@ -21,7 +22,7 @@ class ImageCache {
         await FileSystem.makeDirectoryAsync(this.cacheDir, { intermediates: true });
       }
     } catch (error) {
-      console.warn('Failed to initialize image cache directory:', error);
+      logWarn('Failed to initialize image cache directory:', error);
     }
   }
 
@@ -64,7 +65,7 @@ class ImageCache {
         return cachedPath;
       }
     } catch (error) {
-      console.warn('Error checking cached image:', error);
+      logWarn('Error checking cached image:', error);
     }
 
     return null;
@@ -91,7 +92,7 @@ class ImageCache {
       // Add to memory cache
       this.addToMemoryCache(url, cachedPath);
     } catch (error) {
-      console.warn('Error caching image:', error);
+      logWarn('Error caching image:', error);
     }
   }
 
@@ -129,7 +130,7 @@ class ImageCache {
       this.addToMemoryCache(url, downloadResult.uri);
       return downloadResult.uri;
     } catch (error) {
-      console.warn('Error preloading image:', error);
+      logWarn('Error preloading image:', error);
       return null;
     }
   }
@@ -145,7 +146,7 @@ class ImageCache {
         files.map(file => FileSystem.deleteAsync(`${this.cacheDir}${file}`, { idempotent: true }))
       );
     } catch (error) {
-      console.warn('Error clearing image cache:', error);
+      logWarn('Error clearing image cache:', error);
     }
   }
 
@@ -164,7 +165,7 @@ class ImageCache {
       }
       return totalSize;
     } catch (error) {
-      console.warn('Error getting cache size:', error);
+      logWarn('Error getting cache size:', error);
       return 0;
     }
   }

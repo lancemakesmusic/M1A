@@ -6,6 +6,7 @@
 import { collection, addDoc, query, where, orderBy, limit, getDocs, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
 import { trackFeatureUsage, trackError } from './AnalyticsService';
+import { log, logWarn, logError } from '../utils/logger';
 
 const SUPPORT_TICKETS_COLLECTION = 'supportTickets';
 const LIVE_CHAT_COLLECTION = 'liveChatSessions';
@@ -75,13 +76,13 @@ class SupportService {
 
           return { success: true, ticketId: ticketRef.id };
         } catch (firebaseError) {
-          console.warn('Firebase ticket creation failed, using mock:', firebaseError);
+          logWarn('Firebase ticket creation failed, using mock:', firebaseError);
           // Fall through to mock
         }
       }
 
       // Mock implementation
-      console.log('📧 Mock Support Ticket Created:', ticketDoc);
+      log('📧 Mock Support Ticket Created:', ticketDoc);
       await trackFeatureUsage('support_ticket_created', {
         category,
         priority,
@@ -90,7 +91,7 @@ class SupportService {
 
       return { success: true, ticketId: `mock_${Date.now()}` };
     } catch (error) {
-      console.error('Error creating support ticket:', error);
+      logError('Error creating support ticket:', error);
       trackError(error.message || 'Support ticket creation failed', 'support_ticket_error', 'SupportService');
       throw error;
     }
@@ -117,7 +118,7 @@ class SupportService {
           const snapshot = await getDocs(q);
           return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (firebaseError) {
-          console.warn('Firebase ticket fetch failed, using mock:', firebaseError);
+          logWarn('Firebase ticket fetch failed, using mock:', firebaseError);
           // Fall through to mock
         }
       }
@@ -125,7 +126,7 @@ class SupportService {
       // Mock implementation
       return [];
     } catch (error) {
-      console.error('Error fetching user tickets:', error);
+      logError('Error fetching user tickets:', error);
       return [];
     }
   }
@@ -152,16 +153,16 @@ class SupportService {
           });
           return { success: true };
         } catch (firebaseError) {
-          console.warn('Firebase ticket update failed:', firebaseError);
+          logWarn('Firebase ticket update failed:', firebaseError);
           throw firebaseError;
         }
       }
 
       // Mock implementation
-      console.log(`📧 Mock Ticket ${ticketId} status updated to: ${status}`);
+      log(`📧 Mock Ticket ${ticketId} status updated to: ${status}`);
       return { success: true };
     } catch (error) {
-      console.error('Error updating ticket status:', error);
+      logError('Error updating ticket status:', error);
       throw error;
     }
   }
@@ -199,13 +200,13 @@ class SupportService {
 
           return { success: true, sessionId: sessionRef.id };
         } catch (firebaseError) {
-          console.warn('Firebase live chat creation failed, using mock:', firebaseError);
+          logWarn('Firebase live chat creation failed, using mock:', firebaseError);
           // Fall through to mock
         }
       }
 
       // Mock implementation
-      console.log('💬 Mock Live Chat Session Created:', sessionDoc);
+      log('💬 Mock Live Chat Session Created:', sessionDoc);
       await trackFeatureUsage('live_chat_started', {
         sessionId: `mock_${Date.now()}`,
         hasInitialMessage: !!initialMessage,
@@ -213,7 +214,7 @@ class SupportService {
 
       return { success: true, sessionId: `mock_${Date.now()}` };
     } catch (error) {
-      console.error('Error creating live chat session:', error);
+      logError('Error creating live chat session:', error);
       trackError(error.message || 'Live chat creation failed', 'live_chat_error', 'SupportService');
       throw error;
     }

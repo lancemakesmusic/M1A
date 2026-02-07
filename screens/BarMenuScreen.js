@@ -25,6 +25,7 @@ import { trackBarOrder, trackButtonClick, trackFeatureUsage } from '../services/
 import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import useScreenTracking from '../hooks/useScreenTracking';
+import { log, logWarn, logError } from '../utils/logger';
 
 // Local asset images for bar menu items
 import BuffaloTraceImg from '../assets/images/Buffalo_Trace.JPG';
@@ -296,13 +297,13 @@ export default function BarMenuScreen({ navigation, route }) {
             return;
           }
         } catch (firestoreError) {
-          console.warn('Firestore query failed, using fallback:', firestoreError);
+          logWarn('Firestore query failed, using fallback:', firestoreError);
         }
       }
       // Fallback to static data (for mock Firestore or when Firestore fails)
       setMenuItems(fallbackMenuItems);
     } catch (error) {
-      console.warn('Failed to load menu items from Firestore, using fallback:', error);
+      logWarn('Failed to load menu items from Firestore, using fallback:', error);
       setMenuItems(fallbackMenuItems);
     } finally {
       setLoading(false);
@@ -420,14 +421,14 @@ export default function BarMenuScreen({ navigation, route }) {
           });
           return orderRef.id;
         } catch (firestoreError) {
-          console.warn('Firestore save failed, using mock order ID:', firestoreError);
+          logWarn('Firestore save failed, using mock order ID:', firestoreError);
           throw new Error('Firestore save failed');
         }
       } else {
         throw new Error('Firestore not ready');
       }
     } catch (error) {
-      console.error('Error saving order to Firestore:', error);
+      logError('Error saving order to Firestore:', error);
       // Generate a local order number if Firestore fails
       return `LOCAL-${Date.now()}`;
     }
@@ -518,15 +519,15 @@ export default function BarMenuScreen({ navigation, route }) {
             checkoutSessionId: checkoutResult.sessionId,
             updatedAt: serverTimestamp(),
           });
-          console.log('✅ Updated order with checkout session ID');
+          log('✅ Updated order with checkout session ID');
         }
       } catch (updateError) {
-        console.warn('Failed to update order with checkout session ID:', updateError);
+        logWarn('Failed to update order with checkout session ID:', updateError);
         // Continue anyway - order will still be processed via webhook
       }
 
       // Open Stripe Checkout in browser
-      console.log('Opening Stripe Checkout:', checkoutResult.url);
+      log('Opening Stripe Checkout:', checkoutResult.url);
       
       // Use WebBrowser for better UX - opens in-app browser
       const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
@@ -572,7 +573,7 @@ export default function BarMenuScreen({ navigation, route }) {
         setOrderNumber(null);
       }, 5000);
     } catch (error) {
-      console.error('Payment error:', error);
+      logError('Payment error:', error);
       Alert.alert('Payment Failed', error.message || 'Please try again.');
       setCheckoutStep('payment');
     } finally {
@@ -598,7 +599,7 @@ export default function BarMenuScreen({ navigation, route }) {
         source={getImageSource(item.image)}
         style={styles.menuItemImage}
         onError={(error) => {
-          console.log('Image load error for', item.name, ':', item.image, error.nativeEvent.error);
+          log('Image load error for', item.name, ':', item.image, error.nativeEvent.error);
         }}
         resizeMode="cover"
       />

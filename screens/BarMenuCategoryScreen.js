@@ -35,6 +35,7 @@ import { trackBarOrder, trackButtonClick, trackFeatureUsage } from '../services/
 import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import StripeService from '../services/StripeService';
+import { log, logWarn, logError } from '../utils/logger';
 
 // Local asset images for bar menu items (match BarMenuScreen)
 import CranberryImg from '../assets/images/64oz_OS_Cranberry_front_v2.webp';
@@ -131,7 +132,7 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
             return;
           }
         } catch (firestoreError) {
-          console.warn('Firestore query failed, using fallback:', firestoreError);
+          logWarn('Firestore query failed, using fallback:', firestoreError);
         }
       }
       
@@ -139,7 +140,7 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
       const filtered = fallbackMenuItems.filter(item => item.category === targetCategory);
       setMenuItems(filtered);
     } catch (error) {
-      console.warn('Failed to load menu items:', error);
+      logWarn('Failed to load menu items:', error);
       const targetCategory = categoryMap[categoryId] || categoryName || 'Mixed Drinks';
       const filtered = fallbackMenuItems.filter(item => item.category === targetCategory);
       setMenuItems(filtered);
@@ -264,9 +265,9 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
           throw new Error(result.error || 'Failed to create bar order');
         }
         
-        console.log('Bar order created:', result.orderId);
+        log('Bar order created:', result.orderId);
       } catch (backendError) {
-        console.error('Error submitting bar order to backend:', backendError);
+        logError('Error submitting bar order to backend:', backendError);
         // Continue with payment even if backend fails (for demo purposes)
       }
 
@@ -348,15 +349,15 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
             checkoutSessionId: checkoutResult.sessionId,
             updatedAt: serverTimestamp(),
           });
-          console.log('✅ Updated order with checkout session ID');
+          log('✅ Updated order with checkout session ID');
         }
       } catch (updateError) {
-        console.warn('Failed to update order with checkout session ID:', updateError);
+        logWarn('Failed to update order with checkout session ID:', updateError);
         // Continue anyway - order will still be processed via webhook
       }
 
       // Open Stripe Checkout in browser
-      console.log('Opening Stripe Checkout:', checkoutResult.url);
+      log('Opening Stripe Checkout:', checkoutResult.url);
       
       // Use WebBrowser for better UX - opens in-app browser
       const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
@@ -381,7 +382,7 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
       
       setCheckoutStep('confirmation');
     } catch (error) {
-      console.error('Payment error:', error);
+      logError('Payment error:', error);
       Alert.alert('Payment Failed', error.message || 'Please try again.');
       setProcessingPayment(false);
     }
@@ -406,7 +407,7 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
         source={getImageSource(item.image)} 
         style={styles.menuItemImage}
         onError={(error) => {
-          console.log('Image load error for', item.name, ':', item.image, error.nativeEvent.error);
+          log('Image load error for', item.name, ':', item.image, error.nativeEvent.error);
         }}
         resizeMode="cover"
       />

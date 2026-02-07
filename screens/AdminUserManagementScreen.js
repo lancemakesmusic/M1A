@@ -28,6 +28,7 @@ import { useWallet } from '../contexts/WalletContext';
 import { db } from '../firebase';
 import RoleManagementService from '../services/RoleManagementService';
 import WalletService from '../services/WalletService';
+import { log, logWarn, logError } from '../utils/logger';
 
 export default function AdminUserManagementScreen({ navigation }) {
   const { user } = useAuth();
@@ -90,7 +91,7 @@ export default function AdminUserManagementScreen({ navigation }) {
 
       setUsers(usersData);
     } catch (error) {
-      console.error('Error loading users:', error);
+      logError('Error loading users:', error);
       Alert.alert('Error', 'Failed to load users');
     } finally {
       setLoading(false);
@@ -140,7 +141,7 @@ export default function AdminUserManagementScreen({ navigation }) {
         },
       ]);
     } catch (error) {
-      console.error('Error upgrading user:', error);
+      logError('Error upgrading user:', error);
       Alert.alert('Error', error.message || 'Failed to upgrade user');
     } finally {
       setProcessing(false);
@@ -176,7 +177,7 @@ export default function AdminUserManagementScreen({ navigation }) {
               Alert.alert('Success', result.message);
               loadUsers();
             } catch (error) {
-              console.error('Error revoking role:', error);
+              logError('Error revoking role:', error);
               Alert.alert('Error', error.message || 'Failed to revoke role');
             } finally {
               setProcessing(false);
@@ -248,7 +249,7 @@ export default function AdminUserManagementScreen({ navigation }) {
               Alert.alert('Success', result.message);
               loadUsers();
             } catch (error) {
-              console.error('Error deactivating user:', error);
+              logError('Error deactivating user:', error);
               Alert.alert('Error', error.message || 'Failed to deactivate account');
             } finally {
               setProcessing(false);
@@ -266,7 +267,7 @@ export default function AdminUserManagementScreen({ navigation }) {
       Alert.alert('Success', result.message);
       loadUsers();
     } catch (error) {
-      console.error('Error reactivating user:', error);
+      logError('Error reactivating user:', error);
       Alert.alert('Error', error.message || 'Failed to reactivate account');
     } finally {
       setProcessing(false);
@@ -279,7 +280,7 @@ export default function AdminUserManagementScreen({ navigation }) {
       const balance = await WalletService.getBalance(userId);
       setWalletBalance(balance);
     } catch (error) {
-      console.error('Error loading wallet balance:', error);
+      logError('Error loading wallet balance:', error);
       Alert.alert('Error', 'Failed to load wallet balance');
       setWalletBalance(0);
     } finally {
@@ -337,7 +338,7 @@ export default function AdminUserManagementScreen({ navigation }) {
                   });
                 }
               } catch (syncError) {
-                console.warn('Failed to sync balance to user document:', syncError);
+                logWarn('Failed to sync balance to user document:', syncError);
                 // Don't fail the operation if sync fails
               }
               
@@ -362,7 +363,7 @@ export default function AdminUserManagementScreen({ navigation }) {
               
               // If the adjusted user is the currently logged-in user, refresh their WalletContext
               if (selectedUser.id === user.uid) {
-                console.log('🔄 Refreshing WalletContext for adjusted user');
+                log('🔄 Refreshing WalletContext for adjusted user');
                 await refreshBalance(selectedUser.id);
               }
               
@@ -374,7 +375,7 @@ export default function AdminUserManagementScreen({ navigation }) {
               setWalletAmount('');
               setWalletNote('');
             } catch (error) {
-              console.error('Error adjusting wallet balance:', error);
+              logError('Error adjusting wallet balance:', error);
               Alert.alert('Error', error.message || 'Failed to adjust wallet balance');
             } finally {
               setProcessing(false);
@@ -518,7 +519,7 @@ export default function AdminUserManagementScreen({ navigation }) {
               Alert.alert('Success', 'Account marked for deletion');
               loadUsers();
             } catch (error) {
-              console.error('Error deleting user:', error);
+              logError('Error deleting user:', error);
               Alert.alert('Error', error.message || 'Failed to delete account');
             } finally {
               setProcessing(false);
@@ -554,7 +555,7 @@ export default function AdminUserManagementScreen({ navigation }) {
               Alert.alert('Success', 'User has been banned');
               loadUsers();
             } catch (error) {
-              console.error('Error banning user:', error);
+              logError('Error banning user:', error);
               Alert.alert('Error', error.message || 'Failed to ban user');
             } finally {
               setProcessing(false);
@@ -594,7 +595,7 @@ export default function AdminUserManagementScreen({ navigation }) {
               Alert.alert('Success', `User suspended until ${suspendUntil.toLocaleDateString()}`);
               loadUsers();
             } catch (error) {
-              console.error('Error suspending user:', error);
+              logError('Error suspending user:', error);
               Alert.alert('Error', error.message || 'Failed to suspend user');
             } finally {
               setProcessing(false);

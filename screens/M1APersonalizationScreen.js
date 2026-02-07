@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useRole } from '../contexts/RoleContext';
+import { log, logWarn, logError } from '../utils/logger';
 
 const { width } = Dimensions.get('window');
 
@@ -192,7 +193,7 @@ export default function M1APersonalizationScreen({ navigation }) {
             const { setUserCategory } = await import('../firebase');
             await setUserCategory(selectedPersona.id, selectedPersona.title);
           } catch (firestoreError) {
-            console.warn('Failed to save persona to Firestore:', firestoreError);
+            logWarn('Failed to save persona to Firestore:', firestoreError);
             // Don't fail onboarding if Firestore save fails
           }
         }).catch(() => {}); // Ignore errors
@@ -225,22 +226,22 @@ export default function M1APersonalizationScreen({ navigation }) {
                 
                 if (response.ok) {
                   const data = await response.json();
-                  console.log('✅ Google Drive folder created:', data.folderId);
+                  log('✅ Google Drive folder created:', data.folderId);
                 } else {
                   const errorText = await response.text();
-                  console.warn('⚠️ Google Drive folder creation failed:', errorText);
+                  logWarn('⚠️ Google Drive folder creation failed:', errorText);
                 }
               } catch (fetchError) {
                 clearTimeout(timeoutId);
                 if (fetchError.name === 'AbortError') {
-                  console.warn('⚠️ Google Drive folder creation timed out (non-critical)');
+                  logWarn('⚠️ Google Drive folder creation timed out (non-critical)');
                 } else {
-                  console.warn('⚠️ Google Drive folder creation error (non-critical):', fetchError);
+                  logWarn('⚠️ Google Drive folder creation error (non-critical):', fetchError);
                 }
               }
             }
           } catch (folderError) {
-            console.warn('⚠️ Google Drive folder creation error (non-critical):', folderError);
+            logWarn('⚠️ Google Drive folder creation error (non-critical):', folderError);
           }
         }).catch(() => {}); // Ignore errors
         
@@ -250,12 +251,12 @@ export default function M1APersonalizationScreen({ navigation }) {
         // Onboarding complete - RootNavigation will automatically show AppNavigator
         // No need to navigate manually, the context change will trigger re-render
       } catch (error) {
-        console.error('Error saving personalization:', error);
+        logError('Error saving personalization:', error);
         // Even if there's an error, try to complete onboarding
         try {
           await completeOnboarding();
         } catch (completeError) {
-          console.error('Critical error: Failed to complete onboarding:', completeError);
+          logError('Critical error: Failed to complete onboarding:', completeError);
           Alert.alert('Error', 'Failed to complete setup. Please try again or restart the app.');
         }
       } finally {

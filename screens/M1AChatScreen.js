@@ -35,6 +35,7 @@ import M1AAssistantService from '../services/M1AAssistantService';
 import M1ALogo from '../components/M1ALogo';
 import { collection, getDocs } from 'firebase/firestore';
 import { db, uploadImageAsync } from '../firebase';
+import { log, logWarn, logError } from '../utils/logger';
 
 export default function M1AChatScreen({ onClose }) {
   const { user } = useAuth();
@@ -133,7 +134,7 @@ export default function M1AChatScreen({ onClose }) {
         pendingOrders,
       });
     } catch (error) {
-      console.error('Error loading admin stats:', error);
+      logError('Error loading admin stats:', error);
       // Set default stats on error
       setAdminStats({
         totalUsers: 0,
@@ -193,7 +194,7 @@ export default function M1AChatScreen({ onClose }) {
         addMessage('assistant', `Taking you to ${M1AAssistantService.getScreenName(targetScreen)}...`, false);
         return;
       } catch (error) {
-        console.warn('Navigation error:', error);
+        logWarn('Navigation error:', error);
         // Fall through to send message if navigation fails
       }
     }
@@ -330,11 +331,11 @@ export default function M1AChatScreen({ onClose }) {
       color: '#007AFF',
       description: 'Manage all users, deactivate accounts, view activity',
       onPress: () => {
-        console.log('Admin: Navigating to User Management');
+        log('Admin: Navigating to User Management');
         if (navigation) {
           navigation.navigate('AdminUserManagement');
         } else {
-          console.error('Navigation object not available');
+          logError('Navigation object not available');
         }
       },
     },
@@ -345,7 +346,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#34C759',
       description: 'Add, edit, delete services. Manage prices and deals',
       onPress: () => {
-        console.log('Admin: Navigating to Service Management');
+        log('Admin: Navigating to Service Management');
         if (navigation) {
           navigation.navigate('AdminServiceManagement');
         }
@@ -358,7 +359,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#FF9500',
       description: 'Edit events, manage bookings, control availability',
       onPress: () => {
-        console.log('Admin: Navigating to Calendar Management');
+        log('Admin: Navigating to Calendar Management');
         if (navigation) {
           navigation.navigate('AdminCalendarManagement');
         }
@@ -371,7 +372,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#9C27B0',
       description: 'Create events with tickets, pricing, photos, and discounts',
       onPress: () => {
-        console.log('Admin: Navigating to Event Creation');
+        log('Admin: Navigating to Event Creation');
         if (navigation) {
           navigation.navigate('AdminEventCreation');
         }
@@ -384,7 +385,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#9C27B0',
       description: 'Message any user, send announcements',
       onPress: () => {
-        console.log('Admin: Navigating to Messaging');
+        log('Admin: Navigating to Messaging');
         if (navigation) {
           navigation.navigate('AdminMessaging');
         }
@@ -397,7 +398,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#00BCD4',
       description: 'Manage employees, assign roles, track performance',
       onPress: () => {
-        console.log('Admin: Navigating to Employee Management');
+        log('Admin: Navigating to Employee Management');
         if (navigation) {
           navigation.navigate('AdminEmployeeManagement');
         }
@@ -410,7 +411,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#FF6B6B',
       description: 'Edit bar menu, update prices, manage items',
       onPress: () => {
-        console.log('Admin: Navigating to Menu Management');
+        log('Admin: Navigating to Menu Management');
         if (navigation) {
           navigation.navigate('AdminMenuManagement');
         }
@@ -423,7 +424,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#4ECDC4',
       description: 'View all orders, process refunds, manage transactions',
       onPress: () => {
-        console.log('Admin: Navigating to Order Management');
+        log('Admin: Navigating to Order Management');
         if (navigation) {
           navigation.navigate('AdminOrderManagement');
         }
@@ -436,7 +437,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#95E1D3',
       description: 'View revenue, user activity, performance metrics',
       onPress: () => {
-        console.log('Admin: Navigating to Analytics');
+        log('Admin: Navigating to Analytics');
         if (navigation) {
           navigation.navigate('AdminAnalytics');
         }
@@ -449,7 +450,7 @@ export default function M1AChatScreen({ onClose }) {
       color: '#F38181',
       description: 'Configure app settings, integrations, system preferences',
       onPress: () => {
-        console.log('Admin: Navigating to System Settings');
+        log('Admin: Navigating to System Settings');
         if (navigation) {
           navigation.navigate('AdminSystemSettings');
         }
@@ -528,7 +529,7 @@ export default function M1AChatScreen({ onClose }) {
                 <Text style={[styles.statLabel, { color: theme.subtext }]}>Total Users</Text>
               </View>
               <View style={[styles.statCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-                <Ionicons name="person-check" size={24} color="#34C759" />
+                <Ionicons name="person-circle" size={24} color="#34C759" />
                 <Text style={[styles.statValue, { color: theme.text }]}>{adminStats.activeUsers}</Text>
                 <Text style={[styles.statLabel, { color: theme.subtext }]}>Active Users</Text>
               </View>
@@ -565,15 +566,15 @@ export default function M1AChatScreen({ onClose }) {
                 style={[styles.sectionCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}
                 onPress={() => {
                   try {
-                    console.log(`Admin: Navigating to ${section.title} (${section.id})`);
+                    log(`Admin: Navigating to ${section.title} (${section.id})`);
                     if (section.onPress && navigation) {
                       section.onPress();
                     } else {
-                      console.error(`Navigation issue: section.onPress=${!!section.onPress}, navigation=${!!navigation}`);
+                      logError(`Navigation issue: section.onPress=${!!section.onPress}, navigation=${!!navigation}`);
                       Alert.alert('Navigation Error', `Navigation not available. Please try again.`);
                     }
                   } catch (error) {
-                    console.error(`Error navigating to ${section.title}:`, error);
+                    logError(`Error navigating to ${section.title}:`, error);
                     Alert.alert('Navigation Error', `Could not navigate to ${section.title}: ${error.message}`);
                   }
                 }}

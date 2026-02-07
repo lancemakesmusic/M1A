@@ -28,6 +28,8 @@ import { trackButtonClick, trackError, trackEventBookingCompleted, trackFunnelSt
 import { scheduleEventReminder, sendBookingReminder, sendEventNotification } from '../services/NotificationService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import StripeService from '../services/StripeService';
+import { getApiBaseUrl } from '../utils/apiConfig';
+import { log, logWarn, logError } from '../utils/logger';
 
 const { width } = Dimensions.get('window');
 
@@ -275,7 +277,7 @@ export default function EventBookingScreen({ navigation }) {
       minute: '2-digit',
       hour12: true
     });
-    console.log('Time confirmed:', formattedTime);
+    log('Time confirmed:', formattedTime);
     updateFormData('eventStartTime', formattedTime);
     setShowTimePicker(false);
     trackButtonClick('confirm_time', 'EventBookingScreen');
@@ -409,8 +411,8 @@ export default function EventBookingScreen({ navigation }) {
     const validateStep = (step) => {
         const newErrors = {};
         
-        console.log('Validating step:', step);
-        console.log('Current form data:', formData);
+        log('Validating step:', step);
+        log('Current form data:', formData);
         
         switch (step) {
             case 1:
@@ -510,7 +512,7 @@ export default function EventBookingScreen({ navigation }) {
                 break;
         }
         
-        console.log('Validation errors:', newErrors);
+        log('Validation errors:', newErrors);
         setErrors(newErrors);
         return {
             isValid: Object.keys(newErrors).length === 0,
@@ -520,8 +522,8 @@ export default function EventBookingScreen({ navigation }) {
 
     // Navigation functions
   const nextStep = () => {
-        console.log('Next button pressed, current step:', currentStep);
-        console.log('Form data:', formData);
+        log('Next button pressed, current step:', currentStep);
+        log('Form data:', formData);
         
         // Validate step and get errors immediately
         const validationResult = validateStep(currentStep);
@@ -529,7 +531,7 @@ export default function EventBookingScreen({ navigation }) {
         const newErrors = validationResult.errors;
         
         if (isValid) {
-            console.log('Validation passed, moving to next step');
+            log('Validation passed, moving to next step');
             if (currentStep < totalSteps) {
                 setCurrentStep(currentStep + 1);
                 // Track funnel step
@@ -539,7 +541,7 @@ export default function EventBookingScreen({ navigation }) {
                 });
             }
         } else {
-            console.log('Validation failed, errors:', newErrors);
+            log('Validation failed, errors:', newErrors);
             // Show alert with validation errors
             const errorMessages = Object.values(newErrors).filter(msg => msg).join('\n');
             if (errorMessages) {
@@ -555,10 +557,10 @@ export default function EventBookingScreen({ navigation }) {
   };
 
     const updateFormData = (field, value) => {
-        console.log('Updating form data:', field, '=', value);
+        log('Updating form data:', field, '=', value);
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
-            console.log('New form data:', newData);
+            log('New form data:', newData);
             return newData;
         });
         // Clear error when user starts typing
@@ -613,19 +615,6 @@ export default function EventBookingScreen({ navigation }) {
             const endDate = new Date(startDate);
             endDate.setHours(startDate.getHours() + formData.duration);
 
-            // Get API base URL
-            const getApiBaseUrl = () => {
-                if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-                    return process.env.EXPO_PUBLIC_API_BASE_URL;
-                }
-                // For physical devices, use network IP (same as Metro bundler)
-                // For web/simulator, use localhost
-                if (Platform.OS === 'web') {
-                    return 'http://localhost:8001';
-                }
-                // Fallback for development (use environment variable in production)
-                return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
-            };
             const API_BASE_URL = getApiBaseUrl();
 
             // Check availability via backend (uses admin's calendar, not user's)
@@ -656,11 +645,11 @@ export default function EventBookingScreen({ navigation }) {
                     }
                 } else {
                     // If availability check fails, log but don't block (backend will check again)
-                    console.warn('Availability check failed, proceeding with booking. Backend will verify.');
+                    logWarn('Availability check failed, proceeding with booking. Backend will verify.');
                 }
             } catch (availabilityError) {
                 // If availability check fails, log but don't block (backend will check again)
-                console.warn('Availability check error, proceeding with booking. Backend will verify:', availabilityError);
+                logWarn('Availability check error, proceeding with booking. Backend will verify:', availabilityError);
             }
 
             // Submit booking to backend API
@@ -704,7 +693,7 @@ export default function EventBookingScreen({ navigation }) {
                     throw new Error(errorData.error || `Server error: ${response.status}`);
                 }
             } catch (backendError) {
-                console.error('Error submitting booking to backend:', backendError);
+                logError('Error submitting booking to backend:', backendError);
                 trackError(
                     backendError.message || 'Backend booking submission failed',
                     'event_booking_backend_error',
@@ -805,15 +794,15 @@ export default function EventBookingScreen({ navigation }) {
                                 checkoutSessionId: checkoutResult.sessionId,
                                 updatedAt: serverTimestamp(),
                             });
-                            console.log('✅ Updated order with checkout session ID');
+                            log('✅ Updated order with checkout session ID');
                         }
                     } catch (updateError) {
-                        console.warn('Failed to update order with checkout session ID:', updateError);
+                        logWarn('Failed to update order with checkout session ID:', updateError);
                         // Continue anyway - order will still be processed via webhook
                     }
 
                     // Open Stripe Checkout in browser
-                    console.log('Opening Stripe Checkout:', checkoutResult.url);
+                    log('Opening Stripe Checkout:', checkoutResult.url);
                     
                     // Use WebBrowser for better UX - opens in-app browser
                     const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
@@ -839,7 +828,7 @@ export default function EventBookingScreen({ navigation }) {
                     setPaymentIntentId(checkoutResult.sessionId);
                     setPaymentStep('success');
                 } catch (paymentError) {
-                    console.error('Error processing payment:', paymentError);
+                    logError('Error processing payment:', paymentError);
                     setPaymentStep('failed');
                     setPaymentError(paymentError.message || 'Payment processing failed');
                     
@@ -923,14 +912,14 @@ export default function EventBookingScreen({ navigation }) {
                     if (calendarResponse.ok) {
                         const calendarData = await calendarResponse.json();
                         calendarResult = calendarData;
-                        console.log('✅ Calendar events created:', calendarData);
+                        log('✅ Calendar events created:', calendarData);
                     } else {
                         const errorData = await calendarResponse.json().catch(() => ({}));
-                        console.warn('⚠️ Calendar event creation failed:', errorData);
+                        logWarn('⚠️ Calendar event creation failed:', errorData);
                         calendarResult = { success: false, error: errorData.detail || 'Calendar sync failed' };
                     }
                 } catch (calendarError) {
-                    console.error('Error creating calendar events:', calendarError);
+                    logError('Error creating calendar events:', calendarError);
                     calendarResult = { success: false, error: calendarError.message };
                 }
             }
@@ -1018,7 +1007,7 @@ export default function EventBookingScreen({ navigation }) {
                 ]
             );
         } catch (error) {
-            console.error('Error submitting booking:', error);
+            logError('Error submitting booking:', error);
             setIsSubmitting(false);
             setPaymentStep('none');
             

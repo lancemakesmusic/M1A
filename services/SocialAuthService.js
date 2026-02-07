@@ -12,6 +12,7 @@ import {
 } from 'firebase/auth';
 import { createUserProfileIfMissing } from '../firebase';
 import { trackLogin, trackSignup } from './AnalyticsService';
+import { logError } from '../utils/logger';
 
 // Complete the OAuth flow
 WebBrowser.maybeCompleteAuthSession();
@@ -38,7 +39,7 @@ export const signInWithGoogle = async () => {
     // 3. Create Firebase credential and sign in
     
   } catch (error) {
-    console.error('Google Sign-In error:', error);
+    logError('Google Sign-In error:', error);
     throw error;
   }
 };
@@ -95,7 +96,7 @@ export const signInWithApple = async () => {
     await trackLogin('apple');
     return userCredential;
   } catch (error) {
-    console.error('Apple Sign-In error:', error);
+    logError('Apple Sign-In error:', error);
     
     // Handle user cancellation gracefully
     if (error.code === 'ERR_CANCELED' || error.message?.includes('cancel')) {
@@ -115,7 +116,7 @@ export const linkGoogleAccount = async (user) => {
     // Implementation would use expo-auth-session
     throw new Error('Account linking requires additional configuration');
   } catch (error) {
-    console.error('Link Google account error:', error);
+    logError('Link Google account error:', error);
     throw error;
   }
 };
@@ -146,7 +147,7 @@ export const linkAppleAccount = async (user) => {
     await linkWithCredential(user, appleCredential);
     return true;
   } catch (error) {
-    console.error('Link Apple account error:', error);
+    logError('Link Apple account error:', error);
     throw error;
   }
 };

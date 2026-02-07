@@ -33,6 +33,8 @@ import SharingService from '../services/SharingService';
 import SMSService from '../services/SMSService';
 import { filterItemsByPersona, getPersonaServiceCategories } from '../utils/personaFilters';
 import { searchFeatures } from '../utils/searchUtils';
+import { sanitizeEmail, sanitizeText } from '../utils/sanitize';
+import { log, logWarn, logError } from '../utils/logger';
 import UsersScreen from './UsersScreen';
 
 const { width } = Dimensions.get('window');
@@ -125,7 +127,7 @@ export default function ExploreScreen() {
       }));
       return rating;
     } catch (error) {
-      console.warn('Error loading rating for item:', itemId, error);
+      logWarn('Error loading rating for item:', itemId, error);
       return null;
     }
   };
@@ -135,7 +137,7 @@ export default function ExploreScreen() {
     const cacheKey = eventsCache.generateKey('explore', { userId: user?.uid || 'guest' });
     const cachedData = eventsCache.get(cacheKey);
     if (cachedData) {
-      console.log('📦 Using cached explore data');
+      log('📦 Using cached explore data');
       setItems(cachedData.items || []);
       setBarItemCount(cachedData.barItemCount || 0);
       setUserCount(cachedData.userCount || 0);
@@ -166,7 +168,7 @@ export default function ExploreScreen() {
             category: 'Services',
           }));
         } catch (serviceError) {
-          console.warn('Services query failed, trying simple query:', serviceError);
+          logWarn('Services query failed, trying simple query:', serviceError);
           // Fallback: try without orderBy if index not ready
           try {
             const simpleServicesQuery = firestoreQuery(
@@ -181,7 +183,7 @@ export default function ExploreScreen() {
               category: 'Services',
             }));
           } catch (simpleError) {
-            console.error('Services query failed completely:', simpleError);
+            logError('Services query failed completely:', simpleError);
             servicesData = [];
           }
         }
@@ -202,7 +204,7 @@ export default function ExploreScreen() {
             );
           } catch (indexError) {
             // If index not ready, use simple query without orderBy
-            console.warn('Events index not ready, using simple query:', indexError);
+            logWarn('Events index not ready, using simple query:', indexError);
             eventsQuery = firestoreQuery(
               firestoreCollection(db, 'events'),
               where('eventDate', '>=', now),
@@ -214,7 +216,7 @@ export default function ExploreScreen() {
             const data = doc.data();
             // Ensure eventDate exists and is valid
             if (!data.eventDate) {
-              console.warn(`Event ${doc.id} missing eventDate, skipping`);
+              logWarn(`Event ${doc.id} missing eventDate, skipping`);
               return null;
             }
             return {
@@ -227,7 +229,7 @@ export default function ExploreScreen() {
           }).filter(item => item !== null);
           eventsData = [...eventsData, ...eventsFromCollection];
         } catch (eventsError) {
-          console.error('Events query failed:', eventsError);
+          logError('Events query failed:', eventsError);
         }
         
         // Load from 'publicEvents' collection (admin-created events)
@@ -260,12 +262,12 @@ export default function ExploreScreen() {
             
             // Only show future events (skip past events, but include today)
             if (startOfEventDate < startOfToday) {
-              console.log(`⏭️ Skipping past event: ${data.title || doc.id} (${startDate.toLocaleDateString()})`);
+              log(`⏭️ Skipping past event: ${data.title || doc.id} (${startDate.toLocaleDateString()})`);
               return null;
             }
             
             // Debug logging for each event
-            console.log(`✅ Including event: ${data.title || doc.id}, isPublic: ${data.isPublic}, isAdminCreated: ${data.isAdminCreated}, startDate: ${startDate.toLocaleDateString()}`);
+            log(`✅ Including event: ${data.title || doc.id}, isPublic: ${data.isPublic}, isAdminCreated: ${data.isAdminCreated}, startDate: ${startDate.toLocaleDateString()}`);
             
             return {
               id: doc.id,
@@ -299,9 +301,9 @@ export default function ExploreScreen() {
           });
           
           eventsData = [...eventsData, ...allPublicEvents];
-          console.log(`✅ Loaded ${allPublicEvents.length} public events from publicEvents collection`);
+          log(`✅ Loaded ${allPublicEvents.length} public events from publicEvents collection`);
         } catch (publicEventsError) {
-          console.error('PublicEvents query failed:', publicEventsError);
+          logError('PublicEvents query failed:', publicEventsError);
           // If loading all fails, try with date filter as fallback
           try {
             let publicEventsQuery;
@@ -314,7 +316,7 @@ export default function ExploreScreen() {
                 firestoreLimit(100) // Increased limit
               );
             } catch (indexError) {
-              console.warn('PublicEvents index not ready, using simple query:', indexError);
+              logWarn('PublicEvents index not ready, using simple query:', indexError);
               publicEventsQuery = firestoreQuery(
                 firestoreCollection(db, 'publicEvents'),
                 where('isPublic', '==', true),
@@ -351,9 +353,9 @@ export default function ExploreScreen() {
               };
             });
             eventsData = [...eventsData, ...publicEventsFromCollection];
-            console.log(`✅ Loaded ${publicEventsFromCollection.length} public events (with filters)`);
+            log(`✅ Loaded ${publicEventsFromCollection.length} public events (with filters)`);
           } catch (fallbackError) {
-            console.error('PublicEvents fallback query failed:', fallbackError);
+            logError('PublicEvents fallback query failed:', fallbackError);
           }
         }
 
@@ -366,18 +368,9 @@ export default function ExploreScreen() {
           );
           const usersSnapshot = await getDocs(usersQuery);
           setUserCount(usersSnapshot.size);
-          console.log(`✅ Loaded ${usersSnapshot.size} public users`);
+          log(`✅ Loaded ${usersSnapshot.size} public users`);
         } catch (userCountError) {
-          console.warn('Failed to load user count:', userCountError);
-          // Try simple query without where clause
-          try {
-            const allUsersSnapshot = await getDocs(firestoreCollection(db, 'users'));
-            setUserCount(allUsersSnapshot.size);
-            console.log(`✅ Loaded ${allUsersSnapshot.size} total users (fallback)`);
-          } catch (fallbackError) {
-            console.error('Failed to load user count (fallback):', fallbackError);
-            setUserCount(0);
-          }
+          setUserCount(0);
         }
 
         // Load bar menu items count for Bar category
@@ -385,9 +378,8 @@ export default function ExploreScreen() {
           const barMenuRef = firestoreCollection(db, 'barMenuItems');
           const barMenuSnapshot = await getDocs(barMenuRef);
           setBarItemCount(barMenuSnapshot.size);
-          console.log(`✅ Loaded ${barMenuSnapshot.size} bar menu items`);
+          log(`✅ Loaded ${barMenuSnapshot.size} bar menu items`);
         } catch (barCountError) {
-          console.warn('Failed to load bar menu items count:', barCountError);
           setBarItemCount(0);
         }
 
@@ -408,11 +400,11 @@ export default function ExploreScreen() {
           return;
         }
       } else {
-        console.warn('Firestore not ready, showing empty list');
+        logWarn('Firestore not ready, showing empty list');
         setItems([]);
       }
     } catch (e) {
-      console.error('Firebase load failed:', e);
+      logError('Firebase load failed:', e);
       setItems([]); // Show empty state instead of mock data
     } finally {
       setLoading(false);
@@ -703,13 +695,17 @@ export default function ExploreScreen() {
     }
 
     try {
+      const sanitizedName = sanitizeText(rsvpData.name);
+      const sanitizedEmail = sanitizeEmail(rsvpData.email);
+      const sanitizedPhone = sanitizeText(rsvpData.phone);
+      const sanitizedRequests = sanitizeText(rsvpData.specialRequests || '');
       // Generate ticket ID and QR code data
       const ticketId = `TICKET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const qrCodeData = JSON.stringify({
         ticketId,
         eventId: selectedRSVPItem.id,
         eventName: selectedRSVPItem.name,
-        phone: rsvpData.phone,
+        phone: sanitizedPhone,
         date: selectedRSVPItem.eventDate?.toDate?.()?.toISOString() || new Date('2025-12-31T20:00:00').toISOString(),
       });
 
@@ -723,11 +719,11 @@ export default function ExploreScreen() {
           userId: userPersona?.id || 'anonymous',
           persona: userPersona?.id || null,
           personaName: userPersona?.title || null,
-          name: isPhoneOnlyRSVP ? '' : rsvpData.name,
-          email: isPhoneOnlyRSVP ? '' : rsvpData.email,
-          phone: rsvpData.phone,
+          name: isPhoneOnlyRSVP ? '' : sanitizedName,
+          email: isPhoneOnlyRSVP ? '' : sanitizedEmail,
+          phone: sanitizedPhone,
           guestCount: rsvpData.guestCount,
-          specialRequests: rsvpData.specialRequests || '',
+          specialRequests: sanitizedRequests,
           status: 'confirmed',
           ticketId,
           qrCodeData,
@@ -735,9 +731,9 @@ export default function ExploreScreen() {
         });
 
         // Send SMS with QR code for phone-only RSVP events
-        if (isPhoneOnlyRSVP && rsvpData.phone) {
+        if (isPhoneOnlyRSVP && sanitizedPhone) {
           // Format phone number (ensure E.164 format)
-          let formattedPhone = rsvpData.phone.replace(/\D/g, ''); // Remove non-digits
+          let formattedPhone = sanitizedPhone.replace(/\D/g, ''); // Remove non-digits
           if (!formattedPhone.startsWith('1') && formattedPhone.length === 10) {
             formattedPhone = '1' + formattedPhone; // Add US country code
           }
@@ -759,7 +755,7 @@ export default function ExploreScreen() {
           if (smsResult.success) {
             Alert.alert(
               'RSVP Confirmed!',
-              `Your RSVP for ${selectedRSVPItem.name} has been confirmed! A confirmation text with your ticket QR code has been sent to ${rsvpData.phone}.`,
+              `Your RSVP for ${selectedRSVPItem.name} has been confirmed! A confirmation text with your ticket QR code has been sent to ${sanitizedPhone}.`,
               [
                 {
                   text: 'OK',
@@ -802,7 +798,7 @@ export default function ExploreScreen() {
           // Regular RSVP confirmation
           Alert.alert(
             'RSVP Confirmed!',
-            `Thank you ${rsvpData.name}! Your RSVP for ${selectedRSVPItem.name} has been confirmed. We'll send you more details via email.`,
+            `Thank you ${sanitizedName || 'there'}! Your RSVP for ${selectedRSVPItem.name} has been confirmed. We'll send you more details via email.`,
             [
               {
                 text: 'OK',
@@ -824,7 +820,7 @@ export default function ExploreScreen() {
         throw new Error('Firestore not ready');
       }
     } catch (error) {
-      console.error('Error submitting RSVP:', error);
+      logError('Error submitting RSVP:', error);
       Alert.alert('Error', 'Failed to submit RSVP. Please try again.');
     }
   };

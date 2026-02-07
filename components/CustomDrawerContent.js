@@ -13,6 +13,7 @@ import { auth } from '../firebase';
 import { getAvatarSource, getImageKey } from '../utils/photoUtils';
 import M1ALogo from '../components/M1ALogo';
 import DrawerSectionHeader from '../components/DrawerSectionHeader';
+import { logWarn, logError } from '../utils/logger';
 
 export default function CustomDrawerContent(props) {
   const { theme } = useTheme();
@@ -26,7 +27,7 @@ export default function CustomDrawerContent(props) {
     try {
       await auth.signOut();
     } catch (error) {
-      console.error('Logout error:', error);
+      logError('Logout error:', error);
     }
   };
 
@@ -227,7 +228,7 @@ export default function CustomDrawerContent(props) {
                 style={styles.avatarImage}
                 key={avatarKey}
                 onError={(error) => {
-                  console.warn('Drawer avatar image failed to load:', error.nativeEvent.error);
+                logWarn('Drawer avatar image failed to load:', error.nativeEvent.error);
                 }}
               />
             ) : (

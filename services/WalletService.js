@@ -7,32 +7,10 @@ import { addDoc, collection, doc, getDoc, getDocs, limit, orderBy, query, runTra
 import { db, isFirebaseReady } from '../firebase';
 import ReceiptService from './ReceiptService';
 import StripeService from './StripeService';
+import { logWarn, logError } from '../utils/logger';
 
-import { Platform } from 'react-native';
+import { getApiBaseUrl } from '../utils/apiConfig';
 
-// Backend Configuration - Use environment variable or fallback
-const getApiBaseUrl = () => {
-    // Always check environment variable first (required for production)
-    if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-        return process.env.EXPO_PUBLIC_API_BASE_URL;
-    }
-    
-    // Development fallbacks
-    if (Platform.OS === 'web') {
-        return 'http://localhost:8001';
-    }
-    
-    // Development only - should never reach here in production
-    if (__DEV__) {
-        console.warn('⚠️ EXPO_PUBLIC_API_BASE_URL not set. Using localhost fallback (development only).');
-        // Try to detect network IP for development
-        // In production, this should never be reached
-        return 'http://localhost:8001';
-    }
-    
-    // Production: fail if no URL configured
-    throw new Error('EXPO_PUBLIC_API_BASE_URL must be set in production. Please configure your environment variables.');
-};
 const API_BASE_URL = getApiBaseUrl();
 const API_TIMEOUT = 30000;
 
@@ -60,6 +38,9 @@ class WalletService {
               // Initialize wallet atomically
               transaction.set(walletRef, {
                 balance: 0,
+                hoursBalance: 0,
+                hoursPurchased: 0,
+                hoursUsed: 0,
                 currency: 'USD',
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
@@ -78,6 +59,9 @@ class WalletService {
             // Initialize wallet
             await setDoc(walletRef, {
               balance: 0,
+              hoursBalance: 0,
+              hoursPurchased: 0,
+              hoursUsed: 0,
               currency: 'USD',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -92,7 +76,67 @@ class WalletService {
         return 1250.75; // Default mock balance
       }
     } catch (error) {
-      console.error('Error getting wallet balance:', error);
+      logError('Error getting wallet balance:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get service hours balance for a user
+   */
+  async getHoursBalance(userId) {
+    try {
+      if (!userId) return 0;
+
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        const walletRef = doc(db, 'wallets', userId);
+
+        try {
+          return await runTransaction(db, async (transaction) => {
+            const walletSnap = await transaction.get(walletRef);
+
+            if (walletSnap.exists()) {
+              const data = walletSnap.data();
+              return data.hoursBalance || 0;
+            }
+
+            transaction.set(walletRef, {
+              balance: 0,
+              hoursBalance: 0,
+              hoursPurchased: 0,
+              hoursUsed: 0,
+              currency: 'USD',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              userId: userId,
+              status: 'active',
+            });
+            return 0;
+          });
+        } catch (transactionError) {
+          const walletSnap = await getDoc(walletRef);
+          if (walletSnap.exists()) {
+            return walletSnap.data().hoursBalance || 0;
+          }
+
+          await setDoc(walletRef, {
+            balance: 0,
+            hoursBalance: 0,
+            hoursPurchased: 0,
+            hoursUsed: 0,
+            currency: 'USD',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            userId: userId,
+            status: 'active',
+          }, { merge: true });
+          return 0;
+        }
+      }
+
+      return 0;
+    } catch (error) {
+      logError('Error getting hours balance:', error);
       return 0;
     }
   }
@@ -115,7 +159,7 @@ class WalletService {
       }
       return null;
     } catch (error) {
-      console.error('Error getting wallet:', error);
+      logError('Error getting wallet:', error);
       return null;
     }
   }
@@ -148,7 +192,7 @@ class WalletService {
         return this.getMockTransactions();
       }
     } catch (error) {
-      console.error('Error getting transactions:', error);
+      logError('Error getting transactions:', error);
       return [];
     }
   }
@@ -218,7 +262,7 @@ class WalletService {
             paymentStatus = 'pending';
           }
         } catch (confirmError) {
-          console.warn('Payment status check failed:', confirmError);
+          logWarn('Payment status check failed:', confirmError);
           // Mark as pending - webhook will update when payment succeeds
           paymentStatus = 'pending';
         }
@@ -259,13 +303,13 @@ class WalletService {
           timestamp: new Date(),
         });
       } catch (receiptError) {
-        console.warn('Error generating receipt:', receiptError);
+        logWarn('Error generating receipt:', receiptError);
         // Don't fail the transaction if receipt generation fails
       }
 
       return { success: true, transactionId: paymentResult.id };
     } catch (error) {
-      console.error('Error adding funds:', error);
+      logError('Error adding funds:', error);
       throw error;
     }
   }
@@ -421,13 +465,13 @@ class WalletService {
           timestamp: new Date(),
         });
       } catch (receiptError) {
-        console.warn('Error generating receipts:', receiptError);
+        logWarn('Error generating receipts:', receiptError);
         // Don't fail the transaction if receipt generation fails
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Error sending money:', error);
+      logError('Error sending money:', error);
       throw error;
     }
   }
@@ -552,7 +596,7 @@ class WalletService {
         throw new Error(`Withdrawal failed: ${payoutError.message}`);
       }
     } catch (error) {
-      console.error('Error cashing out:', error);
+      logError('Error cashing out:', error);
       throw error;
     }
   }
@@ -580,7 +624,7 @@ class WalletService {
         }
       }
     } catch (error) {
-      console.error('Error updating transaction status:', error);
+      logError('Error updating transaction status:', error);
       throw error;
     }
   }
@@ -633,7 +677,7 @@ class WalletService {
       
       return null;
     } catch (error) {
-      console.error('Error looking up user:', error);
+      logError('Error looking up user:', error);
       return null;
     }
   }
@@ -659,6 +703,9 @@ class WalletService {
             if (!walletSnap.exists()) {
               transaction.set(walletRef, {
                 balance: 0,
+                hoursBalance: 0,
+                hoursPurchased: 0,
+                hoursUsed: 0,
                 currency: 'USD',
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
@@ -694,6 +741,9 @@ class WalletService {
           if (!walletSnap.exists()) {
             await setDoc(walletRef, {
               balance: 0,
+              hoursBalance: 0,
+              hoursPurchased: 0,
+              hoursUsed: 0,
               currency: 'USD',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -719,7 +769,7 @@ class WalletService {
         }
       }
     } catch (error) {
-      console.error('Error updating balance:', error);
+      logError('Error updating balance:', error);
       throw error;
     }
   }
@@ -739,7 +789,82 @@ class WalletService {
         });
       }
     } catch (error) {
-      console.error('Error adding transaction:', error);
+      logError('Error adding transaction:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update service hours balance (purchased/used)
+   */
+  async updateHoursBalance(userId, hoursDelta, transactionId = null) {
+    try {
+      if (!userId) throw new Error('User ID is required');
+      if (typeof hoursDelta !== 'number') throw new Error('Hours must be a number');
+
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        const walletRef = doc(db, 'wallets', userId);
+
+        return await runTransaction(db, async (transaction) => {
+          const walletSnap = await transaction.get(walletRef);
+
+          if (!walletSnap.exists()) {
+            transaction.set(walletRef, {
+              balance: 0,
+              hoursBalance: 0,
+              hoursPurchased: 0,
+              hoursUsed: 0,
+              currency: 'USD',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              userId: userId,
+              status: 'active',
+            });
+          }
+
+          const data = walletSnap.exists() ? walletSnap.data() : {};
+          const currentHours = data.hoursBalance || 0;
+          const requestedUse = hoursDelta < 0 ? Math.abs(hoursDelta) : 0;
+          const hoursApplied = hoursDelta < 0 ? Math.min(currentHours, requestedUse) : hoursDelta;
+          const newBalance = Math.max(0, currentHours + hoursDelta);
+          const hoursPurchased = data.hoursPurchased || 0;
+          const hoursUsed = data.hoursUsed || 0;
+
+          transaction.update(walletRef, {
+            hoursBalance: newBalance,
+            hoursPurchased: hoursDelta > 0 ? hoursPurchased + hoursDelta : hoursPurchased,
+            hoursUsed: hoursDelta < 0 ? hoursUsed + hoursApplied : hoursUsed,
+            hoursUpdatedAt: serverTimestamp(),
+            lastHoursTransactionId: transactionId,
+          });
+
+          return { previousHours: currentHours, newBalance, hoursApplied };
+        });
+      }
+
+      return { previousHours: 0, newBalance: 0, hoursApplied: 0 };
+    } catch (error) {
+      logError('Error updating hours balance:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add hours transaction record
+   */
+  async addHoursTransaction(userId, transactionData) {
+    try {
+      if (isFirebaseReady() && db && typeof db.collection !== 'function') {
+        const transactionsRef = collection(db, 'hourTransactions');
+        await addDoc(transactionsRef, {
+          userId,
+          ...transactionData,
+          timestamp: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      logError('Error adding hours transaction:', error);
       throw error;
     }
   }
@@ -770,7 +895,7 @@ class WalletService {
           }));
         }
       } catch (stripeError) {
-        console.log('Stripe payment methods not available, trying Firestore:', stripeError.message);
+        logWarn('Stripe payment methods not available, trying Firestore:', stripeError.message);
       }
 
       // Try Firestore
@@ -796,7 +921,7 @@ class WalletService {
       // Fallback to empty array (no mock data)
       return [];
     } catch (error) {
-      console.error('Error getting payment methods:', error);
+      logError('Error getting payment methods:', error);
       return [];
     }
   }
@@ -878,7 +1003,7 @@ class WalletService {
         topCategories,
       };
     } catch (error) {
-      console.error('Error getting insights:', error);
+      logError('Error getting insights:', error);
       return {
         totalReceived: 0,
         totalSent: 0,

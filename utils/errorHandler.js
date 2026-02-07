@@ -213,10 +213,11 @@ export const handleApiError = async (response) => {
     const error = new Error(errorMessage);
     error.status = response.status;
     error.response = response;
-    return error;
+    const shouldRetry = response.status === 429 || response.status >= 500;
+    return { error, shouldRetry };
   }
   
-  return null;
+  return { error: null, shouldRetry: false };
 };
 
 /**
@@ -229,6 +230,54 @@ export const withErrorHandling = (fn, errorTitle = 'Error') => {
     } catch (error) {
       showErrorAlert(error, errorTitle);
       throw error;
+    }
+  };
+};
+
+/**
+ * Handle error with optional custom messaging
+ */
+export const handleError = (error, options = {}) => {
+  const {
+    customTitle = 'Error',
+    customMessage = null,
+    onRetry = null,
+  } = options;
+
+  if (customMessage) {
+    showErrorAlert({ message: customMessage }, customTitle, onRetry);
+    return;
+  }
+
+  showErrorAlert(error, customTitle, onRetry);
+};
+
+/**
+ * Create a retryable async function with backoff.
+ */
+export const createRetryableFunction = (fn, options = {}) => {
+  const {
+    maxRetries = 3,
+    baseDelayMs = 500,
+    onRetry = null,
+  } = options;
+
+  return async (...args) => {
+    let attempt = 0;
+    while (true) {
+      try {
+        return await fn(...args);
+      } catch (error) {
+        attempt += 1;
+        if (attempt > maxRetries) {
+          throw error;
+        }
+        if (onRetry) {
+          onRetry(attempt, maxRetries, error);
+        }
+        const delay = baseDelayMs * attempt;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
   };
 };

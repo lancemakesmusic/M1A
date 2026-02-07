@@ -25,6 +25,7 @@ import useScreenTracking from '../hooks/useScreenTracking';
 import FeedbackService from '../services/FeedbackService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import * as StoreReview from 'expo-store-review';
+import { logError } from '../utils/logger';
 
 const FEEDBACK_TYPES = [
   { id: 'bug', label: 'Bug Report', icon: 'bug', color: '#FF3B30' },
@@ -125,7 +126,7 @@ export default function FeedbackScreen() {
       setFeedbackType('bug');
       setEmail(user?.email || '');
     } catch (error) {
-      console.error('Error submitting feedback:', error);
+      logError('Error submitting feedback:', error);
       trackError(error.message || 'Feedback submission failed', 'feedback_submission_error', 'FeedbackScreen');
       Alert.alert('Error', error.message || 'Failed to submit feedback. Please try again.');
     } finally {
@@ -154,7 +155,7 @@ export default function FeedbackScreen() {
         trackFeatureUsage('app_rating_submitted', { rating, source: 'feedback_screen' });
       }
     } catch (error) {
-      console.error('Error requesting app rating:', error);
+      logError('Error requesting app rating:', error);
       trackError(error.message || 'Rating request failed', 'rating_request_error', 'FeedbackScreen');
     }
   };
@@ -223,7 +224,7 @@ export default function FeedbackScreen() {
       setSurveyResponses({});
       setCurrentSurveyQuestion(0);
     } catch (error) {
-      console.error('Error submitting survey:', error);
+      logError('Error submitting survey:', error);
       trackError(error.message || 'Survey submission failed', 'survey_submission_error', 'FeedbackScreen');
       Alert.alert('Error', error.message || 'Failed to submit survey. Please try again.');
     } finally {

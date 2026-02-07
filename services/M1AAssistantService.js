@@ -6,6 +6,7 @@
 
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import ChatGPTService from './ChatGPTService';
+import { logError } from '../utils/logger';
 
 class M1AAssistantService {
   /**
@@ -827,7 +828,7 @@ class M1AAssistantService {
       
       return response;
     } catch (error) {
-      console.error('Error generating AI response:', error);
+      logError('Error generating AI response:', error);
       // Enhanced: Better fallback with conversation context
       const fallback = this.generateEnhancedFallbackResponse(query, intent, lowerQuery, context, conversationContext);
       return {

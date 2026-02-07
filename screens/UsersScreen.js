@@ -31,6 +31,7 @@ import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackFeatureUsage, trackSearch } from '../services/AnalyticsService';
 import { getAvatarUrl, hasAvatar, getAvatarSource } from '../utils/photoUtils';
 import M1ALogo from '../components/M1ALogo';
+import { log, logWarn, logError } from '../utils/logger';
 
 const { width } = Dimensions.get('window');
 
@@ -68,7 +69,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
     const cacheKey = usersCache.generateKey('usersList');
     const cachedUsers = usersCache.get(cacheKey);
     if (cachedUsers) {
-      console.log('📦 Using cached users list');
+      log('📦 Using cached users list');
       setUsers(cachedUsers);
       setLoading(false);
       // Still refresh in background
@@ -110,11 +111,11 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
         const cacheKey = usersCache.generateKey('usersList');
         usersCache.set(cacheKey, enrichedUsers, 5 * 60 * 1000); // 5 minutes TTL
       } else {
-        console.warn('Firestore not ready, showing empty list');
+        logWarn('Firestore not ready, showing empty list');
         setUsers([]);
       }
     } catch (error) {
-      console.error('Error loading users:', error);
+      logError('Error loading users:', error);
       setUsers([]);
     } finally {
       setLoading(false);
@@ -266,7 +267,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
           }
         }
       } catch (error) {
-        console.error('ensureConversationExists error:', error);
+        logError('ensureConversationExists error:', error);
         throw error;
       }
 
@@ -322,7 +323,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
       tryNavigate('HomeDrawer', screenConfig);
 
     if (!navigated) {
-      console.warn('Unable to navigate to user profile screen');
+      logWarn('Unable to navigate to user profile screen');
     }
   };
 
@@ -383,11 +384,11 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
       }
 
       if (!navigated) {
-        console.warn('Unable to navigate to Messages screen');
+      logWarn('Unable to navigate to Messages screen');
         Alert.alert('Navigation Error', 'Unable to open messages. Please try navigating to Messages manually.');
       }
     } catch (error) {
-      console.error('handleMessagePress error:', error);
+      logError('handleMessagePress error:', error);
       Alert.alert('Unable to open chat', 'Please try again in a moment.');
     }
   };
@@ -409,7 +410,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
       tryNavigate('MainApp', { screen: 'Home', params: screenConfig });
 
     if (!navigated) {
-      console.warn('Unable to navigate to inquiry view');
+      logWarn('Unable to navigate to inquiry view');
     }
   };
 

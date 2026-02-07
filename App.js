@@ -3,7 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNavigationContainerRef } from '@react-navigation/native';
 import { Platform, StatusBar, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './polyfills';
 
 import { AuthProvider } from './contexts/AuthContext';
@@ -16,6 +16,7 @@ import { RoleProvider } from './contexts/RoleContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { UserProvider } from './contexts/UserContext';
 import { WalletProvider } from './contexts/WalletContext';
+import { logWarn } from './utils/logger';
 
 import RootNavigation from './navigation/RootNavigation';
 import M1AChatBubble from './components/M1AChatBubble';
@@ -50,6 +51,7 @@ export const navigationRef = createNavigationContainerRef();
 
 export default function App() {
   const appState = useRef(AppState.currentState);
+  const [introComplete, setIntroComplete] = useState(false);
 
   useEffect(() => {
     // Initialize analytics
@@ -57,7 +59,7 @@ export default function App() {
     
     // Initialize notifications (async, but don't block)
     initNotifications().catch(error => {
-      console.warn('⚠️ Failed to initialize notifications:', error);
+      logWarn('⚠️ Failed to initialize notifications:', error);
     });
     
     // Track first use and session
@@ -67,7 +69,7 @@ export default function App() {
         RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.MULTIPLE_SESSIONS, {
           totalSessions: sessionData.totalSessions,
         }).catch(error => {
-          console.warn('Error recording multiple sessions action:', error);
+          logWarn('Error recording multiple sessions action:', error);
         });
       }
     });
@@ -84,9 +86,9 @@ export default function App() {
           if (sessionData && !sessionData.isFirstUse && sessionData.totalSessions > 1) {
             RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.MULTIPLE_SESSIONS, {
               totalSessions: sessionData.totalSessions,
-            }).catch(error => {
-              console.warn('Error recording multiple sessions action:', error);
-            });
+        }).catch(error => {
+          logWarn('Error recording multiple sessions action:', error);
+        });
           }
         });
       } else if (
@@ -121,9 +123,9 @@ export default function App() {
                         <CartBubbleProvider>
                         <NavigationContainer ref={navigationRef}>
                           <StatusBar barStyle="dark-content" />
-                          <RootNavigation />
+                          <RootNavigation onIntroStateChange={setIntroComplete} />
                           <NavigationAwareM1A />
-                          <M1AChatBubble />
+                          {introComplete && <M1AChatBubble />}
                         </NavigationContainer>
                       </CartBubbleProvider>
                     </M1AAssistantProvider>

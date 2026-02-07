@@ -586,6 +586,36 @@ def get_firestore_client():
         print(f"Warning: Firebase Admin not available: {e}")
         return None
 
+def update_wallet_balance_atomic(db, user_id: str, amount_delta: float, transaction_id: str):
+    wallet_ref = db.collection('wallets').document(user_id)
+
+    def _txn(transaction):
+        snapshot = wallet_ref.get(transaction=transaction)
+        current_balance = 0
+        if snapshot.exists:
+            current_balance = snapshot.to_dict().get('balance', 0)
+        new_balance = current_balance + amount_delta
+        if new_balance < 0:
+            new_balance = 0
+        data = {
+            'balance': new_balance,
+            'updatedAt': firestore.SERVER_TIMESTAMP,
+            'lastTransactionId': transaction_id,
+        }
+        if snapshot.exists:
+            transaction.update(wallet_ref, data)
+        else:
+            transaction.set(wallet_ref, {
+                **data,
+                'currency': 'USD',
+                'createdAt': firestore.SERVER_TIMESTAMP,
+                'userId': user_id,
+                'status': 'active',
+            }, merge=True)
+        return new_balance
+
+    return db.transaction()(_txn)
+
 
 @router.post("/webhook", include_in_schema=False)
 async def stripe_webhook(
@@ -648,6 +678,19 @@ async def stripe_webhook(
         # Handle the event
         event_type = event['type']
         event_data = event['data']['object']
+
+        # Idempotency: skip already-processed events
+        event_id = event.get("id")
+        db = get_firestore_client()
+        if db and event_id:
+            event_ref = db.collection("stripeEvents").document(event_id)
+            if event_ref.get().exists:
+                return {"status": "ignored", "event": event_type}
+            event_ref.set({
+                "eventId": event_id,
+                "type": event_type,
+                "createdAt": firestore.SERVER_TIMESTAMP,
+            }, merge=True)
         
         if event_type == 'payment_intent.succeeded':
             # Payment succeeded - update wallet balance
@@ -811,35 +854,8 @@ async def handle_payment_succeeded(payment_intent: dict):
                 await send_order_confirmations(order_type, order_data, amount, payment_intent_id)
             else:
                 print(f"⚠️ Order not found for payment intent: {payment_intent_id}")
-            # Deduct from wallet balance for purchases
-            wallet_ref = db.collection('wallets').document(userId)
-            wallet_doc = wallet_ref.get()
-            
-            if wallet_doc.exists:
-                current_balance = wallet_doc.to_dict().get('balance', 0)
-                new_balance = current_balance - amount  # Deduct for purchase
-                
-                # Prevent negative balance (shouldn't happen if payment succeeded, but safety check)
-                if new_balance < 0:
-                    print(f"Warning: Wallet balance would go negative for user {userId}. Current: ${current_balance}, Purchase: ${amount}")
-                    new_balance = 0  # Set to 0 instead of negative
-                
-                wallet_ref.update({
-                    'balance': new_balance,
-                    'updatedAt': firestore.SERVER_TIMESTAMP,
-                    'lastTransactionId': payment_intent_id
-                })
-            else:
-                # Create wallet with 0 balance if it doesn't exist (purchase already processed)
-                wallet_ref.set({
-                    'balance': 0,
-                    'currency': 'USD',
-                    'createdAt': firestore.SERVER_TIMESTAMP,
-                    'updatedAt': firestore.SERVER_TIMESTAMP,
-                    'userId': userId,
-                    'status': 'active',
-                    'lastTransactionId': payment_intent_id
-                })
+            # Deduct from wallet balance for purchases (atomic)
+            update_wallet_balance_atomic(db, userId, -amount, payment_intent_id)
             
             # Create transaction record for the purchase deduction
             transactions_ref = db.collection('walletTransactions')
@@ -892,35 +908,13 @@ async def handle_payment_succeeded(payment_intent: dict):
             print(f"✅ Purchase completed: Deducted ${amount} from wallet for user {userId}, order type: {order_type}, description: {description}")
             
         elif is_add_funds:
-            # Add to wallet balance for fund additions
-            wallet_ref = db.collection('wallets').document(userId)
-            wallet_doc = wallet_ref.get()
-            
-            if wallet_doc.exists:
-                current_balance = wallet_doc.to_dict().get('balance', 0)
-                new_balance = current_balance + amount
-                wallet_ref.update({
-                    'balance': new_balance,
-                    'updatedAt': firestore.SERVER_TIMESTAMP,
-                    'lastTransactionId': payment_intent_id
-                })
-            else:
-                # Create wallet if it doesn't exist
-                wallet_ref.set({
-                    'balance': amount,
-                    'currency': 'USD',
-                    'createdAt': firestore.SERVER_TIMESTAMP,
-                    'updatedAt': firestore.SERVER_TIMESTAMP,
-                    'userId': userId,
-                    'status': 'active',
-                    'lastTransactionId': payment_intent_id
-                })
+            # Add to wallet balance for fund additions (atomic)
+            update_wallet_balance_atomic(db, userId, amount, payment_intent_id)
             
             # Update transaction status for fund additions
             transactions_ref = db.collection('walletTransactions')
             query = transactions_ref.where('paymentIntentId', '==', payment_intent_id)
-            transactions = query.stream()
-            
+            transactions = list(query.stream())
             for transaction in transactions:
                 transaction.reference.update({
                     'status': 'completed',
@@ -928,7 +922,7 @@ async def handle_payment_succeeded(payment_intent: dict):
                 })
             
             # If no transaction found, create one
-            if not any(True for _ in transactions):
+            if not transactions:
                 transactions_ref.add({
                     'userId': userId,
                     'type': 'received',

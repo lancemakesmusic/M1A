@@ -5,6 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { trackUserReturn, trackDAU, trackSessionStart, trackSessionEnd } from './AnalyticsService';
+import { logWarn } from '../utils/logger';
 
 const FIRST_USE_KEY = 'm1a_first_use_date';
 const LAST_USE_KEY = 'm1a_last_use_date';
@@ -29,7 +30,7 @@ export const trackFirstUse = async () => {
     }
     return false; // Returning user
   } catch (error) {
-    console.warn('Error tracking first use:', error);
+    logWarn('Error tracking first use:', error);
     return false;
   }
 };
@@ -69,7 +70,7 @@ export const trackSession = async () => {
     
     return { isFirstUse, totalSessions: parseInt(newTotal) };
   } catch (error) {
-    console.warn('Error tracking session:', error);
+    logWarn('Error tracking session:', error);
     return { isFirstUse: false, totalSessions: 0 };
   }
 };
@@ -86,7 +87,7 @@ export const endSession = async () => {
       await AsyncStorage.removeItem(SESSION_START_KEY);
     }
   } catch (error) {
-    console.warn('Error ending session:', error);
+    logWarn('Error ending session:', error);
   }
 };
 
@@ -128,7 +129,7 @@ export const getRetentionMetrics = async () => {
       lastUseDate: new Date(lastUseDate),
     };
   } catch (error) {
-    console.warn('Error getting retention metrics:', error);
+    logWarn('Error getting retention metrics:', error);
     return {
       isNewUser: true,
       daysSinceFirstUse: 0,

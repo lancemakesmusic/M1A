@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as StoreReview from 'expo-store-review';
 import { Platform, Linking, Alert } from 'react-native';
 import { trackFeatureUsage, trackButtonClick, trackError } from './AnalyticsService';
+import { logWarn, logError } from '../utils/logger';
 
 const RATING_PROMPT_KEY = 'm1a_rating_prompt';
 const POSITIVE_ACTIONS_KEY = 'm1a_positive_actions';
@@ -39,7 +40,7 @@ class RatingPromptService {
    */
   async recordPositiveAction(actionType, metadata = {}) {
     if (!Object.values(POSITIVE_ACTIONS).includes(actionType)) {
-      console.warn(`Unknown positive action type: ${actionType}`);
+      logWarn(`Unknown positive action type: ${actionType}`);
       return;
     }
 
@@ -60,7 +61,7 @@ class RatingPromptService {
       // Check if we should prompt for rating
       await this.checkAndPromptRating();
     } catch (error) {
-      console.error('Error recording positive action:', error);
+      logError('Error recording positive action:', error);
     }
   }
 
@@ -112,7 +113,7 @@ class RatingPromptService {
       // All conditions met - prompt for rating
       return await this.promptForRating();
     } catch (error) {
-      console.error('Error checking rating prompt:', error);
+      logError('Error checking rating prompt:', error);
       return false;
     }
   }
@@ -166,7 +167,7 @@ class RatingPromptService {
         );
       });
     } catch (error) {
-      console.error('Error prompting for rating:', error);
+      logError('Error prompting for rating:', error);
       trackError(error.message || 'Rating prompt failed', 'rating_prompt_error', 'RatingPromptService');
       return false;
     }
@@ -201,7 +202,7 @@ class RatingPromptService {
         await AsyncStorage.setItem(RATING_COMPLETED_KEY, 'true');
       }
     } catch (error) {
-      console.error('Error opening App Store:', error);
+      logError('Error opening App Store:', error);
     }
   }
 

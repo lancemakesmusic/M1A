@@ -9,6 +9,8 @@
  * at EXPO_PUBLIC_API_BASE_URL/api/send-email
  */
 
+import { log, logWarn, logError } from '../utils/logger';
+
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || '';
 
 /**
@@ -40,8 +42,8 @@ export const sendEmail = async (emailData) => {
 
     // If no API base URL is configured, log and return false
     if (!API_BASE_URL) {
-      console.warn('⚠️ Email service not configured: EXPO_PUBLIC_API_BASE_URL not set');
-      console.log('📧 Would send email:', {
+      logWarn('⚠️ Email service not configured: EXPO_PUBLIC_API_BASE_URL not set');
+      log('📧 Would send email:', {
         to: recipients,
         subject: emailData.subject,
         from: emailData.from || 'noreply@merkabaent.com',
@@ -70,7 +72,7 @@ export const sendEmail = async (emailData) => {
         throw new Error(`Email API error for ${recipient}: ${errorText || response.statusText}`);
       }
 
-      console.log('✅ Email sent successfully to:', recipient);
+      log('✅ Email sent successfully to:', recipient);
       return true;
     });
 
@@ -79,10 +81,10 @@ export const sendEmail = async (emailData) => {
     const failureCount = results.filter(r => r.status === 'rejected').length;
 
     if (failureCount > 0) {
-      console.warn(`⚠️ Failed to send ${failureCount} of ${recipients.length} emails`);
+    logWarn(`⚠️ Failed to send ${failureCount} of ${recipients.length} emails`);
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
-          console.error(`❌ Failed to send to ${recipients[index]}:`, result.reason);
+          logError(`❌ Failed to send to ${recipients[index]}:`, result.reason);
         }
       });
     }
@@ -90,7 +92,7 @@ export const sendEmail = async (emailData) => {
     // Return true if at least one email was sent successfully
     return successCount > 0;
   } catch (error) {
-    console.error('❌ Failed to send email:', error);
+    logError('❌ Failed to send email:', error);
     return false;
   }
 };
@@ -207,7 +209,7 @@ export const sendBookingConfirmationEmail = async (bookingData) => {
       html,
     });
   } catch (error) {
-    console.error('❌ Failed to send booking confirmation email:', error);
+    logError('❌ Failed to send booking confirmation email:', error);
     return false;
   }
 };
@@ -302,7 +304,7 @@ export const sendPaymentConfirmationEmail = async (paymentData) => {
       html,
     });
   } catch (error) {
-    console.error('❌ Failed to send payment confirmation email:', error);
+    logError('❌ Failed to send payment confirmation email:', error);
     return false;
   }
 };
@@ -440,7 +442,7 @@ export const sendRSVPConfirmationEmail = async (rsvpData) => {
       html,
     });
   } catch (error) {
-    console.error('❌ Failed to send RSVP confirmation email:', error);
+    logError('❌ Failed to send RSVP confirmation email:', error);
     return false;
   }
 };

@@ -2,6 +2,7 @@ import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firest
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { db } from '../firebase';
 import { useAuth } from './AuthContext';
+import { log, logWarn, logError } from '../utils/logger';
 
 const RoleContext = createContext();
 
@@ -46,7 +47,7 @@ export function RoleProvider({ children }) {
         // Security: Only authorized admin emails can be admin
         // If someone else has admin role, downgrade them
         if (role === 'admin' && !isAdminEmail) {
-          console.warn('Security: Non-admin email has admin role. Downgrading to client.');
+          logWarn('Security: Non-admin email has admin role. Downgrading to client.');
           role = 'client';
           // Optionally update the document to fix it
           try {
@@ -55,13 +56,13 @@ export function RoleProvider({ children }) {
               roleSecurityDowngrade: serverTimestamp(),
             });
           } catch (err) {
-            console.error('Error downgrading role:', err);
+            logError('Error downgrading role:', err);
           }
         }
         
         // AUTO-SETUP: If admin email but role is not admin, set it automatically
         if (isAdminEmail && role !== 'admin') {
-          console.log(`🔧 Auto-setting ${authUser.email} to admin role`);
+          log(`🔧 Auto-setting ${authUser.email} to admin role`);
           try {
             await updateDoc(doc(db, 'users', authUser.uid), {
               role: 'admin',
@@ -77,9 +78,9 @@ export function RoleProvider({ children }) {
               },
             });
             role = 'admin';
-            console.log(`✅ Successfully set ${authUser.email} to admin role`);
+            log(`✅ Successfully set ${authUser.email} to admin role`);
           } catch (err) {
-            console.error('Error auto-setting admin role:', err);
+            logError('Error auto-setting admin role:', err);
             // Even if update fails, allow admin access if email matches
             role = 'admin';
           }
@@ -89,16 +90,16 @@ export function RoleProvider({ children }) {
         if (authUser.email === 'admin@merkabaent.com') {
           const currentCategory = userData.category || userData.categoryTitle;
           if (currentCategory !== 'venue_owner') {
-            console.log('🔧 Auto-setting admin@merkabaent.com to venue_owner persona');
+            log('🔧 Auto-setting admin@merkabaent.com to venue_owner persona');
             try {
               await updateDoc(doc(db, 'users', authUser.uid), {
                 category: 'venue_owner',
                 categoryTitle: 'Venue Owner',
                 categoryUpdatedAt: serverTimestamp(),
               });
-              console.log('✅ Successfully set admin@merkabaent.com as venue owner');
+              log('✅ Successfully set admin@merkabaent.com as venue owner');
             } catch (err) {
-              console.error('Error auto-setting venue owner persona:', err);
+              logError('Error auto-setting venue owner persona:', err);
             }
           }
         }
@@ -108,7 +109,7 @@ export function RoleProvider({ children }) {
       } else {
         // New user - if admin email, create with admin role
         if (isAdminEmail) {
-          console.log(`🔧 Creating ${authUser.email} user document with admin role`);
+          log(`🔧 Creating ${authUser.email} user document with admin role`);
           try {
             const userData = {
               email: authUser.email,
@@ -135,12 +136,12 @@ export function RoleProvider({ children }) {
             await setDoc(doc(db, 'users', authUser.uid), userData);
             setUserRole('admin');
             setPermissions(getPermissionsForRole('admin', {}, isAdminEmail));
-            console.log(`✅ Created ${authUser.email} user document`);
+            log(`✅ Created ${authUser.email} user document`);
             if (authUser.email === 'admin@merkabaent.com') {
-              console.log('✅ Set admin@merkabaent.com as venue owner');
+              log('✅ Set admin@merkabaent.com as venue owner');
             }
           } catch (err) {
-            console.error('Error creating admin user document:', err);
+            logError('Error creating admin user document:', err);
             // Even if creation fails, allow admin access if email matches
             setUserRole('admin');
             setPermissions(getPermissionsForRole('admin', {}, isAdminEmail));
@@ -151,7 +152,7 @@ export function RoleProvider({ children }) {
         }
       }
     } catch (error) {
-      console.error('Error loading user role:', error);
+      logError('Error loading user role:', error);
       // If admin email, still allow admin access even on error
       if (isAdminEmail) {
         setUserRole('admin');

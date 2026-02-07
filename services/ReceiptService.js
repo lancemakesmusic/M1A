@@ -6,6 +6,7 @@
 import { collection, addDoc, query, where, orderBy, limit, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
 import { trackFeatureUsage } from './AnalyticsService';
+import { logError } from '../utils/logger';
 
 class ReceiptService {
   /**
@@ -65,7 +66,7 @@ class ReceiptService {
 
       return receipt;
     } catch (error) {
-      console.error('Error generating receipt:', error);
+      logError('Error generating receipt:', error);
       throw error;
     }
   }
@@ -90,7 +91,7 @@ class ReceiptService {
 
       return null;
     } catch (error) {
-      console.error('Error getting receipt:', error);
+      logError('Error getting receipt:', error);
       return null;
     }
   }
@@ -123,7 +124,7 @@ class ReceiptService {
 
       return [];
     } catch (error) {
-      console.error('Error getting user receipts:', error);
+      logError('Error getting user receipts:', error);
       return [];
     }
   }
@@ -216,7 +217,7 @@ class ReceiptService {
 
       return summary;
     } catch (error) {
-      console.error('Error generating tax summary:', error);
+      logError('Error generating tax summary:', error);
       throw error;
     }
   }

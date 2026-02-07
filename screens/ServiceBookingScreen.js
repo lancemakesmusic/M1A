@@ -31,25 +31,17 @@ import WalletService from '../services/WalletService';
 import useScreenTracking from '../hooks/useScreenTracking';
 import { trackButtonClick, trackError, trackEventBookingCompleted, trackEventBookingStarted, trackFunnelStep } from '../services/AnalyticsService';
 import GoogleCalendarService from '../services/GoogleCalendarService';
-import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
+import { sendOrderStatusUpdate, sendPaymentConfirmation, sendHoursLowNotification } from '../services/NotificationService';
 import { sendBookingConfirmationEmail, sendPaymentConfirmationEmail, sendRSVPConfirmationEmail } from '../services/EmailService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import SharingService from '../services/SharingService';
 import StripeService from '../services/StripeService';
 import { handleError, getUserFriendlyError } from '../utils/errorHandler';
+import { log, logWarn, logError } from '../utils/logger';
+import { getApiBaseUrl } from '../utils/apiConfig';
 
 const TAX_RATE = 0.08; // 8% tax
 const SERVICE_FEE = 0.03; // 3% service fee
-
-const getApiBaseUrl = () => {
-  if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-    return process.env.EXPO_PUBLIC_API_BASE_URL;
-  }
-  if (__DEV__) {
-    return 'http://localhost:8001';
-  }
-  return null;
-};
 
 /**
  * Sync booking to Google Calendar (admin@merkabaent.com)
@@ -59,14 +51,14 @@ const syncBookingToCalendar = async (orderId, item, formData, total, user) => {
   try {
     // Only sync if we have date/time information
     if (!formData.serviceDate || !formData.serviceTime) {
-      console.log('📅 No date/time information - skipping calendar sync');
+      log('📅 No date/time information - skipping calendar sync');
       return { success: false, error: 'No date/time information' };
     }
 
     // Parse service date (format: "Monday, January 1, 2024")
     const dateMatch = formData.serviceDate.match(/(\w+), (\w+) (\d+), (\d+)/);
     if (!dateMatch) {
-      console.warn('📅 Invalid date format:', formData.serviceDate);
+      logWarn('📅 Invalid date format:', formData.serviceDate);
       return { success: false, error: 'Invalid date format' };
     }
 
@@ -107,7 +99,7 @@ const syncBookingToCalendar = async (orderId, item, formData, total, user) => {
     // Check availability (non-blocking - just log warnings)
     const availability = await GoogleCalendarService.checkAvailability(startDate, endDate);
     if (availability && !availability.available && !availability.warning) {
-      console.warn('⚠️ Service time slot may have conflicts:', availability.reason);
+      logWarn('⚠️ Service time slot may have conflicts:', availability.reason);
     }
 
     // Create calendar event
@@ -156,35 +148,35 @@ const syncBookingToCalendar = async (orderId, item, formData, total, user) => {
 
         if (response.ok) {
           const data = await response.json().catch(() => ({}));
-          console.log('✅ Booking synced to Google Calendar (backend):', data);
+          log('✅ Booking synced to Google Calendar (backend):', data);
           return { success: true, eventId: data?.results?.admin_calendar?.eventId || data?.eventId };
         }
 
         const errorData = await response.json().catch(() => ({}));
-        console.warn('⚠️ Backend calendar sync failed:', errorData);
+        logWarn('⚠️ Backend calendar sync failed:', errorData);
       } catch (error) {
-        console.warn('⚠️ Backend calendar sync error:', error);
+      logWarn('⚠️ Backend calendar sync error:', error);
       }
     }
 
     // Fallback to client-side OAuth flow if backend is unavailable
     const isConnected = await GoogleCalendarService.isConnected();
     if (!isConnected) {
-      console.log('📅 Google Calendar not connected - skipping calendar sync');
+      log('📅 Google Calendar not connected - skipping calendar sync');
       return { success: false, error: 'Calendar not connected' };
     }
 
     const calendarResult = await GoogleCalendarService.createEvent(calendarEventData);
 
     if (calendarResult.success) {
-      console.log('✅ Booking synced to Google Calendar:', calendarResult.eventId);
+      log('✅ Booking synced to Google Calendar:', calendarResult.eventId);
       return { success: true, eventId: calendarResult.eventId };
     } else {
-      console.warn('⚠️ Failed to sync booking to calendar:', calendarResult.message);
+      logWarn('⚠️ Failed to sync booking to calendar:', calendarResult.message);
       return { success: false, error: calendarResult.message };
     }
   } catch (error) {
-    console.error('❌ Error syncing booking to calendar:', error);
+    logError('❌ Error syncing booking to calendar:', error);
     // Don't throw - calendar sync failure shouldn't break booking
     return { success: false, error: error.message };
   }
@@ -207,6 +199,106 @@ export default function ServiceBookingScreen({ route, navigation }) {
   }, [routeItem]);
   
   const item = selectedItem;
+
+  const getRequestedHours = () => {
+    if (item?.category === 'Events') return 0;
+    if (item?.isDeal && item?.dealHours) {
+      return item.dealHours * (formData.quantity || 1);
+    }
+    return formData.quantity || 1;
+  };
+
+  const updateOrderHoursMeta = async (orderId, hoursMeta) => {
+    if (!orderId || !hoursMeta || !isFirebaseReady() || !db) {
+      return;
+    }
+    try {
+      const { doc, updateDoc } = await import('firebase/firestore');
+      const collectionName = item.category === 'Events' ? 'eventOrders' : 'serviceOrders';
+      const orderRef = doc(db, collectionName, orderId);
+      await updateDoc(orderRef, {
+        hoursApplied: hoursMeta.hoursApplied ?? 0,
+        hoursBalanceAfter: hoursMeta.newBalance ?? 0,
+        hoursTransactionId: hoursMeta.transactionId || null,
+        hoursType: hoursMeta.type || null,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      logWarn('Failed to update order hours metadata:', error);
+    }
+  };
+
+  const applyHoursAfterBooking = async (orderId) => {
+    if (!user?.uid || !orderId || item?.category === 'Events') {
+      return;
+    }
+
+    const requestedHours = getRequestedHours();
+    if (!requestedHours || requestedHours <= 0) {
+      return;
+    }
+
+    const hoursTransactionId = `hours_${orderId}_${Date.now()}`;
+
+    try {
+      if (item?.isDeal && item?.dealHours) {
+        const result = await WalletService.updateHoursBalance(user.uid, requestedHours, hoursTransactionId);
+        await WalletService.addHoursTransaction(user.uid, {
+          type: 'purchase',
+          hours: requestedHours,
+          status: 'completed',
+          orderId,
+          serviceId: item.id,
+          serviceName: item.name,
+          transactionId: hoursTransactionId,
+        });
+        await updateOrderHoursMeta(orderId, {
+          ...result,
+          transactionId: hoursTransactionId,
+          type: 'purchase',
+        });
+        await refreshBalance();
+        return;
+      }
+
+      const currentHours = await WalletService.getHoursBalance(user.uid);
+      const hoursToUse = Math.min(currentHours, requestedHours);
+      if (hoursToUse <= 0) {
+        await sendHoursLowNotification({
+          hoursRemaining: currentHours,
+          hoursRequested: requestedHours,
+        });
+        return;
+      }
+
+      const result = await WalletService.updateHoursBalance(user.uid, -hoursToUse, hoursTransactionId);
+      await WalletService.addHoursTransaction(user.uid, {
+        type: 'usage',
+        hours: hoursToUse,
+        status: 'completed',
+        orderId,
+        serviceId: item.id,
+        serviceName: item.name,
+        transactionId: hoursTransactionId,
+      });
+      await updateOrderHoursMeta(orderId, {
+        ...result,
+        transactionId: hoursTransactionId,
+        type: 'usage',
+      });
+
+      if (currentHours <= requestedHours || result.newBalance <= 0) {
+        await sendHoursLowNotification({
+          hoursRemaining: result.newBalance,
+          hoursRequested: requestedHours,
+        });
+      }
+
+      await refreshBalance();
+    } catch (error) {
+      logWarn('Failed to apply hours after booking:', error);
+    }
+  };
   
   const [formData, setFormData] = useState({
     serviceDate: '',
@@ -658,19 +750,19 @@ export default function ServiceBookingScreen({ route, navigation }) {
               ticketId: ticketId,
               createdAt: serverTimestamp(),
             });
-            console.log('✅ Guest list entry created in eventBookings');
+            log('✅ Guest list entry created in eventBookings');
           }
           
           return orderRef.id;
         } catch (firestoreError) {
-          console.error('Firestore save failed:', firestoreError);
+          logError('Firestore save failed:', firestoreError);
           throw firestoreError;
         }
       } else {
         throw new Error('Firestore not ready');
       }
     } catch (error) {
-      console.error('Error saving order to Firestore:', error);
+      logError('Error saving order to Firestore:', error);
       return `LOCAL-${Date.now()}`;
     }
   };
@@ -699,10 +791,10 @@ export default function ServiceBookingScreen({ route, navigation }) {
   };
 
   const handleStripePayment = async () => {
-    console.log('💳 Payment button clicked - handleStripePayment called');
+    log('💳 Payment button clicked - handleStripePayment called');
     
     if (!user) {
-      console.log('❌ User not logged in');
+      logWarn('❌ User not logged in');
       Alert.alert(
         'Login Required',
         'Please log in to complete your order.',
@@ -721,21 +813,10 @@ export default function ServiceBookingScreen({ route, navigation }) {
     }
 
     try {
-      console.log('✅ Starting payment process...');
+    log('✅ Starting payment process...');
       setProcessingPayment(true);
       setPaymentError(null);
       
-      // Use network IP for physical devices, localhost for web/simulator
-      const getApiBaseUrl = () => {
-        if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-          return process.env.EXPO_PUBLIC_API_BASE_URL;
-        }
-        if (Platform.OS === 'web') {
-          return 'http://localhost:8001';
-        }
-        // Fallback for development (use environment variable in production)
-        return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
-      };
       const API_BASE_URL = getApiBaseUrl();
       
       // Calculate unit price for order data
@@ -781,6 +862,8 @@ export default function ServiceBookingScreen({ route, navigation }) {
         dealHours: item.isDeal ? item.dealHours * formData.quantity : null,
         regularPrice: item.isDeal && item.regularPrice ? item.regularPrice * formData.quantity : null,
         savings: item.isDeal && item.regularPrice ? (item.regularPrice - item.dealPrice) * formData.quantity : null,
+        hoursRequested: item.category === 'Events' ? null : getRequestedHours(),
+        hoursType: item.isDeal && item.dealHours ? 'purchase' : 'usage',
       };
 
       // Track booking started
@@ -829,7 +912,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
           if (!response.ok) {
             // Handle 404 gracefully (backend not configured)
             if (response.status === 404) {
-              console.log('Backend not configured (404) - continuing with local booking');
+              log('Backend not configured (404) - continuing with local booking');
               // Silently continue - backend is optional
             } else {
               throw new Error(`Backend error: ${response.status} ${response.statusText}`);
@@ -842,7 +925,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
               throw new Error(result.error || 'Failed to create service booking');
             }
             
-            console.log('✅ Service booking created:', result.bookingId);
+            log('✅ Service booking created:', result.bookingId);
           }
         } catch (backendError) {
           // Handle network errors and other issues gracefully
@@ -850,17 +933,17 @@ export default function ServiceBookingScreen({ route, navigation }) {
           
           // Silently handle 404 (backend not configured) and abort errors (timeout)
           if (errorMessage.includes('404') || errorMessage.includes('aborted')) {
-            console.log('Backend submission skipped - backend not available');
+            log('Backend submission skipped - backend not available');
             // Continue with booking - backend is optional
           } else {
             // Log other errors but don't block the user
-            console.warn('Backend submission failed (non-critical):', backendError);
+            logWarn('Backend submission failed (non-critical):', backendError);
             // Don't show alert - backend submission is optional
             // The booking will still be saved to Firestore
           }
         }
       } else {
-        console.log('Skipping backend booking submission for event or free ticket');
+        log('Skipping backend booking submission for event or free ticket');
       }
 
       // Check availability via backend BEFORE payment (uses admin's calendar)
@@ -938,7 +1021,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
           }
         } catch (availabilityError) {
           // If availability check fails, log but don't block (backend will check again)
-          console.warn('Availability check error, proceeding with booking. Backend will verify:', availabilityError);
+          logWarn('Availability check error, proceeding with booking. Backend will verify:', availabilityError);
         }
       }
 
@@ -979,7 +1062,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
 
       // Handle free tickets (total === 0) - skip Stripe checkout
       if (total === 0) {
-        console.log('Free ticket detected - skipping Stripe checkout');
+        log('Free ticket detected - skipping Stripe checkout');
         
         // Save order to Firestore with COMPLETED payment status
         const orderId = await saveOrderToFirestore({
@@ -1028,11 +1111,11 @@ export default function ServiceBookingScreen({ route, navigation }) {
       let paymentMethod = 'stripe';
       let useWalletPayment = false;
 
-      console.log(`💳 Processing payment: Total = $${total.toFixed(2)}, Stripe configured = ${StripeService.isConfigured()}`);
+      log(`💳 Processing payment: Total = $${total.toFixed(2)}, Stripe configured = ${StripeService.isConfigured()}`);
 
       // Try Stripe checkout first if configured
       if (StripeService.isConfigured()) {
-        console.log('💳 Attempting Stripe checkout...');
+        log('💳 Attempting Stripe checkout...');
         try {
           // Save order to Firestore with PENDING payment status first
           // This ensures we have an order ID before redirecting to Stripe
@@ -1082,15 +1165,15 @@ export default function ServiceBookingScreen({ route, navigation }) {
                   checkoutSessionId: checkoutResult.sessionId,
                   updatedAt: serverTimestamp(),
                 });
-                console.log('✅ Updated order with checkout session ID');
+                log('✅ Updated order with checkout session ID');
               }
             } catch (updateError) {
-              console.warn('Failed to update order with checkout session ID:', updateError);
+              logWarn('Failed to update order with checkout session ID:', updateError);
               // Continue anyway - order will still be processed via webhook
             }
 
             // Open Stripe Checkout in browser
-            console.log('Opening Stripe Checkout:', checkoutResult.url);
+            log('Opening Stripe Checkout:', checkoutResult.url);
             
             // Use WebBrowser for better UX - opens in-app browser
             const result = await WebBrowser.openBrowserAsync(checkoutResult.url, {
@@ -1146,7 +1229,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
                   paymentMethod: 'stripe',
                   eventDate: item.eventDate ? new Date(item.eventDate) : (formData.serviceDate ? new Date(formData.serviceDate) : null),
                   location: item.location || formData.location || null,
-                }).catch(err => console.warn('Failed to send RSVP email:', err));
+                }).catch(err => logWarn('Failed to send RSVP email:', err));
               } else {
                 // Send booking confirmation for services
                 await sendBookingConfirmationEmail({
@@ -1158,7 +1241,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
                   paymentMethod: 'stripe',
                   date: formData.serviceDate ? new Date(formData.serviceDate) : null,
                   location: item.location || formData.location || null,
-                }).catch(err => console.warn('Failed to send booking email:', err));
+                }).catch(err => logWarn('Failed to send booking email:', err));
               }
               
               // Send payment confirmation (only if not free)
@@ -1169,14 +1252,17 @@ export default function ServiceBookingScreen({ route, navigation }) {
                   transactionId: orderId,
                   amount: total,
                   description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
-                }).catch(err => console.warn('Failed to send payment email:', err));
+                }).catch(err => logWarn('Failed to send payment email:', err));
               }
             }
             
             // Sync to Google Calendar (admin@merkabaent.com)
             await syncBookingToCalendar(orderId, item, formData, total, user).catch(err => 
-              console.warn('Failed to sync booking to calendar:', err)
+              logWarn('Failed to sync booking to calendar:', err)
             );
+
+            // Apply hour purchase/usage tracking
+            await applyHoursAfterBooking(orderId);
             
             // Show success message
             setOrderNumber(orderId);
@@ -1184,32 +1270,32 @@ export default function ServiceBookingScreen({ route, navigation }) {
             return; // Exit early - Stripe payment successful
           } else {
             // Stripe checkout failed, fall back to wallet
-            console.log('Stripe checkout failed, falling back to wallet payment');
+            log('Stripe checkout failed, falling back to wallet payment');
             useWalletPayment = true;
             // orderId is already set, we'll update it instead of creating a new one
           }
         } catch (stripeError) {
           // Stripe error - always fall back to wallet payment
           const errorMessage = stripeError.message || '';
-          console.log('❌ Stripe error caught:', errorMessage);
-          console.log('💳 Falling back to wallet payment due to Stripe error');
+          logWarn('❌ Stripe error caught:', errorMessage);
+          log('💳 Falling back to wallet payment due to Stripe error');
           useWalletPayment = true;
           // If orderId was already created, we'll update it; otherwise create new one
         }
       } else {
         // Stripe not configured, use wallet payment
-        console.log('Stripe not configured, using wallet payment');
+        log('Stripe not configured, using wallet payment');
         useWalletPayment = true;
       }
 
       // Fall back to wallet payment if Stripe failed or not configured
       if (useWalletPayment) {
-        console.log('💳 Falling back to wallet payment...');
-        console.log('💳 useWalletPayment flag is true, proceeding with wallet payment');
+        log('💳 Falling back to wallet payment...');
+        log('💳 useWalletPayment flag is true, proceeding with wallet payment');
         // Refresh wallet balance to get latest amount
         await refreshBalance();
         const currentBalance = await WalletService.getBalance(user.uid);
-        console.log(`💳 Current wallet balance: $${currentBalance.toFixed(2)}, Required: $${total.toFixed(2)}`);
+        log(`💳 Current wallet balance: $${currentBalance.toFixed(2)}, Required: $${total.toFixed(2)}`);
         
         if (!user?.uid) {
           throw new Error('User not authenticated. Please log in and try again.');
@@ -1229,7 +1315,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
                 updatedAt: serverTimestamp(),
               });
             } catch (updateError) {
-              console.warn('Failed to update order status:', updateError);
+              logWarn('Failed to update order status:', updateError);
             }
           }
           throw new Error(
@@ -1259,9 +1345,9 @@ export default function ServiceBookingScreen({ route, navigation }) {
                 paymentMethod: 'wallet',
                 updatedAt: serverTimestamp(),
               });
-              console.log('✅ Updated existing order to wallet payment');
+              log('✅ Updated existing order to wallet payment');
             } catch (updateError) {
-              console.error('Failed to update order to wallet payment:', updateError);
+              logError('Failed to update order to wallet payment:', updateError);
               throw new Error('Failed to update order. Please try again.');
             }
           }
@@ -1285,7 +1371,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
         // Refresh wallet balance in context
         await refreshBalance();
 
-        console.log(`✅ Wallet payment successful: Deducted $${total.toFixed(2)} for order ${orderId}`);
+        log(`✅ Wallet payment successful: Deducted $${total.toFixed(2)} for order ${orderId}`);
         
         // Track analytics and send notifications
         await trackEventBookingCompleted({
@@ -1324,7 +1410,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
               paymentMethod: total > 0 ? 'wallet' : 'free',
               eventDate: item.eventDate ? new Date(item.eventDate) : (formData.serviceDate ? new Date(formData.serviceDate) : null),
               location: item.location || formData.location || null,
-            }).catch(err => console.warn('Failed to send RSVP email:', err));
+            }).catch(err => logWarn('Failed to send RSVP email:', err));
           } else {
             // Send booking confirmation for services
             await sendBookingConfirmationEmail({
@@ -1336,7 +1422,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
               paymentMethod: 'wallet',
               date: formData.serviceDate ? new Date(formData.serviceDate) : null,
               location: item.location || formData.location || null,
-            }).catch(err => console.warn('Failed to send booking email:', err));
+            }).catch(err => logWarn('Failed to send booking email:', err));
           }
           
           // Send payment confirmation (only if not free)
@@ -1347,14 +1433,17 @@ export default function ServiceBookingScreen({ route, navigation }) {
               transactionId: orderId,
               amount: total,
               description: `Payment for ${item.category === 'Events' ? 'event' : 'service'}: ${item.name}`,
-            }).catch(err => console.warn('Failed to send payment email:', err));
+            }).catch(err => logWarn('Failed to send payment email:', err));
           }
         }
         
         // Sync to Google Calendar (admin@merkabaent.com)
         await syncBookingToCalendar(orderId, item, formData, total, user).catch(err => 
-          console.warn('Failed to sync booking to calendar:', err)
+          logWarn('Failed to sync booking to calendar:', err)
         );
+
+        // Apply hour purchase/usage tracking
+        await applyHoursAfterBooking(orderId);
         
         // Payment completed - show success
         setOrderNumber(orderId);
@@ -1408,7 +1497,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
             // Check availability
             const availability = await GoogleCalendarService.checkAvailability(startDate, endDate);
             if (availability && !availability.available && !availability.warning) {
-              console.warn('Service time slot is not available:', availability.reason);
+              logWarn('Service time slot is not available:', availability.reason);
             }
             
             // Create calendar event
@@ -1431,18 +1520,18 @@ export default function ServiceBookingScreen({ route, navigation }) {
             });
             
             if (!calendarResult.success) {
-              console.warn('Failed to create calendar event:', calendarResult.message);
+              logWarn('Failed to create calendar event:', calendarResult.message);
             }
           }
         }
       } catch (calendarError) {
-        console.error('Error scheduling service on calendar:', calendarError);
+        logError('Error scheduling service on calendar:', calendarError);
         // Don't block booking if calendar sync fails
       }*/
       
       // Analytics and notifications are now handled within each payment method branch above
     } catch (error) {
-      console.error('Payment error:', error);
+      logError('Payment error:', error);
       trackError('service_payment_failed', { error: error.message, serviceId: item.id });
       const friendlyError = getUserFriendlyError(error);
       setPaymentError(friendlyError);

@@ -6,6 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { collection, addDoc, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
+import { logWarn, logError } from '../utils/logger';
 import {
   View,
   Text,
@@ -71,7 +72,7 @@ export default function PostReactions({ postId, onReactionCountChange }) {
                   userName = userData.displayName || userData.username || 'User';
                 }
               } catch (error) {
-                console.warn('Error loading user info for reaction:', error);
+                logWarn('Error loading user info for reaction:', error);
               }
             }
             
@@ -98,7 +99,7 @@ export default function PostReactions({ postId, onReactionCountChange }) {
         }
       },
       (error) => {
-        console.error('Error loading reactions:', error);
+        logError('Error loading reactions:', error);
         setLoading(false);
       }
     );
@@ -147,7 +148,7 @@ export default function PostReactions({ postId, onReactionCountChange }) {
       
       setShowReactionPicker(false);
     } catch (error) {
-      console.error('Error handling reaction:', error);
+      logError('Error handling reaction:', error);
       Alert.alert('Error', 'Failed to react. Please try again.');
     }
   };

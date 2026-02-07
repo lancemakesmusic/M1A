@@ -11,8 +11,10 @@ from pydantic import BaseModel, Field
 from typing import Optional
 import firebase_admin
 from firebase_admin import auth
+import logging
 
 router = APIRouter(prefix="/api/sms", tags=["sms"])
+logger = logging.getLogger(__name__)
 
 # Security dependency for Firebase Auth token verification
 security = HTTPBearer()
@@ -76,6 +78,13 @@ def generate_qr_code_image(ticket_id: str, event_name: str) -> str:
     
     return f"data:image/png;base64,{img_str}"
 
+def _sanitize_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    return value.replace("<", "").replace(">", "").strip()
+
 @router.post("/send-rsvp-confirmation")
 async def send_rsvp_confirmation(
     request: RSVPConfirmationRequest,
@@ -88,18 +97,27 @@ async def send_rsvp_confirmation(
     with a confirmation message and QR code for the event ticket.
     """
     try:
+        event_name = _sanitize_text(request.eventName) or "Event"
+        ticket_id = _sanitize_text(request.ticketId) or ""
+        phone_number = _sanitize_text(request.phoneNumber) or ""
+        if not phone_number:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number is required."
+            )
+
         # For now, we'll use a mock SMS service
         # In production, integrate with Twilio, AWS SNS, or similar
         
         # Generate QR code
-        qr_code_image = generate_qr_code_image(request.ticketId, request.eventName)
+        qr_code_image = generate_qr_code_image(ticket_id, event_name)
         
         # Format SMS message
         sms_message = f"""
 🎉 RSVP Confirmed!
 
-Event: {request.eventName}
-Ticket ID: {request.ticketId}
+Event: {event_name}
+Ticket ID: {ticket_id}
 
 Your ticket QR code: {request.qrCodeUrl or 'See attached image'}
 
@@ -110,9 +128,9 @@ Thank you for RSVPing!
         
         # TODO: Integrate with actual SMS service (Twilio, AWS SNS, etc.)
         # For now, log the message and return success
-        print(f"[SMS] Would send to {request.phoneNumber}:")
-        print(f"[SMS] Message: {sms_message}")
-        print(f"[SMS] QR Code: {qr_code_image[:100]}...")
+        logger.info("[SMS] Would send to %s", phone_number)
+        logger.info("[SMS] Message: %s", sms_message)
+        logger.info("[SMS] QR Code: %s...", qr_code_image[:100])
         
         # In production, uncomment and configure:
         # from twilio.rest import Client

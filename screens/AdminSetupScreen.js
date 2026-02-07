@@ -22,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
+import { log, logError } from '../utils/logger';
 
 export default function AdminSetupScreen({ navigation }) {
   const { user } = useAuth();
@@ -55,7 +56,7 @@ export default function AdminSetupScreen({ navigation }) {
       setLoading(true);
       setSuccess(false);
 
-      console.log('🔧 Setting up admin for:', email);
+      log('🔧 Setting up admin for:', email);
 
       // Find user by email
       const usersQuery = query(
@@ -123,7 +124,7 @@ export default function AdminSetupScreen({ navigation }) {
         ]
       );
     } catch (error) {
-      console.error('Error setting up admin:', error);
+      logError('Error setting up admin:', error);
       Alert.alert('Error', error.message || 'Failed to set up admin account');
     } finally {
       setLoading(false);

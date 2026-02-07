@@ -3,6 +3,7 @@
  * Manages which tips have been shown to users and tip preferences
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logWarn, logError } from '../utils/logger';
 
 const TIPS_ENABLED_KEY = 'm1a_tips_enabled';
 const SHOWN_TIPS_KEY = 'm1a_shown_tips';
@@ -18,7 +19,7 @@ class TipTrackingService {
       // Default to true if not set
       return value === null ? true : value === 'true';
     } catch (error) {
-      console.error('Error checking tips enabled:', error);
+      logError('Error checking tips enabled:', error);
       return true; // Default to enabled on error
     }
   }
@@ -31,7 +32,7 @@ class TipTrackingService {
       await AsyncStorage.setItem(TIPS_ENABLED_KEY, enabled.toString());
       return true;
     } catch (error) {
-      console.error('Error setting tips enabled:', error);
+      logError('Error setting tips enabled:', error);
       return false;
     }
   }
@@ -44,7 +45,7 @@ class TipTrackingService {
       const shownTips = await this.getShownTips();
       return shownTips.includes(tipId);
     } catch (error) {
-      console.error('Error checking if tip shown:', error);
+      logError('Error checking if tip shown:', error);
       return false;
     }
   }
@@ -61,7 +62,7 @@ class TipTrackingService {
       }
       return true;
     } catch (error) {
-      console.error('Error marking tip as shown:', error);
+      logError('Error marking tip as shown:', error);
       return false;
     }
   }
@@ -77,7 +78,7 @@ class TipTrackingService {
       const parsed = JSON.parse(value);
       // Validate that parsed value is an array
       if (!Array.isArray(parsed)) {
-        console.warn('Corrupted tip data detected, resetting...');
+        logWarn('Corrupted tip data detected, resetting...');
         // Reset corrupted data
         await AsyncStorage.removeItem(SHOWN_TIPS_KEY);
         return [];
@@ -85,12 +86,12 @@ class TipTrackingService {
       
       return parsed;
     } catch (error) {
-      console.error('Error getting shown tips:', error);
+      logError('Error getting shown tips:', error);
       // Reset corrupted data
       try {
         await AsyncStorage.removeItem(SHOWN_TIPS_KEY);
       } catch (removeError) {
-        console.error('Error removing corrupted tip data:', removeError);
+        logError('Error removing corrupted tip data:', removeError);
       }
       return [];
     }
@@ -104,7 +105,7 @@ class TipTrackingService {
       const value = await AsyncStorage.getItem(TIPS_DISABLED_KEY);
       return value === 'true';
     } catch (error) {
-      console.error('Error checking if tips disabled:', error);
+      logError('Error checking if tips disabled:', error);
       return false;
     }
   }
@@ -117,7 +118,7 @@ class TipTrackingService {
       await AsyncStorage.setItem(TIPS_DISABLED_KEY, disabled.toString());
       return true;
     } catch (error) {
-      console.error('Error setting tips disabled:', error);
+      logError('Error setting tips disabled:', error);
       return false;
     }
   }
@@ -131,7 +132,7 @@ class TipTrackingService {
       await AsyncStorage.removeItem(TIPS_DISABLED_KEY);
       return true;
     } catch (error) {
-      console.error('Error resetting tip tracking:', error);
+      logError('Error resetting tip tracking:', error);
       return false;
     }
   }

@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { useM1AAssistant } from '../contexts/M1AAssistantContext';
 import { navigationRef } from '../App';
+import { log, logWarn } from '../utils/logger';
 
 export default function NavigationAwareM1A() {
   const navigation = useNavigation();
@@ -46,7 +47,7 @@ export default function NavigationAwareM1A() {
       }
     } catch (error) {
       // Navigation state not ready yet, will be set by listener
-      console.log('Navigation state not ready yet');
+      log('Navigation state not ready yet');
     }
 
     // Listen for navigation state changes
@@ -64,7 +65,7 @@ export default function NavigationAwareM1A() {
           });
         }
       } catch (error) {
-        console.warn('Error getting navigation state:', error);
+        logWarn('Error getting navigation state:', error);
       }
     });
 

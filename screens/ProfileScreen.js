@@ -28,7 +28,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
 import { db, getPinnedPosts, isFirebaseReady, unpinPost, validateAndSanitizeUrl } from '../firebase';
-import { logError } from '../utils/logger';
+import { log, logWarn, logError } from '../utils/logger';
 import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
 import { statsCache } from '../utils/statsCache';
 
@@ -46,7 +46,7 @@ export default function ProfileScreen() {
   // Debug logging
   useEffect(() => {
     if (authUser) {
-      console.log('🔍 ProfileScreen Admin Check:', {
+      log('🔍 ProfileScreen Admin Check:', {
         email: authUser.email,
         isAdminEmail,
         isAdmin,
@@ -142,7 +142,7 @@ export default function ProfileScreen() {
         setStats({ followers: 0, following: 0, posts: 0 });
       }
     } catch (error) {
-      console.error('Error loading stats:', error);
+      logError('Error loading stats:', error);
       // Only update if we don't have cached data
       if (!statsCache.get(userId)) {
         setStats({ followers: 0, following: 0, posts: 0 });
@@ -215,7 +215,7 @@ export default function ProfileScreen() {
         setHasMorePosts(false);
       }
     } catch (error) {
-      console.error('Error loading posts:', error);
+      logError('Error loading posts:', error);
       setHasMorePosts(false);
     } finally {
       setLoadingPosts(false);
@@ -261,7 +261,7 @@ export default function ProfileScreen() {
         }
       }
     } catch (error) {
-      console.error('Error loading more posts:', error);
+      logError('Error loading more posts:', error);
       setHasMorePosts(false);
     } finally {
       setLoadingMorePosts(false);
@@ -296,7 +296,7 @@ export default function ProfileScreen() {
           if (!isMounted) return;
           await loadPosts(true);
         } catch (error) {
-          console.error('Error refreshing profile:', error);
+          logError('Error refreshing profile:', error);
         }
       })();
       
@@ -362,7 +362,7 @@ export default function ProfileScreen() {
       }
       await Linking.openURL(safeUrl);
     } catch (error) {
-      console.error('Error opening URL:', error);
+      logError('Error opening URL:', error);
       Alert.alert('Error', 'Unable to open this link.');
     }
   };
@@ -406,7 +406,7 @@ export default function ProfileScreen() {
                           await loadStats(true);
                         }
                       } catch (error) {
-                        console.error('Error deleting post:', error);
+                        logError('Error deleting post:', error);
                         Alert.alert('Error', 'Failed to delete post. Please try again.');
                       }
                     },
@@ -442,7 +442,7 @@ export default function ProfileScreen() {
                               setPosts(prev => prev.filter(p => p.id !== post.id));
                               Alert.alert('Success', 'Post deleted successfully.');
                             } catch (error) {
-                              console.error('Error deleting post:', error);
+                              logError('Error deleting post:', error);
                               Alert.alert('Error', 'Failed to delete post. Please try again.');
                             }
                           },
@@ -467,9 +467,9 @@ export default function ProfileScreen() {
               
               await Share.share({ message: shareMessage });
               // Share was successful
-              console.log('Post shared successfully');
+              log('Post shared successfully');
             } catch (error) {
-              console.error('Error sharing post:', error);
+              logError('Error sharing post:', error);
               Alert.alert('Error', 'Unable to share post. Please try again.');
             }
           },
@@ -527,7 +527,7 @@ export default function ProfileScreen() {
               style={styles.postAvatar}
               key={getImageKey(user, 'post-avatar')}
               onError={(error) => {
-                console.warn('Post avatar failed to load:', error.nativeEvent.error);
+                logWarn('Post avatar failed to load:', error.nativeEvent.error);
               }}
             />
           ) : (
@@ -582,7 +582,7 @@ export default function ProfileScreen() {
               const shareMessage = `${item.content}\n\nView on M1A: ${shareUrl}`;
               Share.share({ message: shareMessage });
             } catch (error) {
-              console.error('Error sharing post:', error);
+              logError('Error sharing post:', error);
             }
           }}
         >
@@ -671,10 +671,10 @@ export default function ProfileScreen() {
                 style={styles.coverPhoto}
                 key={getImageKey(user, 'cover') + `-${imageRefreshKey}`}
                 onError={(error) => {
-                  console.warn('Cover photo failed to load:', error.nativeEvent.error);
+                  logWarn('Cover photo failed to load:', error.nativeEvent.error);
                 }}
                 onLoad={() => {
-                  console.log('✅ Cover photo loaded successfully');
+                  log('✅ Cover photo loaded successfully');
                 }}
               />
             ) : (
@@ -705,10 +705,10 @@ export default function ProfileScreen() {
                   style={styles.avatar}
                   key={getImageKey(user, 'avatar') + `-${imageRefreshKey}`}
                   onError={(error) => {
-                    console.warn('Avatar failed to load:', error.nativeEvent.error);
+                    logWarn('Avatar failed to load:', error.nativeEvent.error);
                   }}
                   onLoad={() => {
-                    console.log('✅ Avatar loaded successfully');
+                    log('✅ Avatar loaded successfully');
                   }}
                 />
               ) : (

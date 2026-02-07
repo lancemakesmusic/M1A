@@ -28,6 +28,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, storage } from '../firebase';
+import { log, logWarn, logError } from '../utils/logger';
 
 export default function AdminEventCreationScreen({ navigation, route }) {
   const { user } = useAuth();
@@ -111,7 +112,7 @@ export default function AdminEventCreationScreen({ navigation, route }) {
         setFormData({ ...formData, photo: result.assets[0] });
       }
     } catch (error) {
-      console.error('Error picking image:', error);
+      logError('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image');
     }
   };
@@ -127,7 +128,7 @@ export default function AdminEventCreationScreen({ navigation, route }) {
       const downloadURL = await getDownloadURL(storageRef);
       return downloadURL;
     } catch (error) {
-      console.error('Error uploading image:', error);
+      logError('Error uploading image:', error);
       throw error;
     } finally {
       setUploadingImage(false);
@@ -156,9 +157,9 @@ export default function AdminEventCreationScreen({ navigation, route }) {
       if (formData.photo && !formData.photoUrl) {
         try {
           photoUrl = await uploadImage(formData.photo.uri);
-          console.log('✅ Image uploaded successfully:', photoUrl);
+          log('✅ Image uploaded successfully:', photoUrl);
         } catch (imageError) {
-          console.warn('⚠️ Image upload failed, continuing without image:', imageError);
+          logWarn('⚠️ Image upload failed, continuing without image:', imageError);
           // Continue without image - photoUrl will remain null
           Alert.alert(
             'Image Upload Failed',
@@ -216,7 +217,7 @@ export default function AdminEventCreationScreen({ navigation, route }) {
         eventData.isAdminCreated = true;
       }
 
-      console.log('📝 Saving event with data:', {
+      log('📝 Saving event with data:', {
         ...eventData,
         startDate: startDateTimestamp,
         endDate: endDateTimestamp,
@@ -233,21 +234,21 @@ export default function AdminEventCreationScreen({ navigation, route }) {
           ...eventData,
           updatedAt: serverTimestamp(),
         });
-        console.log('✅ Event updated successfully');
+        log('✅ Event updated successfully');
         Alert.alert('Success', 'Event updated successfully!', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       } else {
         // Create new event
         await addDoc(collection(db, collectionName), eventData);
-        console.log('✅ Event created successfully');
+        log('✅ Event created successfully');
         Alert.alert('Success', 'Event created successfully!', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       }
     } catch (error) {
-      console.error('❌ Error creating event:', error);
-      console.error('Error details:', {
+      logError('❌ Error creating event:', error);
+      logError('Error details:', {
         message: error.message,
         code: error.code,
         stack: error.stack,

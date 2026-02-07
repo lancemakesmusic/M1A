@@ -27,6 +27,7 @@ import { getPersonaWelcomeMessage, getPersonaQuickActions, getPersonaRecommended
 import { searchFeatures, getSearchSuggestions } from '../utils/searchUtils';
 import { db, isFirebaseReady } from '../firebase';
 import { dataCache } from '../utils/dataCache';
+import { log, logWarn, logError } from '../utils/logger';
 
 export default function HomeScreen({ navigation }) {
   const { user: authUser, loading: authLoading } = useAuth();
@@ -133,7 +134,7 @@ export default function HomeScreen({ navigation }) {
     const cacheKey = dataCache.generateKey('homeStats', { userId: authUser?.uid });
     const cachedStats = dataCache.get(cacheKey);
     if (cachedStats) {
-      console.log('📦 Using cached home stats');
+      log('📦 Using cached home stats');
       setStats(cachedStats);
       setLoadingStats(false);
       // Still refresh in background
@@ -173,11 +174,11 @@ export default function HomeScreen({ navigation }) {
         const cacheKey = dataCache.generateKey('homeStats', { userId: authUser?.uid });
         dataCache.set(cacheKey, newStats, 3 * 60 * 1000); // 3 minutes TTL
       } catch (error) {
-        console.warn('Error loading stats:', error);
+        logWarn('Error loading stats:', error);
         // Keep default values on error
       }
     } catch (error) {
-      console.warn('Error initializing stats load:', error);
+      logWarn('Error initializing stats load:', error);
     } finally {
       setLoadingStats(false);
     }
@@ -201,7 +202,7 @@ export default function HomeScreen({ navigation }) {
       // Add any other refresh logic here
       await new Promise(resolve => setTimeout(resolve, 500));
     } catch (err) {
-      console.error('Error refreshing home screen:', err);
+      logError('Error refreshing home screen:', err);
       setError('Failed to refresh. Please try again.');
     } finally {
       setRefreshing(false);

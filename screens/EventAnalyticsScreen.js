@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
+import { logError } from '../utils/logger';
 
 export default function EventAnalyticsScreen({ navigation, route }) {
   const { user } = useAuth();
@@ -201,7 +202,7 @@ export default function EventAnalyticsScreen({ navigation, route }) {
         ticketsByType,
       });
     } catch (error) {
-      console.error('Error loading analytics:', error);
+      logError('Error loading analytics:', error);
       Alert.alert('Error', 'Failed to load analytics. Please try again.');
     } finally {
       setLoading(false);

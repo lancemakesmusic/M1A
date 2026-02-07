@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useRole } from './RoleContext';
+import { logWarn, logError } from '../utils/logger';
 
 const M1APersonalizationContext = createContext();
 
@@ -77,7 +78,7 @@ export function M1APersonalizationProvider({ children }) {
         setPreferences(JSON.parse(savedPreferences));
       }
     } catch (error) {
-      console.error('Error loading personalization data:', error);
+      logError('Error loading personalization data:', error);
     } finally {
       setLoading(false);
     }
@@ -86,7 +87,7 @@ export function M1APersonalizationProvider({ children }) {
   const savePersona = async (persona) => {
     // SECURITY: admin@merkabaent.com must remain as venue_owner
     if (user?.email === 'admin@merkabaent.com' && persona.id !== 'venue_owner') {
-      console.warn('🔒 admin@merkabaent.com must remain as venue_owner. Persona change blocked.');
+      logWarn('🔒 admin@merkabaent.com must remain as venue_owner. Persona change blocked.');
       return;
     }
     
@@ -98,7 +99,7 @@ export function M1APersonalizationProvider({ children }) {
       await AsyncStorage.setItem('m1a_onboarded', JSON.stringify(true));
       setIsOnboarded(true);
     } catch (error) {
-      console.error('Error saving persona:', error);
+      logError('Error saving persona:', error);
     }
   };
 
@@ -108,7 +109,7 @@ export function M1APersonalizationProvider({ children }) {
       setPreferences(updatedPreferences);
       await AsyncStorage.setItem('m1a_preferences', JSON.stringify(updatedPreferences));
     } catch (error) {
-      console.error('Error saving preferences:', error);
+      logError('Error saving preferences:', error);
     }
   };
 
@@ -122,7 +123,7 @@ export function M1APersonalizationProvider({ children }) {
       setIsOnboarded(true);
       await AsyncStorage.setItem('m1a_onboarded', JSON.stringify(true));
     } catch (error) {
-      console.error('Error completing onboarding:', error);
+      logError('Error completing onboarding:', error);
     }
   };
 
@@ -145,7 +146,7 @@ export function M1APersonalizationProvider({ children }) {
         'm1a_onboarded'
       ]);
     } catch (error) {
-      console.error('Error resetting personalization:', error);
+      logError('Error resetting personalization:', error);
     }
   };
 

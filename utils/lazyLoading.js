@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { logError } from './logger';
 
 /**
  * Hook for lazy loading images
@@ -99,7 +100,7 @@ export function usePagination(
       }
     } catch (err) {
       setError(err);
-      console.error('Pagination error:', err);
+      logError('Pagination error:', err);
     } finally {
       setLoadingMore(false);
     }
@@ -116,7 +117,7 @@ export function usePagination(
       setHasMoreData((result?.length || 0) === pageSize);
     } catch (err) {
       setError(err);
-      console.error('Refresh error:', err);
+      logError('Refresh error:', err);
     } finally {
       setLoading(false);
     }

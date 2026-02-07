@@ -29,6 +29,7 @@ import {
   validateUsername
 } from '../firebase';
 import { PROFILE_ERRORS } from '../constants/errorMessages';
+import { log, logWarn, logError } from '../utils/logger';
 
 export default function ProfileEditScreen({ navigation }) {
   const { user, updateUserProfile, refreshUserProfile } = useContext(UserContext);
@@ -132,14 +133,14 @@ export default function ProfileEditScreen({ navigation }) {
       setUploadType('avatar');
       setUploadProgress(0);
       
-      console.log('[Avatar Upload] Starting upload...', localUri);
+      log('[Avatar Upload] Starting upload...', localUri);
       
       // Upload to Firebase Storage with progress tracking
       const downloadURL = await uploadImageAsync(localUri, 'avatars', 1024, (progress) => {
         setUploadProgress(progress);
       });
       
-      console.log('[Avatar Upload] Upload complete, URL:', downloadURL);
+      log('[Avatar Upload] Upload complete, URL:', downloadURL);
       
       if (!downloadURL) {
         throw new Error('Upload failed - no URL returned');
@@ -150,7 +151,7 @@ export default function ProfileEditScreen({ navigation }) {
         try {
           await updateProfile(auth.currentUser, { photoURL: downloadURL });
         } catch (err) {
-          console.warn('Failed to update auth profile photo:', err);
+          logWarn('Failed to update auth profile photo:', err);
         }
       }
 
@@ -165,9 +166,9 @@ export default function ProfileEditScreen({ navigation }) {
             photoURL: downloadURL,
             photoUpdatedAt: timestamp,
           });
-          console.log('[Avatar Upload] Profile updated in Firestore with timestamp:', timestamp);
+          log('[Avatar Upload] Profile updated in Firestore with timestamp:', timestamp);
         } catch (err) {
-          console.error('Failed to update Firestore profile:', err);
+          logError('Failed to update Firestore profile:', err);
           Alert.alert('Warning', 'Photo uploaded but profile update failed. Please try again.');
         }
       }
@@ -218,7 +219,7 @@ export default function ProfileEditScreen({ navigation }) {
         }
       ]);
     } catch (e) {
-      console.error('[Avatar Upload Error]', e);
+      logError('[Avatar Upload Error]', e);
       // Keep local URI visible even if upload fails
       // setLocalAvatarUri remains set so image still displays
       Alert.alert('Upload failed', e?.message || 'Please try again. The image is still visible but may not persist.');
@@ -260,14 +261,14 @@ export default function ProfileEditScreen({ navigation }) {
       setUploadType('cover');
       setUploadProgress(0);
       
-      console.log('[Cover Upload] Starting upload...', localUri);
+      log('[Cover Upload] Starting upload...', localUri);
       
       // Upload to Firebase Storage with progress tracking
       const downloadURL = await uploadImageAsync(localUri, 'covers', 1200, (progress) => {
         setUploadProgress(progress);
       });
       
-      console.log('[Cover Upload] Upload complete, URL:', downloadURL);
+      log('[Cover Upload] Upload complete, URL:', downloadURL);
       
       if (!downloadURL) {
         throw new Error('Upload failed - no URL returned');
@@ -283,9 +284,9 @@ export default function ProfileEditScreen({ navigation }) {
             coverUrl: downloadURL,
             coverUpdatedAt: timestamp,
           });
-          console.log('[Cover Upload] Profile updated in Firestore with timestamp:', timestamp);
+          log('[Cover Upload] Profile updated in Firestore with timestamp:', timestamp);
         } catch (err) {
-          console.error('Failed to update Firestore profile:', err);
+          logError('Failed to update Firestore profile:', err);
           Alert.alert('Warning', 'Photo uploaded but profile update failed. Please try again.');
         }
       }
@@ -336,7 +337,7 @@ export default function ProfileEditScreen({ navigation }) {
         }
       ]);
     } catch (e) {
-      console.error('[Cover Upload Error]', e);
+      logError('[Cover Upload Error]', e);
       // Keep local URI visible even if upload fails
       // setLocalCoverUri remains set so image still displays
       Alert.alert('Upload failed', e?.message || 'Please try again. The image is still visible but may not persist.');
@@ -375,7 +376,7 @@ export default function ProfileEditScreen({ navigation }) {
         setUsernameError('');
       }
     } catch (error) {
-      console.error('Error checking username:', error);
+      logError('Error checking username:', error);
       // Provide more helpful error message based on error type
       if (error.message?.includes('permission') || error.message?.includes('PERMISSION')) {
         setUsernameError('Permission denied. Please check your connection and try again.');
@@ -426,7 +427,7 @@ export default function ProfileEditScreen({ navigation }) {
             return;
           }
         } catch (availabilityError) {
-          console.error('Username availability check error:', availabilityError);
+          logError('Username availability check error:', availabilityError);
           // If it's a network/permission error, show helpful message
           if (availabilityError.message?.includes('Permission') || availabilityError.message?.includes('Network')) {
             Alert.alert('Unable to Verify Username', availabilityError.message || 'Please check your connection and try again.');
@@ -435,7 +436,7 @@ export default function ProfileEditScreen({ navigation }) {
             return;
           }
           // For other errors, still try to save (might be a false positive)
-          console.warn('Username check failed, but continuing with save:', availabilityError);
+          logWarn('Username check failed, but continuing with save:', availabilityError);
         }
       }
       // Sanitize inputs
@@ -475,13 +476,13 @@ export default function ProfileEditScreen({ navigation }) {
           displayName: fname,
         });
       } catch (authError) {
-        console.warn('Failed to update auth displayName:', authError);
+        logWarn('Failed to update auth displayName:', authError);
         // Don't fail profile save if this fails
       }
       
       navigation.goBack();
     } catch (e) {
-      console.error('[Profile Save Error]', e);
+      logError('[Profile Save Error]', e);
       let errorMessage = 'Update failed. Please try again.';
       if (e?.code === 'permission-denied') {
         errorMessage = 'You do not have permission to update this profile.';
@@ -549,7 +550,7 @@ export default function ProfileEditScreen({ navigation }) {
                 source={{ uri: cacheBusted }} 
                 style={styles.avatar}
                 onError={(e) => {
-                  console.error('Avatar image load error:', e);
+                  logError('Avatar image load error:', e);
                   // Fallback to placeholder if image fails to load
                   setAvatarUrl('');
                 }}
@@ -609,7 +610,7 @@ export default function ProfileEditScreen({ navigation }) {
                 source={{ uri: coverCacheBusted }} 
                 style={styles.coverPreview}
                 onError={(e) => {
-                  console.error('Cover image load error:', e);
+                  logError('Cover image load error:', e);
                   // Fallback to placeholder if image fails to load
                   setCoverUrl('');
                 }}

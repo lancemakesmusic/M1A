@@ -22,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import M1ALogo from '../components/M1ALogo';
+import { logError } from '../utils/logger';
 
 export default function AdminControlCenterScreen({ navigation }) {
   const { user } = useAuth();
@@ -96,7 +97,7 @@ export default function AdminControlCenterScreen({ navigation }) {
         pendingOrders,
       });
     } catch (error) {
-      console.error('Error loading admin stats:', error);
+      logError('Error loading admin stats:', error);
       // Set default stats on error
       setStats({
         totalUsers: 0,

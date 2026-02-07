@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import M1ALogo from './M1ALogo';
+import { logError } from '../utils/logger';
 
 class ErrorBoundaryClass extends React.Component {
   constructor(props) {
@@ -23,7 +24,7 @@ class ErrorBoundaryClass extends React.Component {
   componentDidCatch(error, errorInfo) {
     // Log error to error reporting service (e.g., Sentry)
     if (__DEV__) {
-      console.error('ErrorBoundary caught an error:', error, errorInfo);
+      logError('ErrorBoundary caught an error:', error, errorInfo);
     }
     
     // In production, send to error tracking service

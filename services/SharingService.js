@@ -7,6 +7,7 @@ import { Platform, Share } from 'react-native';
 import { trackShare, trackFeatureUsage } from './AnalyticsService';
 import RatingPromptService, { POSITIVE_ACTIONS } from './RatingPromptService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logWarn, logError } from '../utils/logger';
 
 const REFERRAL_CODE_KEY = 'm1a_referral_code';
 const REFERRAL_LINK_KEY = 'm1a_referral_link';
@@ -22,7 +23,7 @@ export const getReferralCode = async (userId) => {
     await AsyncStorage.setItem(REFERRAL_CODE_KEY, code);
     return code;
   } catch (error) {
-    console.error('Error getting referral code:', error);
+    logError('Error getting referral code:', error);
     return null;
   }
 };
@@ -37,7 +38,7 @@ export const getReferralLink = async (userId) => {
     await AsyncStorage.setItem(REFERRAL_LINK_KEY, link);
     return link;
   } catch (error) {
-    console.error('Error getting referral link:', error);
+    logError('Error getting referral link:', error);
     return null;
   }
 };
@@ -103,7 +104,7 @@ export const shareContent = async (contentType, contentId, contentData) => {
     await trackFeatureUsage('share_content', { contentType, contentId });
     return { success: true };
   } catch (error) {
-    console.error('Error sharing content:', error);
+    logError('Error sharing content:', error);
     // Final fallback: try to copy to clipboard
     try {
       const shareUrl = `https://m1a.app/${contentType}/${contentId}`;
@@ -112,7 +113,7 @@ export const shareContent = async (contentType, contentId, contentData) => {
         alert('Link copied to clipboard!');
       }
     } catch (clipboardError) {
-      console.error('Clipboard fallback also failed:', clipboardError);
+      logError('Clipboard fallback also failed:', clipboardError);
     }
     return { success: false, error: error.message };
   }
@@ -157,7 +158,7 @@ export const shareReferral = async (userId) => {
     
     return { success: true };
   } catch (error) {
-    console.error('Error sharing referral:', error);
+    logError('Error sharing referral:', error);
     return { success: false, error: error.message };
   }
 };
@@ -189,7 +190,7 @@ export const inviteFriends = async (contacts, message) => {
     
     return { success: true };
   } catch (error) {
-    console.error('Error inviting friends:', error);
+    logError('Error inviting friends:', error);
     return { success: false, error: error.message };
   }
 };
@@ -202,7 +203,7 @@ export const trackReferralUsage = async (referralCode, userId) => {
     await trackFeatureUsage('referral_used', { referralCode, userId });
     return { success: true };
   } catch (error) {
-    console.error('Error tracking referral:', error);
+    logError('Error tracking referral:', error);
     return { success: false, error: error.message };
   }
 };
@@ -219,7 +220,7 @@ export const getReferralRewards = async (userId) => {
       referralCode: await getReferralCode(userId),
     };
   } catch (error) {
-    console.error('Error getting referral rewards:', error);
+    logError('Error getting referral rewards:', error);
     return null;
   }
 };
@@ -247,7 +248,7 @@ const copyToClipboard = async (text) => {
       const Clipboard = require('@react-native-clipboard/clipboard').default;
       await Clipboard.setString(text);
     } catch (error) {
-      console.warn('Clipboard not available:', error);
+      logWarn('Clipboard not available:', error);
     }
   }
 };

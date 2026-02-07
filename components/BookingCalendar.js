@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import GoogleCalendarService from '../services/GoogleCalendarService';
+import { logError } from '../utils/logger';
 
 // Generate calendar days for a month
 const generateCalendarDays = (year, month) => {
@@ -119,7 +120,7 @@ export default function BookingCalendar({ onDateSelect, selectedDate, onAvailabi
         setAvailabilityMap(map);
       }
     } catch (error) {
-      console.error('Error loading availability:', error);
+      logError('Error loading availability:', error);
       // Continue without availability checking if there's an error
       setEvents([]);
       setAvailabilityMap({});
@@ -165,7 +166,7 @@ export default function BookingCalendar({ onDateSelect, selectedDate, onAvailabi
         }
       }
     } catch (error) {
-      console.error('Error checking availability:', error);
+      logError('Error checking availability:', error);
       // Continue with date selection even if availability check fails
     }
 

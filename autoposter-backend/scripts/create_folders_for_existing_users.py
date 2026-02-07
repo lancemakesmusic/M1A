@@ -236,6 +236,37 @@ def find_or_create_subfolder(drive_service, parent_id, name, logger=None):
     return folder
 
 
+def share_folder_with_user(drive_service, folder_ids, email, logger=None):
+    """Share folders with a user email so they can see files in Drive."""
+    if logger is None:
+        import logging
+        logger = logging.getLogger('create_folders')
+
+    if not email or email == 'N/A':
+        return
+
+    permission_body = {
+        'type': 'user',
+        'role': 'reader',
+        'emailAddress': email,
+    }
+    for folder_id in folder_ids:
+        if not folder_id:
+            continue
+        try:
+            drive_service.permissions().create(
+                fileId=folder_id,
+                body=permission_body,
+                sendNotificationEmail=False,
+                supportsAllDrives=True
+            ).execute()
+        except HttpError as e:
+            # Ignore "already exists" permission errors; log others
+            logger.debug(f"  [WARN] Could not share folder {folder_id}: {e}")
+        except Exception as e:
+            logger.debug(f"  [WARN] Could not share folder {folder_id}: {e}")
+
+
 def create_folder_for_user(
     drive_service,
     parent_folder_id,
@@ -790,6 +821,12 @@ def main():
         
         if folder_info:
             logger.debug(f"{progress} {symbols['success']} Folder created successfully")
+            share_folder_with_user(
+                drive_service,
+                [folder_info.get('root_folder_id'), folder_info.get('project_files_folder_id')],
+                user.get('email'),
+                logger=logger
+            )
             # Update Firestore (optional - folder is already created)
             update_user_folder_info(user['id'], folder_info, logger=logger)
             logger.debug(f"Successfully processed user {user['id']}")

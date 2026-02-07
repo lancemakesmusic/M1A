@@ -37,9 +37,27 @@ export default function M1AChatBubble() {
   
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new Animated.Value(0.6)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
+
+  // Intro bounce-in animation
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 120,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 350,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [scaleAnim, opacityAnim]);
 
   // Pulse animation for attention
   useEffect(() => {
@@ -95,6 +113,8 @@ export default function M1AChatBubble() {
   });
 
   // Always render the bubble button, regardless of isVisible state
+  const combinedScale = Animated.multiply(scaleAnim, pulseAnim);
+
   return (
     <>
       {/* Floating Chat Bubble */}
@@ -104,8 +124,9 @@ export default function M1AChatBubble() {
           {
             transform: [
               { translateY: isVisible ? translateY : 0 }, // Only animate tip card
-              { scale: isVisible && currentTip ? pulseAnim : 1 }, // Only pulse when tip is visible
+              { scale: combinedScale },
             ],
+            opacity: opacityAnim,
           },
         ]}
         pointerEvents="box-none"

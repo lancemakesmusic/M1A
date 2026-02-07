@@ -24,6 +24,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
 import EmptyState from '../components/EmptyState';
+import { logError } from '../utils/logger';
 
 export default function AdminMessagingScreen({ navigation }) {
   const { user } = useAuth();
@@ -59,7 +60,7 @@ export default function AdminMessagingScreen({ navigation }) {
       }));
       setUsers(usersData);
     } catch (error) {
-      console.error('Error loading users:', error);
+      logError('Error loading users:', error);
       Alert.alert('Error', 'Failed to load users');
     } finally {
       setLoading(false);
@@ -127,7 +128,7 @@ export default function AdminMessagingScreen({ navigation }) {
       setShowMessageModal(false);
       setMessageText('');
     } catch (error) {
-      console.error('Error sending message:', error);
+      logError('Error sending message:', error);
       Alert.alert('Error', 'Failed to send message');
     } finally {
       setSending(false);

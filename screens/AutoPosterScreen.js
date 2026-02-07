@@ -1,6 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
-import { addDoc, collection, doc, getDoc, updateDoc } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  serverTimestamp,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -22,6 +32,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { db, functions, httpsCallable } from '../firebase';
 import { AccessibilityLabels, getButtonAccessibilityProps } from '../utils/accessibility';
 import { createRetryableFunction, handleApiError, handleError, withErrorHandling } from '../utils/errorHandler';
+import { log, logWarn, logError } from '../utils/logger';
 
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -30,8 +41,11 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Backend Configuration - Use environment variable or fallback
 const getApiBaseUrl = () => {
+  if (process.env.EXPO_PUBLIC_AUTOPOSTER_BASE_URL) {
+    return process.env.EXPO_PUBLIC_AUTOPOSTER_BASE_URL;
+  }
   // Always check environment variable first (required for production)
-  if (process.env.EXPO_PUBLIC_API_BASE_URL) {
+  if (!__DEV__ && process.env.EXPO_PUBLIC_API_BASE_URL) {
     return process.env.EXPO_PUBLIC_API_BASE_URL;
   }
   
@@ -42,12 +56,18 @@ const getApiBaseUrl = () => {
   
   // Development only - should never reach here in production
   if (__DEV__) {
-    console.warn('⚠️ EXPO_PUBLIC_API_BASE_URL not set. Using localhost fallback (development only).');
+    const hostUri = Constants?.expoConfig?.hostUri || Constants?.manifest?.debuggerHost;
+    if (hostUri) {
+      const host = hostUri.split(':')[0];
+      return `http://${host}:8001`;
+    }
+    logWarn('⚠️ AutoPoster backend URL not set. Using localhost fallback (development only).');
     return 'http://localhost:8001';
   }
   
-  // Production: fail if no URL configured
-  throw new Error('EXPO_PUBLIC_API_BASE_URL must be set in production. Please configure your environment variables.');
+  // Production: warn and disable backend features if not configured
+  logError('❌ EXPO_PUBLIC_API_BASE_URL is not set. AutoPoster backend features will be disabled.');
+  return '';
 };
 const BACKEND_BASE_URL = getApiBaseUrl();
 
@@ -152,12 +172,24 @@ export default function AutoPosterScreen({ navigation }) {
   ];
 
   useEffect(() => {
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
     loadData();
     checkBackendStatus();
-  }, []);
+  }, [user?.uid]);
 
   // Check backend status periodically
   useEffect(() => {
+    if (!BACKEND_BASE_URL) {
+      setBackendStatus({
+        connected: false,
+        checking: false,
+        lastChecked: new Date(),
+      });
+      return;
+    }
     const interval = setInterval(() => {
       checkBackendStatus();
     }, 30000); // Check every 30 seconds
@@ -167,15 +199,21 @@ export default function AutoPosterScreen({ navigation }) {
 
   const loadData = withErrorHandling(async () => {
     setLoading(true);
-    console.log('🔄 Loading AutoPoster data...');
+    log('🔄 Loading AutoPoster data...');
     
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
+
     await Promise.all([
       loadScheduledPosts(),
       loadMediaLibrary(),
-      checkAutoPosterStatus()
+      checkAutoPosterStatus(),
+      loadPlatformConnections()
     ]);
     
-    console.log('✅ AutoPoster data loaded successfully');
+    log('✅ AutoPoster data loaded successfully');
     setLoading(false);
   }, (error) => {
     setLoading(false);
@@ -186,48 +224,118 @@ export default function AutoPosterScreen({ navigation }) {
     });
   });
 
+  const loadPlatformConnections = async () => {
+    try {
+      if (!user?.uid) return;
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      const socials = userDoc.exists() ? (userDoc.data()?.socials || {}) : {};
+
+      let nextConnections = {
+        instagram: Boolean(socials.instagram),
+        facebook: Boolean(socials.facebook),
+        twitter: Boolean(socials.twitter),
+        linkedin: Boolean(socials.linkedin),
+        tiktok: Boolean(socials.tiktok),
+        youtube: Boolean(socials.youtube),
+      };
+
+      if (BACKEND_BASE_URL) {
+        try {
+          const response = await fetch(`${BACKEND_BASE_URL}/api/platform-settings`);
+          const result = await response.json();
+          if (result?.success && result?.settings) {
+            nextConnections = {
+              instagram: Boolean(result.settings.instagram?.enabled),
+              facebook: Boolean(result.settings.facebook?.enabled),
+              twitter: Boolean(result.settings.twitter?.enabled),
+              linkedin: Boolean(result.settings.linkedin?.enabled),
+              tiktok: Boolean(result.settings.tiktok?.enabled),
+              youtube: Boolean(result.settings.youtube?.enabled),
+            };
+          }
+        } catch (err) {
+          logWarn('Failed to load platform settings:', err);
+        }
+      }
+
+      setPlatformConnections(nextConnections);
+    } catch (error) {
+      logError('Error loading platform connections:', error);
+    }
+  };
+
   const loadScheduledPosts = async () => {
     try {
-      console.log('📋 Loading scheduled posts from backend...');
+      if (!BACKEND_BASE_URL || !user?.uid) {
+        setScheduledPosts([]);
+        return;
+      }
+      log('📋 Loading scheduled posts from backend...');
       
       const response = await fetch(`${BACKEND_BASE_URL}/api/scheduled-posts?userId=${user.uid}`);
-      const result = await response.json();
+      const rawText = await response.text();
+      let result = null;
+      try {
+        result = JSON.parse(rawText);
+      } catch (parseError) {
+        result = null;
+      }
+      if (!response.ok) {
+        const detail = result?.message || result?.detail || response.statusText || 'Request failed';
+        throw new Error(`${detail} (HTTP ${response.status})`);
+      }
       
       if (result.success || result.status === 'success') {
         setScheduledPosts(result.posts || []);
-        console.log('✅ Scheduled posts loaded:', (result.posts || []).length);
+        log('✅ Scheduled posts loaded:', (result.posts || []).length);
       } else {
-        console.error('❌ Failed to load scheduled posts:', result.message);
+        logError('❌ Failed to load scheduled posts:', result?.message || result?.detail);
         setScheduledPosts([]);
       }
     } catch (error) {
-      console.error('Error loading scheduled posts:', error);
+      logError('Error loading scheduled posts:', error);
       setScheduledPosts([]);
     }
   };
 
   const loadMediaLibrary = async () => {
     try {
-      console.log('📸 Loading media library from backend...');
+      if (!BACKEND_BASE_URL || !user?.uid) {
+        setMediaLibrary([]);
+        return;
+      }
+      log('📸 Loading media library from backend...');
       
       const response = await fetch(`${BACKEND_BASE_URL}/api/media-library?userId=${user.uid}`);
-      const result = await response.json();
+      const rawText = await response.text();
+      let result = null;
+      try {
+        result = JSON.parse(rawText);
+      } catch (parseError) {
+        result = null;
+      }
+      if (!response.ok) {
+        const detail = result?.message || result?.detail || response.statusText || 'Request failed';
+        throw new Error(`${detail} (HTTP ${response.status})`);
+      }
       
       if (result.success || result.status === 'success') {
         setMediaLibrary(result.media || []);
-        console.log('✅ Media library loaded:', (result.media || []).length);
+        log('✅ Media library loaded:', (result.media || []).length);
       } else {
-        console.error('❌ Failed to load media library:', result.message);
+        logError('❌ Failed to load media library:', result?.message || result?.detail);
         setMediaLibrary([]);
       }
     } catch (error) {
-      console.error('Error loading media library:', error);
+      logError('Error loading media library:', error);
       setMediaLibrary([]);
     }
   };
 
   const checkAutoPosterStatus = async () => {
     try {
+      if (!user?.uid) return;
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
       if (userDoc.exists()) {
@@ -235,12 +343,20 @@ export default function AutoPosterScreen({ navigation }) {
         setIsAutoPosterActive(userData.plans?.autoPoster === 'active');
       }
     } catch (error) {
-      console.error('Error checking auto poster status:', error);
+      logError('Error checking auto poster status:', error);
     }
   };
 
   const checkBackendStatus = async () => {
     try {
+      if (!BACKEND_BASE_URL) {
+        setBackendStatus({
+          connected: false,
+          checking: false,
+          lastChecked: new Date(),
+        });
+        return;
+      }
       setBackendStatus(prev => ({ ...prev, checking: true }));
       
       // Try to ping the backend health endpoint
@@ -271,7 +387,7 @@ export default function AutoPosterScreen({ navigation }) {
       } catch (error) {
         clearTimeout(timeoutId);
         if (error.name === 'AbortError') {
-          console.warn('Backend health check timed out');
+          logWarn('Backend health check timed out');
         }
         setBackendStatus({
           connected: false,
@@ -280,7 +396,7 @@ export default function AutoPosterScreen({ navigation }) {
         });
       }
     } catch (error) {
-      console.error('Error checking backend status:', error);
+      logError('Error checking backend status:', error);
       setBackendStatus({
         connected: false,
         checking: false,
@@ -301,11 +417,16 @@ export default function AutoPosterScreen({ navigation }) {
       return;
     }
 
+    if (!BACKEND_BASE_URL) {
+      Alert.alert('Backend Not Configured', 'EXPO_PUBLIC_API_BASE_URL is missing. Please configure the backend URL.');
+      return;
+    }
+
     setGeneratingContent(true);
-    console.log('🤖 Generating content with backend...');
-    console.log('Prompt:', contentPrompt);
-    console.log('Content Type:', contentType);
-    console.log('Platform:', platform);
+    log('🤖 Generating content with backend...');
+    log('Prompt:', contentPrompt);
+    log('Content Type:', contentType);
+    log('Platform:', platform);
     
     // Call the backend API
     const response = await fetch(`${BACKEND_BASE_URL}/api/generate-content`, {
@@ -331,20 +452,20 @@ export default function AutoPosterScreen({ navigation }) {
     }
 
     const result = await response.json();
-    console.log('📝 Backend Response:', result);
+    log('📝 Backend Response:', result);
 
     if (result.success || result.status === 'success') {
       const content = result.content || 'Content generated successfully!';
       setGeneratedContent(content);
-      console.log('✅ Content generated successfully');
-      console.log('📝 Generated content:', content);
+      log('✅ Content generated successfully');
+      log('📝 Generated content:', content);
     } else {
       throw new Error(result.message || 'Failed to generate content');
     }
   }, {
     maxRetries: 2,
     onRetry: (attempt, maxRetries) => {
-      console.log(`Retrying content generation (${attempt}/${maxRetries})...`);
+      log(`Retrying content generation (${attempt}/${maxRetries})...`);
     }
   });
 
@@ -397,6 +518,10 @@ export default function AutoPosterScreen({ navigation }) {
 
   const schedulePost = async (content, imageUrl) => {
     try {
+      if (!BACKEND_BASE_URL) {
+        Alert.alert('Backend Not Configured', 'EXPO_PUBLIC_API_BASE_URL is missing. Please configure the backend URL.');
+        return;
+      }
       // Check if any platforms are selected
       const selectedPlatformsList = Object.keys(selectedPlatforms).filter(platform => selectedPlatforms[platform]);
       
@@ -416,10 +541,10 @@ export default function AutoPosterScreen({ navigation }) {
       scheduledDateTime.setMinutes(scheduledTime.getMinutes());
       scheduledDateTime.setSeconds(0);
 
-      console.log('📅 Scheduling post with backend...');
-      console.log('Content:', content);
-      console.log('Platforms:', selectedPlatforms);
-      console.log('Scheduled Time:', scheduledDateTime.toISOString());
+    log('📅 Scheduling post with backend...');
+    log('Content:', content);
+    log('Platforms:', selectedPlatforms);
+    log('Scheduled Time:', scheduledDateTime.toISOString());
       
       // Call the backend API
       const response = await fetch(`${BACKEND_BASE_URL}/api/schedule-post`, {
@@ -448,7 +573,7 @@ export default function AutoPosterScreen({ navigation }) {
       }
 
       const result = await response.json();
-      console.log('📝 Schedule Response:', result);
+      log('📝 Schedule Response:', result);
 
       if (result.success || result.status === 'success') {
         Alert.alert('Success', `Post scheduled successfully for ${selectedPlatformsList.length} platform(s)!`);
@@ -470,6 +595,10 @@ export default function AutoPosterScreen({ navigation }) {
 
   const toggleAutoPoster = async () => {
     try {
+      if (!user?.uid) {
+        Alert.alert('Sign In Required', 'Please sign in to manage Auto Poster.');
+        return;
+      }
       const userDocRef = doc(db, 'users', user.uid);
       await updateDoc(userDocRef, {
         'plans.autoPoster': isAutoPosterActive ? 'inactive' : 'active'
@@ -480,17 +609,21 @@ export default function AutoPosterScreen({ navigation }) {
         `Auto Poster ${!isAutoPosterActive ? 'activated' : 'deactivated'} successfully!`
       );
     } catch (error) {
-      console.error('Error toggling auto poster:', error);
+      logError('Error toggling auto poster:', error);
       Alert.alert('Error', 'Failed to update auto poster status');
     }
   };
 
   const handlePlatformLogin = async (platformId) => {
     try {
-      // Simulate platform login process
+      const platformName = socialPlatforms.find(p => p.id === platformId)?.name || platformId;
+      if (!BACKEND_BASE_URL) {
+        Alert.alert('Backend Not Configured', 'EXPO_PUBLIC_API_BASE_URL is missing. Please configure the backend URL.');
+        return;
+      }
       Alert.alert(
-        `${socialPlatforms.find(p => p.id === platformId)?.name} Login`,
-        `Connecting to ${socialPlatforms.find(p => p.id === platformId)?.name}...`,
+        `${platformName} Login`,
+        `Connecting to ${platformName}...`,
         [
           {
             text: 'Cancel',
@@ -499,25 +632,36 @@ export default function AutoPosterScreen({ navigation }) {
           {
             text: 'Connect',
             onPress: async () => {
-              // Simulate successful connection
-              setPlatformConnections(prev => ({
-                ...prev,
-                [platformId]: true
-              }));
-              
-              // Update user's social connections in Firestore
-              const userDocRef = doc(db, 'users', user.uid);
-              await updateDoc(userDocRef, {
-                [`socials.${platformId}`]: `connected_${Date.now()}`
-              });
-              
-              Alert.alert('Success', `Successfully connected to ${socialPlatforms.find(p => p.id === platformId)?.name}!`);
+              try {
+                const response = await fetch(`${BACKEND_BASE_URL}/api/test-connection/${platformId}`, {
+                  method: 'POST',
+                });
+                const result = await response.json();
+                if (result?.success && result?.connected) {
+                  setPlatformConnections(prev => ({
+                    ...prev,
+                    [platformId]: true
+                  }));
+
+                  const userDocRef = doc(db, 'users', user.uid);
+                  await updateDoc(userDocRef, {
+                    [`socials.${platformId}`]: `connected_${Date.now()}`
+                  });
+
+                  Alert.alert('Success', `Successfully connected to ${platformName}!`);
+                } else {
+                  Alert.alert('Connection Failed', result?.message || `Unable to connect to ${platformName}.`);
+                }
+              } catch (error) {
+                logError('Error connecting to platform:', error);
+                Alert.alert('Error', `Failed to connect to ${platformName}`);
+              }
             }
           }
         ]
       );
     } catch (error) {
-      console.error('Error connecting to platform:', error);
+      logError('Error connecting to platform:', error);
       Alert.alert('Error', `Failed to connect to ${socialPlatforms.find(p => p.id === platformId)?.name}`);
     }
   };
@@ -532,8 +676,12 @@ export default function AutoPosterScreen({ navigation }) {
   // Enhanced media upload function
   const uploadMedia = async () => {
     try {
+      if (!BACKEND_BASE_URL || !user?.uid) {
+        Alert.alert('Backend Not Configured', 'EXPO_PUBLIC_API_BASE_URL is missing. Please configure the backend URL.');
+        return;
+      }
       setUploadingMedia(true);
-      console.log('📸 Uploading media...');
+      log('📸 Uploading media...');
       
       // Request permissions
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -552,7 +700,7 @@ export default function AutoPosterScreen({ navigation }) {
       
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        console.log('📷 Image selected:', asset.uri);
+        log('📷 Image selected:', asset.uri);
         
         // Optimize image if needed
         let processedImage = asset.uri;
@@ -564,7 +712,7 @@ export default function AutoPosterScreen({ navigation }) {
           );
           processedImage = manipulated.uri;
         } catch (manipError) {
-          console.log('Image manipulation skipped:', manipError);
+          log('Image manipulation skipped:', manipError);
         }
         
         // Set selected media for use in post
@@ -592,10 +740,19 @@ export default function AutoPosterScreen({ navigation }) {
         });
         
         const uploadResult = await response.json();
-        console.log('📝 Upload Response:', uploadResult);
+        log('📝 Upload Response:', uploadResult);
         
         if (uploadResult.success || uploadResult.status === 'success') {
-          console.log('✅ Media uploaded to backend');
+          log('✅ Media uploaded to backend');
+
+          if (uploadResult.media?.uri) {
+            setSelectedMedia({
+              uri: uploadResult.media.uri,
+              type: uploadResult.media.type || 'image',
+              id: uploadResult.media.id,
+              name: uploadResult.media.title || uploadResult.media.name || `media_${uuidv4()}`
+            });
+          }
           
           // Refresh media library
           await loadMediaLibrary();
@@ -607,7 +764,7 @@ export default function AutoPosterScreen({ navigation }) {
         }
       }
     } catch (error) {
-      console.error('❌ Media upload failed:', error);
+      logError('❌ Media upload failed:', error);
       Alert.alert('Error', `Media upload failed: ${error.message}`);
     } finally {
       setUploadingMedia(false);
@@ -617,26 +774,26 @@ export default function AutoPosterScreen({ navigation }) {
   // Test function for Phase 1 - Basic Data Flow
   const testBasicDataFlow = async () => {
     try {
-      console.log('🧪 Testing Phase 1: Basic Data Flow...');
+      log('🧪 Testing Phase 1: Basic Data Flow...');
       
       // Test 1: User authentication
-      console.log('1️⃣ Testing user authentication...');
+      log('1️⃣ Testing user authentication...');
       if (!user || !user.uid) {
         throw new Error('User not authenticated');
       }
-      console.log('✅ User authenticated:', user.uid);
+      log('✅ User authenticated:', user.uid);
       
       // Test 2: Firestore read access
-      console.log('2️⃣ Testing Firestore read access...');
+      log('2️⃣ Testing Firestore read access...');
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
       if (!userDoc.exists()) {
         throw new Error('User document does not exist');
       }
-      console.log('✅ User document read successfully');
+      log('✅ User document read successfully');
       
       // Test 3: Firestore write access (create a test scheduled post)
-      console.log('3️⃣ Testing Firestore write access...');
+      log('3️⃣ Testing Firestore write access...');
       const testPost = {
         uid: user.uid,
         content: 'Test post for Phase 1 validation',
@@ -649,39 +806,39 @@ export default function AutoPosterScreen({ navigation }) {
           tiktok: false,
           youtube: false
         },
-        scheduledTime: firestore.Timestamp.fromDate(new Date(Date.now() + 60 * 60 * 1000)), // 1 hour from now
+        scheduledTime: Timestamp.fromDate(new Date(Date.now() + 60 * 60 * 1000)), // 1 hour from now
         status: 'scheduled',
         autoGenerated: false,
-        createdAt: firestore.FieldValue.serverTimestamp()
+        createdAt: serverTimestamp()
       };
       
       const postsCollectionRef = collection(db, 'scheduledPosts');
       const docRef = await addDoc(postsCollectionRef, testPost);
-      console.log('✅ Test scheduled post created:', docRef.id);
+      log('✅ Test scheduled post created:', docRef.id);
       
       // Test 4: Firestore read access (read the test post)
-      console.log('4️⃣ Testing Firestore read access for scheduled posts...');
-      const testPostDoc = await docRef.get();
-      if (!testPostDoc.exists) {
+      log('4️⃣ Testing Firestore read access for scheduled posts...');
+      const testPostDoc = await getDoc(docRef);
+      if (!testPostDoc.exists()) {
         throw new Error('Test post was not created');
       }
-      console.log('✅ Test scheduled post read successfully');
+      log('✅ Test scheduled post read successfully');
       
       // Test 5: Clean up test data
-      console.log('5️⃣ Cleaning up test data...');
-      await docRef.delete();
-      console.log('✅ Test data cleaned up');
+      log('5️⃣ Cleaning up test data...');
+      await deleteDoc(docRef);
+      log('✅ Test data cleaned up');
       
       // Test 6: Test Firebase Functions (if available)
-      console.log('6️⃣ Testing Firebase Functions...');
+      log('6️⃣ Testing Firebase Functions...');
       try {
         const generateContentWithGPT = httpsCallable(functions, 'generateContentWithGPT');
-        console.log('✅ Firebase Functions connection established');
+        log('✅ Firebase Functions connection established');
       } catch (funcError) {
-        console.log('⚠️ Firebase Functions not available:', funcError.message);
+        logWarn('⚠️ Firebase Functions not available:', funcError.message);
       }
       
-      console.log('🎉 Phase 1 Test Complete: All basic data flow tests passed!');
+      log('🎉 Phase 1 Test Complete: All basic data flow tests passed!');
       Alert.alert(
         'Phase 1 Test Complete', 
         '✅ All basic data flow tests passed!\n\n' +
@@ -694,7 +851,7 @@ export default function AutoPosterScreen({ navigation }) {
       );
       
     } catch (error) {
-      console.error('❌ Phase 1 Test Failed:', error);
+      logError('❌ Phase 1 Test Failed:', error);
       Alert.alert(
         'Phase 1 Test Failed', 
         `❌ Test failed: ${error.message}\n\nPlease check the console for details.`
@@ -704,7 +861,7 @@ export default function AutoPosterScreen({ navigation }) {
 
   const postNow = async (postId) => {
     try {
-      console.log(`🚀 Posting now: ${postId}`);
+      log(`🚀 Posting now: ${postId}`);
       Alert.alert(
         'Post Now',
         'Are you sure you want to post this immediately?',
@@ -722,7 +879,7 @@ export default function AutoPosterScreen({ navigation }) {
                 });
 
                 const result = await response.json();
-                console.log('📝 Post Now Response:', result);
+                log('📝 Post Now Response:', result);
 
                 if (result.success) {
                   Alert.alert('Success', 'Post published successfully!');
@@ -732,7 +889,7 @@ export default function AutoPosterScreen({ navigation }) {
                   Alert.alert('Error', result.message || 'Failed to post');
                 }
               } catch (error) {
-                console.error('Error posting now:', error);
+                logError('Error posting now:', error);
                 Alert.alert('Error', `Failed to post: ${error.message}`);
               }
             },
@@ -740,7 +897,7 @@ export default function AutoPosterScreen({ navigation }) {
         ]
       );
     } catch (error) {
-      console.error('Error in postNow:', error);
+      logError('Error in postNow:', error);
       Alert.alert('Error', `Failed to post: ${error.message}`);
     }
   };
@@ -841,25 +998,46 @@ export default function AutoPosterScreen({ navigation }) {
     );
   };
 
-  const renderMediaItem = ({ item }) => (
-    <TouchableOpacity
-      style={[styles.mediaCard, { backgroundColor: theme.cardBackground }]}
-      onPress={() => {
-        setGeneratedContent('');
-        setShowContentModal(true);
-      }}
-    >
-      <Image source={{ uri: item.uri }} style={styles.mediaImage} />
-      <View style={styles.mediaInfo}>
-        <Text style={[styles.mediaTitle, { color: theme.text }]}>
-          {item.title || 'Untitled Media'}
-        </Text>
-        <Text style={[styles.mediaDate, { color: theme.subtext }]}>
-          {new Date(item.createdAt.seconds * 1000).toLocaleDateString()}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+  const renderMediaItem = ({ item }) => {
+    const createdAt = item?.createdAt?.seconds
+      ? new Date(item.createdAt.seconds * 1000)
+      : item?.createdAt
+        ? new Date(item.createdAt)
+        : null;
+
+    return (
+      <TouchableOpacity
+        style={[styles.mediaCard, { backgroundColor: theme.cardBackground }]}
+        onPress={() => {
+          if (item?.uri) {
+            setSelectedMedia({
+              uri: item.uri,
+              type: item.type || 'image',
+              id: item.id,
+              name: item.title || item.name || 'Media'
+            });
+            setShowScheduleModal(true);
+          } else {
+            setShowContentModal(true);
+          }
+        }}
+      >
+        {item?.uri ? (
+          <Image source={{ uri: item.uri }} style={styles.mediaImage} />
+        ) : (
+          <View style={[styles.mediaImage, { backgroundColor: theme.border }]} />
+        )}
+        <View style={styles.mediaInfo}>
+          <Text style={[styles.mediaTitle, { color: theme.text }]}>
+            {item?.title || 'Untitled Media'}
+          </Text>
+          <Text style={[styles.mediaDate, { color: theme.subtext }]}>
+            {createdAt ? createdAt.toLocaleDateString() : 'Unknown date'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -889,6 +1067,24 @@ export default function AutoPosterScreen({ navigation }) {
             />
           </TouchableOpacity>
         </View>
+
+        {!user?.uid && (
+          <View style={[styles.statusCard, { backgroundColor: theme.cardBackground }]}>
+            <Text style={[styles.statusTitle, { color: theme.text }]}>Sign in required</Text>
+            <Text style={[styles.statusDescription, { color: theme.subtext }]}>
+              Please sign in to use Auto Poster features.
+            </Text>
+          </View>
+        )}
+
+        {!BACKEND_BASE_URL && user?.uid && (
+          <View style={[styles.statusCard, { backgroundColor: theme.cardBackground }]}>
+            <Text style={[styles.statusTitle, { color: theme.text }]}>Backend not configured</Text>
+            <Text style={[styles.statusDescription, { color: theme.subtext }]}>
+              Set EXPO_PUBLIC_API_BASE_URL to enable Auto Poster.
+            </Text>
+          </View>
+        )}
 
         {/* Status Card */}
         <View style={[styles.statusCard, { backgroundColor: theme.cardBackground }]}>

@@ -43,6 +43,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import { auth, db, isFirebaseReady, uploadImageAsync } from '../firebase';
 import { sendMessageNotification } from '../services/NotificationService';
 import { getAvatarUrl, hasAvatar, getAvatarSource } from '../utils/photoUtils';
+import { sanitizeText } from '../utils/sanitize';
+import { log, logWarn, logError } from '../utils/logger';
 import M1ALogo from '../components/M1ALogo';
 
 // Default avatar fallback
@@ -55,6 +57,7 @@ export default function MessagesScreen() {
   const { user } = useAuth();
   const { preferences: notificationPrefs } = useNotificationPreferences();
   const insets = useSafeAreaInsets();
+  const adminEmail = process.env.EXPO_PUBLIC_ADMIN_EMAIL || 'admin@merkabaent.com';
   
   // Check if we can go back (i.e., accessed from drawer)
   const canGoBack = navigation.canGoBack();
@@ -74,6 +77,32 @@ export default function MessagesScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [uploadingImage, setUploadingImage] = useState(false);
   const listRef = useRef(null);
+  const lastMessageCountRef = useRef(0);
+  const lastMarkedMessageIdRef = useRef(null);
+  const handledParamsRef = useRef(null);
+
+  const handleRouteParams = useCallback(
+    (params) => {
+      if (!params?.conversationId && !params?.userId) {
+        return;
+      }
+
+      if (params?.conversationId) {
+        openConversationFromParams(params);
+        return;
+      }
+
+      if (params?.userId && user?.uid) {
+        const participantIds = [user.uid, params.userId].sort();
+        const conversationId = participantIds.join('_');
+        openConversationFromParams({
+          ...params,
+          conversationId,
+        });
+      }
+    },
+    [openConversationFromParams, user?.uid]
+  );
 
   const createOrGetConversation = useCallback(
     async (targetUser) => {
@@ -117,7 +146,7 @@ export default function MessagesScreen() {
           }
         }
       } catch (error) {
-        console.error('createOrGetConversation error:', error);
+        logError('createOrGetConversation error:', error);
       }
 
       return conversationId;
@@ -131,7 +160,7 @@ export default function MessagesScreen() {
         !conversationId ||
         !isFirebaseReady() ||
         !db ||
-        typeof db.collection !== 'function'
+        typeof db.collection === 'function'
       ) {
         setMessages([]);
         return;
@@ -160,12 +189,29 @@ export default function MessagesScreen() {
         });
         setMessages(messagesData);
       } catch (error) {
-        console.error('Error loading messages:', error);
+        logError('Error loading messages:', error);
       } finally {
         setMessagesLoading(false);
       }
     },
     [db, user?.uid]
+  );
+
+  const markConversationRead = useCallback(
+    async (conversationId) => {
+      if (!conversationId || !user?.uid || !isFirebaseReady() || !db || typeof db.collection === 'function') {
+        return;
+      }
+      try {
+        await updateDoc(doc(db, 'conversations', conversationId), {
+          [`unreadCount.${user.uid}`]: 0,
+        });
+        log('✅ Marked conversation as read');
+      } catch (error) {
+        logWarn('Failed to mark conversation as read:', error);
+      }
+    },
+    [user?.uid]
   );
 
   const openConversationFromParams = useCallback(
@@ -180,7 +226,7 @@ export default function MessagesScreen() {
       let isOnline = params.isOnline || false;
 
       try {
-        if (isFirebaseReady() && db && typeof db.collection === 'function') {
+        if (isFirebaseReady() && db && typeof db.collection !== 'function') {
           const conversationRef = doc(db, 'conversations', params.conversationId);
           const conversationSnap = await getDoc(conversationRef);
 
@@ -206,7 +252,7 @@ export default function MessagesScreen() {
           }
         }
       } catch (error) {
-        console.error('openConversationFromParams error:', error);
+        logError('openConversationFromParams error:', error);
       }
 
       setMessages([]);
@@ -218,13 +264,16 @@ export default function MessagesScreen() {
         participantId,
       };
       setSelectedConversation(conversation);
+      if (params.conversationId) {
+        await markConversationRead(params.conversationId);
+      }
       
       // Load messages for this conversation
       if (params.conversationId) {
         loadMessages(params.conversationId);
       }
     },
-    [db, user?.uid, loadMessages]
+    [db, user?.uid, loadMessages, markConversationRead]
   );
 
   const handleConversationSelect = useCallback(
@@ -243,19 +292,9 @@ export default function MessagesScreen() {
         participantId: conversation.otherParticipantId,
       });
       
-      // Mark conversation as read
-      if (conversation.id && user?.uid && isFirebaseReady() && db && typeof db.collection !== 'function') {
-        try {
-          await updateDoc(doc(db, 'conversations', conversation.id), {
-            [`unreadCount.${user.uid}`]: 0,
-          });
-          console.log('✅ Marked conversation as read');
-        } catch (error) {
-          console.warn('Failed to mark conversation as read:', error);
-        }
-      }
+      await markConversationRead(conversation.id);
     },
-    [user?.uid]
+    [markConversationRead]
   );
 
   const closeConversation = useCallback(() => {
@@ -296,7 +335,7 @@ export default function MessagesScreen() {
                         await loadConversations();
                       }
                     } catch (error) {
-                      console.error('Error deleting conversation:', error);
+                      logError('Error deleting conversation:', error);
                       Alert.alert('Error', 'Failed to delete conversation. Please try again.');
                     }
                   },
@@ -323,43 +362,26 @@ export default function MessagesScreen() {
 
   // Handle route params to start a chat with a specific user
   useEffect(() => {
-    if (route.params?.conversationId || route.params?.userId) {
-      if (route.params?.conversationId) {
-        openConversationFromParams(route.params);
-      } else if (route.params?.userId && user?.uid) {
-        // Create conversation ID from user IDs
-        const participantIds = [user.uid, route.params.userId].sort();
-        const conversationId = participantIds.join('_');
-        openConversationFromParams({
-          ...route.params,
-          conversationId,
-        });
-      }
-      // Clear params after handling to prevent re-triggering
-      navigation.setParams({});
+    const params = route.params;
+    if (!params?.conversationId && !params?.userId) {
+      return;
     }
-  }, [navigation, openConversationFromParams, route.params, user?.uid]);
 
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      // Handle params when screen comes into focus
-      if (route.params?.conversationId || route.params?.userId) {
-        if (route.params?.conversationId) {
-          openConversationFromParams(route.params);
-        } else if (route.params?.userId && user?.uid) {
-          const participantIds = [user.uid, route.params.userId].sort();
-          const conversationId = participantIds.join('_');
-          openConversationFromParams({
-            ...route.params,
-            conversationId,
-          });
-        }
-        navigation.setParams({});
-      }
+    const paramsKey = `${params?.conversationId || ''}:${params?.userId || ''}`;
+    if (handledParamsRef.current === paramsKey) {
+      return;
+    }
+
+    handledParamsRef.current = paramsKey;
+    handleRouteParams(params);
+    navigation.setParams({
+      conversationId: undefined,
+      userId: undefined,
+      userName: undefined,
+      avatar: undefined,
+      isOnline: undefined,
     });
-
-    return unsubscribe;
-  }, [navigation, openConversationFromParams, route.params, user?.uid]);
+  }, [handleRouteParams, navigation, route.params]);
 
   // Load real conversations from Firestore
   const loadConversations = useCallback(async () => {
@@ -413,7 +435,7 @@ export default function MessagesScreen() {
         setConversations([]);
       }
     } catch (error) {
-      console.error('Error loading conversations:', error);
+      logError('Error loading conversations:', error);
       setConversations([]);
     } finally {
       setLoading(false);
@@ -442,12 +464,14 @@ export default function MessagesScreen() {
         // Admin email is admin@merkabaent.com
         let adminUsers = [];
         try {
-          const allUsersSnapshot = await getDocs(collection(db, 'users'));
-          adminUsers = allUsersSnapshot.docs
-            .filter(docSnap => {
-              const userData = docSnap.data();
-              return userData.email === 'admin@merkabaent.com' && docSnap.id !== user.uid;
-            })
+          const adminQuery = query(
+            collection(db, 'users'),
+            where('email', '==', adminEmail),
+            limit(1)
+          );
+          const adminSnapshot = await getDocs(adminQuery);
+          adminUsers = adminSnapshot.docs
+            .filter(docSnap => docSnap.id !== user.uid)
             .map(docSnap => {
               const userData = { id: docSnap.id, ...docSnap.data() };
               return {
@@ -459,7 +483,7 @@ export default function MessagesScreen() {
               };
             });
         } catch (adminError) {
-          console.warn('Error loading admin users:', adminError);
+          // Silently ignore if permissions block this optional query
         }
         
         const publicUsersData = publicUsersSnapshot.docs
@@ -489,7 +513,7 @@ export default function MessagesScreen() {
         setAvailableUsers([]);
       }
     } catch (error) {
-      console.error('Error loading available users:', error);
+      logError('Error loading available users:', error);
       setAvailableUsers([]);
     }
   }, [user?.uid]);
@@ -497,10 +521,11 @@ export default function MessagesScreen() {
   // Set up real-time listener for conversations
   useEffect(() => {
     if (!user?.uid || !isFirebaseReady() || !db || typeof db.collection === 'function') {
+      setLoading(false);
       return;
     }
 
-    console.log('💬 Setting up real-time listener for conversations');
+    log('💬 Setting up real-time listener for conversations');
     
     let conversationsQuery;
     try {
@@ -512,7 +537,7 @@ export default function MessagesScreen() {
         limit(50)
       );
     } catch (indexError) {
-      console.warn('Index not available, using simple query:', indexError);
+      logWarn('Index not available, using simple query:', indexError);
       // Fallback: query without orderBy if index not ready
       conversationsQuery = query(
         collection(db, 'conversations'),
@@ -538,7 +563,7 @@ export default function MessagesScreen() {
                   otherUser = { id: userSnap.id, ...userSnap.data() };
                 }
               } catch (error) {
-                console.warn('Error loading user for conversation:', error);
+                logWarn('Error loading user for conversation:', error);
               }
             }
             
@@ -555,12 +580,13 @@ export default function MessagesScreen() {
           })
         );
         
-        console.log(`💬 Received ${conversationsData.length} conversations`);
+        log(`💬 Received ${conversationsData.length} conversations`);
         setConversations(conversationsData);
         setLoading(false);
       },
       (error) => {
-        console.error('Error listening to conversations:', error);
+        logError('Error listening to conversations:', error);
+        setLoading(false);
         // Fallback to one-time load if listener fails
         loadConversations();
       }
@@ -572,7 +598,7 @@ export default function MessagesScreen() {
 
     // Cleanup listener on unmount
     return () => {
-      console.log('💬 Cleaning up conversations listener');
+      log('💬 Cleaning up conversations listener');
       unsubscribe();
     };
   }, [user?.uid, db, loadConversations, loadAvailableUsers]);
@@ -583,7 +609,9 @@ export default function MessagesScreen() {
       return;
     }
 
-    console.log('📨 Setting up real-time listener for conversation:', selectedConversation.id);
+    log('📨 Setting up real-time listener for conversation:', selectedConversation.id);
+    lastMessageCountRef.current = 0;
+    lastMarkedMessageIdRef.current = null;
     
     const messagesQuery = query(
       collection(db, 'conversations', selectedConversation.id, 'messages'),
@@ -594,7 +622,7 @@ export default function MessagesScreen() {
     const unsubscribe = onSnapshot(
       messagesQuery,
       (snapshot) => {
-        const previousCount = messages.length;
+        const previousCount = lastMessageCountRef.current;
         const messagesData = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
           return {
@@ -608,22 +636,29 @@ export default function MessagesScreen() {
             isSent: data.senderId === user?.uid,
           };
         });
-        console.log(`📨 Received ${messagesData.length} messages for conversation ${selectedConversation.id}`);
+        log(`📨 Received ${messagesData.length} messages for conversation ${selectedConversation.id}`);
         
         // Check if new message arrived (not sent by current user)
         const newMessageCount = messagesData.length - previousCount;
         if (newMessageCount > 0 && messagesData.length > previousCount) {
           const latestMessage = messagesData[messagesData.length - 1];
-          if (latestMessage && !latestMessage.isSent) {
+          if (
+            latestMessage &&
+            !latestMessage.isSent &&
+            latestMessage.id !== lastMarkedMessageIdRef.current
+          ) {
             // Haptic feedback for new message
             if (Platform.OS !== 'web') {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             }
-            console.log('🔔 New message received, playing haptic feedback');
+            log('🔔 New message received, playing haptic feedback');
+            markConversationRead(selectedConversation.id);
+            lastMarkedMessageIdRef.current = latestMessage.id;
           }
         }
         
         setMessages(messagesData);
+        lastMessageCountRef.current = messagesData.length;
         
         // Scroll to bottom when new messages arrive
         setTimeout(() => {
@@ -631,7 +666,7 @@ export default function MessagesScreen() {
         }, 100);
       },
       (error) => {
-        console.error('Error listening to messages:', error);
+        logError('Error listening to messages:', error);
         // Fallback to one-time load if listener fails
         loadMessages(selectedConversation.id);
       }
@@ -639,7 +674,7 @@ export default function MessagesScreen() {
 
     // Cleanup listener on unmount or conversation change
     return () => {
-      console.log('📨 Cleaning up message listener');
+      log('📨 Cleaning up message listener');
       unsubscribe();
     };
   }, [selectedConversation?.id, db, user?.uid, loadMessages]);
@@ -717,7 +752,7 @@ export default function MessagesScreen() {
                 try {
                   // Upload image to Firebase Storage
                   const imageUrl = await uploadImageAsync(result.assets[0].uri, 'messages');
-                  console.log('✅ Image uploaded:', imageUrl);
+                  log('✅ Image uploaded:', imageUrl);
                   
                   // Send message with image
                   await sendMessage(imageUrl, 'image', null);
@@ -727,14 +762,14 @@ export default function MessagesScreen() {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   }
                 } catch (error) {
-                  console.error('Error uploading image:', error);
+                  logError('Error uploading image:', error);
                   Alert.alert('Upload Failed', 'Failed to upload image. Please try again.');
                 } finally {
                   setUploadingImage(false);
                 }
               }
             } catch (error) {
-              console.error('Error picking image:', error);
+              logError('Error picking image:', error);
               Alert.alert('Error', 'Failed to pick image. Please try again.');
             }
           }
@@ -773,7 +808,7 @@ export default function MessagesScreen() {
 
   const sendMessage = async (imageUrl = null, attachmentType = null, attachmentName = null) => {
     const uid = auth.currentUser?.uid;
-    const messageText = text.trim();
+    const messageText = sanitizeText(text);
     
     // Validate imageUrl - must be a string or null/undefined, not an event object
     const validImageUrl = (imageUrl && typeof imageUrl === 'string') ? imageUrl : null;
@@ -803,11 +838,11 @@ export default function MessagesScreen() {
 
     try {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-        console.log('📤 Sending message to conversation:', selectedConversation.id);
-        console.log('📤 Message text:', messageText);
-        console.log('📤 Image URL:', validImageUrl);
-        console.log('📤 Sender ID:', uid);
-        console.log('📤 Participant ID:', selectedConversation.participantId);
+        log('📤 Sending message to conversation:', selectedConversation.id);
+        log('📤 Message text:', messageText);
+        log('📤 Image URL:', validImageUrl);
+        log('📤 Sender ID:', uid);
+        log('📤 Participant ID:', selectedConversation.participantId);
         
         const messageData = {
           text: messageText || '',
@@ -828,7 +863,7 @@ export default function MessagesScreen() {
           collection(db, 'conversations', selectedConversation.id, 'messages'),
           messageData
         );
-        console.log('✅ Message sent successfully, ID:', messageRef.id);
+        log('✅ Message sent successfully, ID:', messageRef.id);
 
         const lastMessagePreview = imageUrl ? '📷 Photo' : (messageText || 'Attachment');
         const updates = {
@@ -839,11 +874,11 @@ export default function MessagesScreen() {
 
         if (selectedConversation.participantId) {
           updates[`unreadCount.${selectedConversation.participantId}`] = increment(1);
-          console.log('📤 Incrementing unread count for participant:', selectedConversation.participantId);
+          log('📤 Incrementing unread count for participant:', selectedConversation.participantId);
         }
 
         await updateDoc(doc(db, 'conversations', selectedConversation.id), updates);
-        console.log('✅ Conversation updated successfully');
+        log('✅ Conversation updated successfully');
         
         // Haptic feedback for sent message
         if (Platform.OS !== 'web') {
@@ -853,22 +888,24 @@ export default function MessagesScreen() {
         // Note: Real-time listener will automatically update messages, so loadMessages is optional
         // await loadMessages(selectedConversation.id);
       } else {
-        console.warn('⚠️ Firebase not ready or using mock database');
+        logWarn('⚠️ Firebase not ready or using mock database');
       }
 
-      // Send notification to recipient (if not current user)
-      if (selectedConversation && selectedConversation.id !== uid) {
-        await sendMessageNotification({
-          id: newMessage.id,
-          text: messageText,
+      // Notify recipient (store in Firestore for their notifications feed)
+      if (selectedConversation?.participantId && selectedConversation.participantId !== uid) {
+        await addDoc(collection(db, 'notifications'), {
+          userId: selectedConversation.participantId,
+          type: messageText.includes('@') ? 'mention' : 'message',
+          conversationId: selectedConversation.id,
           senderId: uid,
           senderName: user?.displayName || 'Someone',
-          conversationId: selectedConversation.id,
-          isMention: messageText.includes('@'),
-        }, notificationPrefs);
+          messagePreview: messageText || (validImageUrl ? '📷 Photo' : 'Attachment'),
+          read: false,
+          createdAt: serverTimestamp(),
+        });
       }
     } catch (e) {
-      console.warn('Send failed:', e);
+      logWarn('Send failed:', e);
     }
   };
 

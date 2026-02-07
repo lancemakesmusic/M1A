@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { auth, isFirebaseReady, onAuthStateChanged } from '../firebase';
+import { log, logError } from '../utils/logger';
 
 const AuthContext = createContext();
 
@@ -13,12 +14,12 @@ export function AuthProvider({ children }) {
     let timeoutId = null;
     let unsubscribe = null;
     
-    console.log('🔐 AuthContext: Setting up auth state listener...');
+    log('🔐 AuthContext: Setting up auth state listener...');
     
     // Immediate check: If user is already logged in, set immediately
     const currentUser = auth?.currentUser;
     if (currentUser && !isResolvedRef.current && isMounted) {
-      console.log('🔐 Found existing user, setting immediately');
+      log('🔐 Found existing user, setting immediately');
       setUser(currentUser);
       setLoading(false);
       isResolvedRef.current = true;
@@ -28,7 +29,7 @@ export function AuthProvider({ children }) {
       unsubscribe = onAuthStateChanged((authUser) => {
         if (!isMounted) return;
         
-        console.log('🔐 Auth state changed:', authUser ? `User logged in: ${authUser.email || authUser.uid}` : 'No user');
+        log('🔐 Auth state changed:', authUser ? `User logged in: ${authUser.email || authUser.uid}` : 'No user');
         
         // Always update user state (remove isResolvedRef check to allow updates)
         setUser(authUser);
@@ -49,14 +50,14 @@ export function AuthProvider({ children }) {
         if (!isMounted) return;
         
         if (!isResolvedRef.current) {
-          console.log('🔐 AuthContext: Timeout reached (2s), checking current user');
+          log('🔐 AuthContext: Timeout reached (2s), checking current user');
           // Check one more time if user exists
           const timeoutUser = auth?.currentUser;
           if (timeoutUser) {
-            console.log('🔐 Found user after timeout, setting user');
+            log('🔐 Found user after timeout, setting user');
             setUser(timeoutUser);
           } else {
-            console.log('🔐 No user found after timeout, showing login screen');
+            log('🔐 No user found after timeout, showing login screen');
             setUser(null);
           }
           isResolvedRef.current = true;
@@ -74,7 +75,7 @@ export function AuthProvider({ children }) {
         }
       };
     } catch (error) {
-      console.error('❌ AuthContext: Error setting up auth listener:', error);
+      logError('❌ AuthContext: Error setting up auth listener:', error);
       if (isMounted) {
         // Fallback: check if user exists
         const fallbackUser = auth?.currentUser;

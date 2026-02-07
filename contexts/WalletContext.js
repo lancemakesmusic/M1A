@@ -2,12 +2,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import WalletService from '../services/WalletService';
+import { log, logError } from '../utils/logger';
 
 export const WalletContext = createContext();
 
 export function WalletProvider({ children }) {
   const { user } = useAuth();
   const [balance, setBalance] = useState(0);
+  const [hoursBalance, setHoursBalance] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const refreshTimeoutRef = useRef(null);
@@ -51,14 +53,17 @@ export function WalletProvider({ children }) {
           }
           
           const walletBalance = await WalletService.getBalance(uid);
+          const walletHoursBalance = await WalletService.getHoursBalance(uid);
           setBalance(walletBalance || 0);
+          setHoursBalance(walletHoursBalance || 0);
           setLoading(false);
           
-          console.log('✅ Wallet balance refreshed:', walletBalance);
+          log('✅ Wallet balance refreshed:', walletBalance);
           resolve();
         } catch (error) {
-          console.error('Error refreshing wallet balance:', error);
+          logError('Error refreshing wallet balance:', error);
           setBalance(0);
+          setHoursBalance(0);
           setLoading(false);
           resolve();
         } finally {
@@ -94,6 +99,16 @@ export function WalletProvider({ children }) {
   }, []);
 
   /**
+   * Update hours locally (optimistic update)
+   */
+  const updateHoursBalance = useCallback((hours) => {
+    setHoursBalance(prevBalance => {
+      const newBalance = prevBalance + hours;
+      return Math.max(0, newBalance);
+    });
+  }, []);
+
+  /**
    * Set balance directly (for admin operations)
    */
   const setBalanceDirectly = useCallback((newBalance) => {
@@ -106,17 +121,29 @@ export function WalletProvider({ children }) {
       refreshBalance(user.uid);
     } else {
       setBalance(0);
+      setHoursBalance(0);
       setLoading(false);
     }
   }, [user?.uid, refreshBalance]);
 
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   const value = {
     balance,
+    hoursBalance,
     loading,
     refreshing,
     refreshBalance,
     refreshBalanceManually,
     updateBalance,
+    updateHoursBalance,
     setBalanceDirectly,
   };
 

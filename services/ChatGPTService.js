@@ -4,26 +4,9 @@
  * Optimized for fast responses with caching and pre-loaded answers
  */
 
-import { Platform } from 'react-native';
 import ChatResponseCache from './ChatResponseCache';
-
-// Get API base URL
-const getApiBaseUrl = () => {
-  if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-    return process.env.EXPO_PUBLIC_API_BASE_URL;
-  }
-  
-  if (Platform.OS === 'web') {
-    return 'http://localhost:8001';
-  }
-  
-  if (__DEV__) {
-    console.warn('⚠️ EXPO_PUBLIC_API_BASE_URL not set. Using localhost fallback (development only).');
-    return 'http://localhost:8001';
-  }
-  
-  throw new Error('EXPO_PUBLIC_API_BASE_URL must be set in production.');
-};
+import { getApiBaseUrl } from '../utils/apiConfig';
+import { logError } from '../utils/logger';
 
 class ChatGPTService {
   constructor() {
@@ -104,7 +87,7 @@ class ChatGPTService {
 
       return aiResponse;
     } catch (error) {
-      console.error('ChatGPT API error:', error);
+      logError('ChatGPT API error:', error);
       
       // Check if we have a cached response as fallback
       const cachedResponse = ChatResponseCache.getInstantResponse(message);

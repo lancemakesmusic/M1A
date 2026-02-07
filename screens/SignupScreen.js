@@ -16,23 +16,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { createUserWithEmailAndPassword, createUserProfileIfMissing } from '../firebase';
 import { trackSignup, trackButtonClick, trackError } from '../services/AnalyticsService';
-import { signInWithGoogle, signInWithApple } from '../services/SocialAuthService';
 import GoogleDriveService from '../services/GoogleDriveService';
 import { authRateLimiter } from '../utils/rateLimiter';
 import { AUTH_ERRORS, getFirebaseErrorMessage } from '../constants/errorMessages';
 import { AUTH_STRINGS, GENERAL_STRINGS } from '../constants/strings';
 import { logError, logInfo, logWarn } from '../utils/logger';
-import { showErrorAlert } from '../utils/errorHandler';
 import M1ALogo from '../components/M1ALogo';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
-  const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState({});
@@ -53,13 +49,6 @@ export default function SignupScreen({ navigation }) {
 
   const validateForm = () => {
     const newErrors = {};
-    
-    // First name validation
-    if (!firstName.trim()) {
-      newErrors.firstName = 'First name is required';
-    } else if (firstName.trim().length < 2) {
-      newErrors.firstName = 'First name must be at least 2 characters';
-    }
     
     // Email validation
     if (!email.trim()) {
@@ -120,38 +109,12 @@ export default function SignupScreen({ navigation }) {
       // Create user profile in Firestore
       try {
         const { createUserProfileIfMissing } = await import('../firebase');
-        // Generate username from email - sanitize dots and special characters
-        let username = email.split('@')[0].toLowerCase();
-        // Replace dots and invalid characters with underscores
-        username = username.replace(/[^a-zA-Z0-9_-]/g, '_');
-        // Remove leading/trailing underscores
-        username = username.replace(/^_+|_+$/g, '');
-        // Ensure minimum length (add numbers if too short)
-        if (username.length < 3) {
-          username = username + Math.floor(Math.random() * 1000);
-        }
-        // Ensure it doesn't start with number (add prefix if needed)
-        if (/^\d/.test(username)) {
-          username = 'user_' + username;
-        }
-        const trimmedFirstName = firstName.trim();
+        const username = email.split('@')[0]; // Use email prefix as default username
         await createUserProfileIfMissing(userCredential.user.uid, {
           email: email,
-          firstName: trimmedFirstName,
-          displayName: trimmedFirstName, // Use firstName as displayName
+          displayName: username,
           username: username,
         });
-        
-        // Update Firebase Auth displayName
-        try {
-          const { updateProfile } = await import('firebase/auth');
-          await updateProfile(userCredential.user, {
-            displayName: trimmedFirstName,
-          });
-        } catch (updateError) {
-          logWarn('Failed to update auth displayName:', updateError);
-          // Don't fail signup if this fails
-        }
         
         // Note: Google Drive folder will be created after persona selection
         // This ensures we have the username and persona context
@@ -222,34 +185,6 @@ export default function SignupScreen({ navigation }) {
           )}
 
           <View style={styles.form}>
-            <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>First Name</Text>
-              <TextInput
-                style={[
-                  styles.input, 
-                  { 
-                    color: theme.text, 
-                    borderColor: errors.firstName ? theme.error : theme.border,
-                    backgroundColor: theme.cardBackground
-                  }
-                ]}
-                placeholder="Enter your first name"
-                placeholderTextColor={theme.subtext}
-                autoCapitalize="words"
-                autoCorrect={false}
-                value={firstName}
-                onChangeText={(text) => {
-                  setFirstName(text);
-                  if (errors.firstName) {
-                    setErrors(prev => ({ ...prev, firstName: '' }));
-                  }
-                }}
-              />
-              {errors.firstName && (
-                <Text style={[styles.fieldError, { color: theme.error }]}>{errors.firstName}</Text>
-              )}
-            </View>
-
             <View style={styles.inputContainer}>
               <Text style={[styles.label, { color: theme.text }]}>Email</Text>
               <TextInput
@@ -377,60 +312,6 @@ export default function SignupScreen({ navigation }) {
                 <Text style={styles.signupButtonText}>Create Account</Text>
               )}
             </TouchableOpacity>
-
-            {/* Divider */}
-            <View style={styles.dividerContainer}>
-              <View style={[styles.divider, { backgroundColor: theme.border }]} />
-              <Text style={[styles.dividerText, { color: theme.subtext }]}>OR</Text>
-              <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            </View>
-
-            {/* Social Sign-Up Buttons */}
-            <TouchableOpacity
-              style={[styles.socialButton, styles.googleButton, { backgroundColor: '#FFFFFF', borderColor: theme.border }]}
-              onPress={async () => {
-                setSocialLoading(true);
-                try {
-                  await signInWithGoogle();
-                } catch (error) {
-                  showErrorAlert(error, 'Google Sign-Up');
-                } finally {
-                  setSocialLoading(false);
-                }
-              }}
-              disabled={socialLoading || loading}
-            >
-              <Ionicons name="logo-google" size={20} color="#4285F4" />
-              <Text style={[styles.socialButtonText, { color: theme.text }]}>
-                Sign up with Google
-              </Text>
-            </TouchableOpacity>
-
-            {Platform.OS === 'ios' && (
-              <TouchableOpacity
-                style={[styles.socialButton, styles.appleButton, { backgroundColor: theme.text, borderColor: theme.text }]}
-                onPress={async () => {
-                  setSocialLoading(true);
-                  try {
-                    await signInWithApple();
-                  } catch (error) {
-                    if (error.message?.includes('cancel')) {
-                      // User cancelled - don't show error
-                      return;
-                    }
-                    showErrorAlert(error, 'Apple Sign-Up');
-                  } finally {
-                    setSocialLoading(false);
-                  }
-                }}
-                disabled={socialLoading || loading}
-              >
-                <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
-                <Text style={[styles.socialButtonText, { color: '#FFFFFF' }]}>
-                  Sign up with Apple
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
 
           <View style={styles.footer}>
@@ -551,40 +432,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   loginLink: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 24,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    marginHorizontal: 16,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 12,
-    gap: 10,
-  },
-  googleButton: {
-    // Styled above
-  },
-  appleButton: {
-    // Styled above
-  },
-  socialButtonText: {
     fontSize: 16,
     fontWeight: '600',
   },

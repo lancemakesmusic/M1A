@@ -75,7 +75,7 @@ export default function M1ASettingsScreen({ navigation }) {
         },
       ]);
     } catch (error) {
-      console.error('Error saving settings:', error);
+      logError('Error saving settings:', error);
       Alert.alert('Error', 'Failed to save settings. Please try again.');
     } finally {
       setSaving(false);

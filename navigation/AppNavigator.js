@@ -253,6 +253,9 @@ export default function AppNavigator() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        // Preload tabs so initial navigation is snappier
+        lazy: false,
+        detachInactiveScreens: false,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
           switch (route.name) {

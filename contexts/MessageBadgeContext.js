@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import { useAuth } from './AuthContext';
 import { db, isFirebaseReady } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { log, logWarn, logError } from '../utils/logger';
 
 export const MessageBadgeContext = createContext();
 
@@ -23,7 +24,7 @@ export function MessageBadgeProvider({ children }) {
       try {
         unsubscribeRef.current();
       } catch (error) {
-        console.warn('Error cleaning up previous listener:', error);
+        logWarn('Error cleaning up previous listener:', error);
       }
       unsubscribeRef.current = null;
     }
@@ -56,14 +57,14 @@ export function MessageBadgeProvider({ children }) {
           // Update app badge count
           if (Platform.OS !== 'web') {
             Notifications.setBadgeCountAsync(totalUnread).catch(err => {
-              console.warn('Failed to set badge count:', err);
+              logWarn('Failed to set badge count:', err);
             });
           }
           
-          console.log(`🔴 Total unread messages: ${totalUnread}`);
+          log(`🔴 Total unread messages: ${totalUnread}`);
         },
         (error) => {
-          console.error('Error calculating unread count:', error);
+          logError('Error calculating unread count:', error);
           setUnreadCount(0);
           setLoading(false);
         }
@@ -71,7 +72,7 @@ export function MessageBadgeProvider({ children }) {
 
       unsubscribeRef.current = unsubscribe;
     } catch (error) {
-      console.error('Error setting up unread count listener:', error);
+      logError('Error setting up unread count listener:', error);
       setUnreadCount(0);
       setLoading(false);
       unsubscribeRef.current = null;
@@ -93,7 +94,7 @@ export function MessageBadgeProvider({ children }) {
         try {
           unsubscribeRef.current();
         } catch (error) {
-          console.warn('Error unsubscribing:', error);
+          logWarn('Error unsubscribing:', error);
         }
         unsubscribeRef.current = null;
       }

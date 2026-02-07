@@ -25,6 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { trackFeatureUsage, trackButtonClick } from '../services/AnalyticsService';
 import SupportService from '../services/SupportService';
 import useScreenTracking from '../hooks/useScreenTracking';
+import { logError } from '../utils/logger';
 
 const FAQ_CATEGORIES = [
   { id: 'general', name: 'General', icon: 'help-circle' },
@@ -263,7 +264,7 @@ export default function HelpScreen() {
         );
       }
     } catch (error) {
-      console.error('Error submitting support ticket:', error);
+      logError('Error submitting support ticket:', error);
       Alert.alert('Error', error.message || 'Failed to submit support ticket. Please try again.');
     } finally {
       setSubmittingTicket(false);
@@ -291,7 +292,7 @@ export default function HelpScreen() {
           Alert.alert('Unable to Open', 'Cannot open the tutorial video. Please check your internet connection.');
         }
       } catch (error) {
-        console.error('Error opening tutorial:', error);
+        logError('Error opening tutorial:', error);
         Alert.alert('Error', 'Failed to open tutorial video. Please try again.');
       }
     } else {

@@ -23,6 +23,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
 import RoleManagementService from '../services/RoleManagementService';
 import EmptyState from '../components/EmptyState';
+import { logError } from '../utils/logger';
 
 export default function AdminEmployeeManagementScreen({ navigation }) {
   const { user } = useAuth();
@@ -49,7 +50,7 @@ export default function AdminEmployeeManagementScreen({ navigation }) {
       const employeesData = await RoleManagementService.getAllEmployees(user.uid);
       setEmployees(employeesData);
     } catch (error) {
-      console.error('Error loading employees:', error);
+      logError('Error loading employees:', error);
       Alert.alert('Error', 'Failed to load employees');
     } finally {
       setLoading(false);
@@ -77,7 +78,7 @@ export default function AdminEmployeeManagementScreen({ navigation }) {
               Alert.alert('Success', result.message);
               loadEmployees();
             } catch (error) {
-              console.error('Error revoking employee:', error);
+              logError('Error revoking employee:', error);
               Alert.alert('Error', error.message || 'Failed to revoke employee role');
             }
           },

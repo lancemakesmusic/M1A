@@ -6,6 +6,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { log, logWarn, logError } from '../utils/logger';
 
 // Configure notification behavior - Corporate grade like WhatsApp/Facebook
 Notifications.setNotificationHandler({
@@ -39,7 +40,7 @@ export const initNotifications = async () => {
     }
     
     if (finalStatus !== 'granted') {
-      console.warn('⚠️ Notification permissions not granted');
+      logWarn('⚠️ Notification permissions not granted');
       return false;
     }
 
@@ -47,12 +48,12 @@ export const initNotifications = async () => {
     if (Platform.OS !== 'web') {
       const token = await Notifications.getExpoPushTokenAsync();
       await AsyncStorage.setItem('expo_push_token', token.data);
-      console.log('✅ Push token:', token.data);
+      log('✅ Push token:', token.data);
     }
 
     // Set up notification listeners
     notificationListener = Notifications.addNotificationReceivedListener(notification => {
-      console.log('📬 Notification received:', notification);
+      log('📬 Notification received:', notification);
       // Play haptic feedback for message notifications
       if (notification.request.content.data?.type === 'message') {
         import('expo-haptics').then(({ default: Haptics }) => {
@@ -62,7 +63,7 @@ export const initNotifications = async () => {
     });
 
     responseListener = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('👆 Notification tapped:', response);
+      log('👆 Notification tapped:', response);
       const data = response.notification.request.content.data;
       
       // Handle message notification tap - navigate to conversation
@@ -80,7 +81,7 @@ export const initNotifications = async () => {
 
     return true;
   } catch (error) {
-    console.warn('⚠️ Notification initialization failed:', error);
+    logWarn('⚠️ Notification initialization failed:', error);
     return false;
   }
 };
@@ -104,7 +105,7 @@ export const scheduleEventReminder = async (eventDate, eventTitle, eventId = nul
     
     // Don't schedule if reminder time is in the past
     if (trigger < new Date()) {
-      console.warn('⚠️ Event reminder time is in the past, not scheduling');
+      logWarn('⚠️ Event reminder time is in the past, not scheduling');
       return false;
     }
 
@@ -118,10 +119,10 @@ export const scheduleEventReminder = async (eventDate, eventTitle, eventId = nul
       trigger,
     });
 
-    console.log('✅ Event reminder scheduled');
+    log('✅ Event reminder scheduled');
     return true;
   } catch (error) {
-    console.warn('⚠️ Failed to schedule event reminder:', error);
+    logWarn('⚠️ Failed to schedule event reminder:', error);
     return false;
   }
 };
@@ -151,7 +152,7 @@ export const sendOrderStatusUpdate = async (orderData) => {
     });
     return true;
   } catch (error) {
-    console.warn('⚠️ Failed to send order update:', error);
+    logWarn('⚠️ Failed to send order update:', error);
     return false;
   }
 };
@@ -181,7 +182,32 @@ export const sendPaymentConfirmation = async (paymentData) => {
     });
     return true;
   } catch (error) {
-    console.warn('⚠️ Failed to send payment confirmation:', error);
+    logWarn('⚠️ Failed to send payment confirmation:', error);
+    return false;
+  }
+};
+
+// Send hours low notification
+export const sendHoursLowNotification = async ({ hoursRemaining = 0, hoursRequested = 0 }) => {
+  try {
+    const roundedRemaining = Math.max(0, Math.round(hoursRemaining * 10) / 10);
+    const roundedRequested = Math.max(0, Math.round(hoursRequested * 10) / 10);
+    const message = roundedRemaining <= 0
+      ? 'You are out of service hours. Please re-up to keep booking.'
+      : `You have ${roundedRemaining}h remaining. Consider re-upping your hours.`;
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Service Hours Low',
+        body: message,
+        data: { type: 'hours_low', hoursRemaining: roundedRemaining, hoursRequested: roundedRequested },
+        sound: true,
+      },
+      trigger: null,
+    });
+    return true;
+  } catch (error) {
+    logWarn('⚠️ Failed to send hours low notification:', error);
     return false;
   }
 };
@@ -213,7 +239,7 @@ export const sendBookingReminder = async (bookingData) => {
     
     // Don't schedule if reminder time is in the past
     if (trigger < new Date()) {
-      console.warn('⚠️ Booking reminder time is in the past, not scheduling');
+      logWarn('⚠️ Booking reminder time is in the past, not scheduling');
       return false;
     }
 
@@ -227,7 +253,7 @@ export const sendBookingReminder = async (bookingData) => {
       trigger,
     });
   } catch (error) {
-    console.warn('⚠️ Failed to send booking reminder:', error);
+    logWarn('⚠️ Failed to send booking reminder:', error);
   }
 };
 
@@ -244,7 +270,7 @@ export const sendM1ATip = async (tipData) => {
       trigger: { seconds: 3600 }, // Send in 1 hour (or customize)
     });
   } catch (error) {
-    console.warn('⚠️ Failed to send M1A tip:', error);
+    logWarn('⚠️ Failed to send M1A tip:', error);
   }
 };
 
@@ -261,7 +287,7 @@ export const sendEngagementNotification = async (engagementData) => {
       trigger: null, // Send immediately
     });
   } catch (error) {
-    console.warn('⚠️ Failed to send engagement notification:', error);
+    logWarn('⚠️ Failed to send engagement notification:', error);
   }
 };
 
@@ -269,9 +295,9 @@ export const sendEngagementNotification = async (engagementData) => {
 export const cancelAllNotifications = async () => {
   try {
     await Notifications.cancelAllScheduledNotificationsAsync();
-    console.log('✅ All notifications cancelled');
+    log('✅ All notifications cancelled');
   } catch (error) {
-    console.warn('⚠️ Failed to cancel notifications:', error);
+    logWarn('⚠️ Failed to cancel notifications:', error);
   }
 };
 
@@ -280,7 +306,7 @@ export const getScheduledNotifications = async () => {
   try {
     return await Notifications.getAllScheduledNotificationsAsync();
   } catch (error) {
-    console.warn('⚠️ Failed to get scheduled notifications:', error);
+    logWarn('⚠️ Failed to get scheduled notifications:', error);
     return [];
   }
 };
@@ -319,7 +345,7 @@ export const sendMessageNotification = async (messageData, preferences) => {
     });
     return true;
   } catch (error) {
-    console.warn('⚠️ Failed to send message notification:', error);
+    logWarn('⚠️ Failed to send message notification:', error);
     return false;
   }
 };
@@ -376,7 +402,7 @@ export const sendEventNotification = async (eventData, preferences, notification
     });
     return true;
   } catch (error) {
-    console.warn('⚠️ Failed to send event notification:', error);
+    logWarn('⚠️ Failed to send event notification:', error);
     return false;
   }
 };
@@ -431,7 +457,7 @@ export const sendDiscountNotification = async (discountData, preferences, notifi
     });
     return true;
   } catch (error) {
-    console.warn('⚠️ Failed to send discount notification:', error);
+    logWarn('⚠️ Failed to send discount notification:', error);
     return false;
   }
 };

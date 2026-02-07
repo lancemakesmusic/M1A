@@ -4,6 +4,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logError } from '../utils/logger';
 
 const CACHE_KEY = 'm1a_chat_cache';
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
@@ -126,7 +127,7 @@ class ChatResponseCache {
         }
       }
     } catch (error) {
-      console.error('Error loading chat cache:', error);
+      logError('Error loading chat cache:', error);
     }
   }
 
@@ -142,7 +143,7 @@ class ChatResponseCache {
       }
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(toSave));
     } catch (error) {
-      console.error('Error saving chat cache:', error);
+      logError('Error saving chat cache:', error);
     }
   }
 
@@ -188,7 +189,7 @@ class ChatResponseCache {
     this.cache.set(normalizedQuery, response);
     
     // Save to AsyncStorage (async, don't wait)
-    this.saveCache().catch(err => console.error('Error saving cache:', err));
+    this.saveCache().catch(err => logError('Error saving cache:', err));
   }
 
   /**

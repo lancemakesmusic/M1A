@@ -7,8 +7,14 @@ from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Dict, Optional
 
-# Admin emails that have admin access
-ADMIN_EMAILS = ['admin@merkabaent.com', 'brogdon.lance@gmail.com']
+def _load_admin_emails() -> list:
+    raw = os.getenv("M1A_ADMIN_EMAILS", "")
+    if not raw:
+        return []
+    return [email.strip().lower() for email in raw.split(",") if email.strip()]
+
+# Admin emails that have admin access (set M1A_ADMIN_EMAILS)
+ADMIN_EMAILS = _load_admin_emails()
 
 # Security dependency
 security = HTTPBearer()

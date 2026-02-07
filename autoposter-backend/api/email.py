@@ -9,6 +9,13 @@ from firebase_admin import auth
 
 from .notification_utils import send_email_via_sendgrid
 
+def _sanitize_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    return value.replace("<", "").replace(">", "").strip()
+
 
 router = APIRouter(prefix="/api", tags=["email"])
 
@@ -47,11 +54,19 @@ class EmailRequest(BaseModel):
 @router.post("/send-email")
 async def send_email(request: EmailRequest, user: dict = Depends(verify_token)):
     try:
+        subject = _sanitize_text(request.subject)
+        text = _sanitize_text(request.text)
+        if not subject:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email subject is required."
+            )
+
         result = send_email_via_sendgrid(
             to_emails=request.to,
-            subject=request.subject,
+            subject=subject,
             html=request.html,
-            text=request.text,
+            text=text,
             from_email=request.from_email,
         )
 

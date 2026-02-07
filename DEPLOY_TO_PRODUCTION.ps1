@@ -4,7 +4,10 @@
 param(
     [switch]$SkipFirebase = $false,
     [switch]$SkipBuild = $false,
-    [switch]$TestFlightOnly = $false
+    [switch]$TestFlightOnly = $false,
+    [string]$ReleaseVersion = "",
+    [switch]$AutoConfirmBuild = $false,
+    [switch]$AutoContinueOnFirebaseError = $false
 )
 
 Write-Host "`n🚀 M1A Production Deployment" -ForegroundColor Cyan
@@ -20,10 +23,14 @@ $currentBuild = $appJson.expo.ios.buildNumber
 Write-Host "Current Version: $currentVersion" -ForegroundColor Gray
 Write-Host "Current Build: $currentBuild" -ForegroundColor Gray
 
-# Prompt for new version
-$newVersion = Read-Host "Enter new version (e.g., 1.0.2) [or press Enter to keep $currentVersion]"
-if ([string]::IsNullOrWhiteSpace($newVersion)) {
-    $newVersion = $currentVersion
+# Prompt for new version (or use provided)
+if (-not [string]::IsNullOrWhiteSpace($ReleaseVersion)) {
+    $newVersion = $ReleaseVersion
+} else {
+    $newVersion = Read-Host "Enter new version or press Enter to keep $currentVersion"
+    if ([string]::IsNullOrWhiteSpace($newVersion)) {
+        $newVersion = $currentVersion
+    }
 }
 
 # Increment build number
@@ -47,10 +54,14 @@ if (-not $SkipFirebase) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Firebase deployment complete!" -ForegroundColor Green
     } else {
-        Write-Host "⚠️ Firebase deployment had issues. Continue anyway? (Y/N)" -ForegroundColor Yellow
-        $continue = Read-Host
-        if ($continue -ne "Y" -and $continue -ne "y") {
-            exit 1
+        if ($AutoContinueOnFirebaseError) {
+            Write-Host "⚠️ Firebase deployment had issues. Auto-continue enabled." -ForegroundColor Yellow
+        } else {
+            Write-Host "⚠️ Firebase deployment had issues. Continue anyway? (Y/N)" -ForegroundColor Yellow
+            $continue = Read-Host
+            if ($continue -ne "Y" -and $continue -ne "y") {
+                exit 1
+            }
         }
     }
 } else {
@@ -66,7 +77,11 @@ if (-not $SkipBuild) {
     Write-Host "  2. Submit to TestFlight automatically" -ForegroundColor White
     Write-Host "  3. Take 15-30 minutes" -ForegroundColor White
     
-    $confirm = Read-Host "`nContinue with TestFlight build? (Y/N)"
+    if ($AutoConfirmBuild) {
+        $confirm = "Y"
+    } else {
+        $confirm = Read-Host "`nContinue with TestFlight build? (Y/N)"
+    }
     if ($confirm -eq "Y" -or $confirm -eq "y") {
         Write-Host "`n🔨 Starting EAS Build..." -ForegroundColor Cyan
         

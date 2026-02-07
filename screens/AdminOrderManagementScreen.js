@@ -28,6 +28,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
 import EmptyState from '../components/EmptyState';
+import { log, logError } from '../utils/logger';
 
 export default function AdminOrderManagementScreen({ navigation }) {
   const { user } = useAuth();
@@ -95,14 +96,14 @@ export default function AdminOrderManagementScreen({ navigation }) {
           allOrders = [...allOrders, ...ordersData];
         } catch (error) {
           // Collection might not exist, continue
-          console.log(`Collection ${collectionName} not found or error:`, error);
+          log(`Collection ${collectionName} not found or error:`, error);
         }
       }
 
       setOrders(allOrders);
       calculateAnalytics(allOrders);
     } catch (error) {
-      console.error('Error loading orders:', error);
+      logError('Error loading orders:', error);
       Alert.alert('Error', 'Failed to load orders');
     } finally {
       setLoading(false);
@@ -176,7 +177,7 @@ export default function AdminOrderManagementScreen({ navigation }) {
       setShowOrderModal(false);
       loadOrders();
     } catch (error) {
-      console.error('Error updating order:', error);
+      logError('Error updating order:', error);
       Alert.alert('Error', 'Failed to update order status');
     }
   };
@@ -223,7 +224,7 @@ export default function AdminOrderManagementScreen({ navigation }) {
               setShowOrderModal(false);
               loadOrders();
             } catch (error) {
-              console.error('Error processing refund:', error);
+              logError('Error processing refund:', error);
               Alert.alert('Error', error.message || 'Failed to process refund. Please try again.');
             }
           },
@@ -274,7 +275,7 @@ export default function AdminOrderManagementScreen({ navigation }) {
         Alert.alert('Export Complete', `File saved to: ${fileUri}`);
       }
     } catch (error) {
-      console.error('Error exporting orders:', error);
+      logError('Error exporting orders:', error);
       Alert.alert('Error', 'Failed to export orders. Please try again.');
     }
   };

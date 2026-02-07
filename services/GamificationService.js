@@ -7,6 +7,7 @@ import { collection, addDoc, query, where, orderBy, limit, getDocs, doc, getDoc,
 import { db, isFirebaseReady } from '../firebase';
 import { trackFeatureUsage, trackButtonClick } from './AnalyticsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logWarn, logError } from '../utils/logger';
 
 const POINTS_KEY = 'm1a_user_points';
 const BADGES_KEY = 'm1a_user_badges';
@@ -144,7 +145,7 @@ class GamificationService {
             lastPointsUpdate: serverTimestamp(),
           }, { merge: true });
         } catch (firebaseError) {
-          console.warn('Firebase points update failed, using local only:', firebaseError);
+          logWarn('Firebase points update failed, using local only:', firebaseError);
         }
       }
 
@@ -161,7 +162,7 @@ class GamificationService {
 
       return { success: true, points, totalPoints: newTotal };
     } catch (error) {
-      console.error('Error awarding points:', error);
+      logError('Error awarding points:', error);
       return { success: false, points: 0 };
     }
   }
@@ -190,7 +191,7 @@ class GamificationService {
       const stored = await AsyncStorage.getItem(`${POINTS_KEY}_${userId}`);
       return stored ? parseInt(stored, 10) : 0;
     } catch (error) {
-      console.error('Error getting user points:', error);
+      logError('Error getting user points:', error);
       return 0;
     }
   }
@@ -219,7 +220,7 @@ class GamificationService {
       const stored = await AsyncStorage.getItem(`${BADGES_KEY}_${userId}`);
       return stored ? JSON.parse(stored) : [];
     } catch (error) {
-      console.error('Error getting user badges:', error);
+      logError('Error getting user badges:', error);
       return [];
     }
   }
@@ -256,7 +257,7 @@ class GamificationService {
           const badgesRef = collection(db, 'userBadges');
           await addDoc(badgesRef, badgeData);
         } catch (firebaseError) {
-          console.warn('Firebase badge save failed, using local only:', firebaseError);
+          logWarn('Firebase badge save failed, using local only:', firebaseError);
         }
       }
 
@@ -277,7 +278,7 @@ class GamificationService {
 
       return { success: true, badge: badgeData };
     } catch (error) {
-      console.error('Error unlocking badge:', error);
+      logError('Error unlocking badge:', error);
       return { success: false };
     }
   }
@@ -324,7 +325,7 @@ class GamificationService {
         }
       }
     } catch (error) {
-      console.error('Error checking badge unlocks:', error);
+      logError('Error checking badge unlocks:', error);
     }
   }
 
@@ -352,7 +353,7 @@ class GamificationService {
       const stored = await AsyncStorage.getItem(`${ACHIEVEMENTS_KEY}_${userId}`);
       return stored ? JSON.parse(stored) : [];
     } catch (error) {
-      console.error('Error getting user achievements:', error);
+      logError('Error getting user achievements:', error);
       return [];
     }
   }
@@ -389,7 +390,7 @@ class GamificationService {
           const achievementsRef = collection(db, 'userAchievements');
           await addDoc(achievementsRef, achievementData);
         } catch (firebaseError) {
-          console.warn('Firebase achievement save failed, using local only:', firebaseError);
+          logWarn('Firebase achievement save failed, using local only:', firebaseError);
         }
       }
 
@@ -406,7 +407,7 @@ class GamificationService {
 
       return { success: true, achievement: achievementData };
     } catch (error) {
-      console.error('Error unlocking achievement:', error);
+      logError('Error unlocking achievement:', error);
       return { success: false };
     }
   }
@@ -450,7 +451,7 @@ class GamificationService {
 
           return leaderboard;
         } catch (firebaseError) {
-          console.warn('Firebase leaderboard fetch failed, using cache:', firebaseError);
+          logWarn('Firebase leaderboard fetch failed, using cache:', firebaseError);
         }
       }
 
@@ -466,7 +467,7 @@ class GamificationService {
 
       return [];
     } catch (error) {
-      console.error('Error getting leaderboard:', error);
+      logError('Error getting leaderboard:', error);
       return [];
     }
   }
@@ -480,7 +481,7 @@ class GamificationService {
       const userIndex = leaderboard.findIndex(entry => entry.userId === userId);
       return userIndex >= 0 ? userIndex + 1 : null;
     } catch (error) {
-      console.error('Error getting user rank:', error);
+      logError('Error getting user rank:', error);
       return null;
     }
   }
@@ -501,7 +502,7 @@ class GamificationService {
           const snapshot = await getDocs(q);
           return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (firebaseError) {
-          console.warn('Firebase challenges fetch failed:', firebaseError);
+          logWarn('Firebase challenges fetch failed:', firebaseError);
         }
       }
 
@@ -518,7 +519,7 @@ class GamificationService {
         },
       ];
     } catch (error) {
-      console.error('Error getting challenges:', error);
+      logError('Error getting challenges:', error);
       return [];
     }
   }
@@ -541,13 +542,13 @@ class GamificationService {
             return snapshot.docs[0].data();
           }
         } catch (firebaseError) {
-          console.warn('Firebase challenge progress fetch failed:', firebaseError);
+          logWarn('Firebase challenge progress fetch failed:', firebaseError);
         }
       }
 
       return { progress: 0, completed: false };
     } catch (error) {
-      console.error('Error getting challenge progress:', error);
+      logError('Error getting challenge progress:', error);
       return { progress: 0, completed: false };
     }
   }

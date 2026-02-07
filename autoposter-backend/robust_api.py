@@ -5,8 +5,10 @@ This is a more reliable FastAPI-based server
 """
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import logging
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import json
@@ -23,10 +25,46 @@ app = FastAPI(
     version="1.0.0"
 )
 
+logger = logging.getLogger(__name__)
+cors_origins_raw = os.getenv("CORS_ALLOWED_ORIGINS", "")
+if cors_origins_raw:
+    cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
+else:
+    logger.warning("CORS_ALLOWED_ORIGINS not set; allowing all origins.")
+    cors_origins = ["*"]
+
+MAX_REQUEST_BYTES = int(os.getenv("M1A_MAX_REQUEST_BYTES", "10485760"))  # 10 MB default
+API_KEY = os.getenv("M1A_API_KEY")
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_REQUEST_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request too large."}
+                )
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Invalid Content-Length header."}
+            )
+    return await call_next(request)
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    if API_KEY and request.url.path.startswith("/api/"):
+        provided = request.headers.get("x-api-key")
+        if provided != API_KEY:
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

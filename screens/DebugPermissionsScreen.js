@@ -10,13 +10,14 @@ import {
 import { useEffect, useState } from 'react';
 import { Button, ScrollView, Text, View } from 'react-native';
 import { auth, db } from '../firebase';
+import { logInfo } from '../utils/logger';
 
 export default function DebugPermissionsScreen() {
   const [log, setLog] = useState([]);
   const cid = 'test-chat'; // change if needed
 
   function push(msg) {
-    console.log('[DEBUGPERM]', msg);
+    logInfo('[DEBUGPERM]', msg);
     setLog((x) => [...x, String(msg)]);
   }
 

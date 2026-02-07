@@ -21,17 +21,39 @@ import TutorialOverlay from '../components/TutorialOverlay';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useWallet } from '../contexts/WalletContext';
 import { db, isFirebaseReady } from '../firebase';
 import { dataCache } from '../utils/dataCache';
+import { log, logWarn, logError } from '../utils/logger';
+import { getApiBaseUrl } from '../utils/apiConfig';
 import GoogleCalendarService from '../services/GoogleCalendarService';
 
 const { width } = Dimensions.get('window');
+
+const normalizeTimestamp = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value?.toDate === 'function') return value.toDate();
+  if (typeof value === 'number') return new Date(value);
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+};
+
+const getBookingDate = (booking) => {
+  return normalizeTimestamp(booking?.createdAt)
+    || normalizeTimestamp(booking?.eventDate)
+    || null;
+};
 
 export default function M1ADashboardScreen({ navigation: navProp }) {
   const navHook = useNavigation();
   const navigation = navProp || navHook;
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { hoursBalance } = useWallet();
   const { 
     userPersona, 
     getPersonalizedFeatures, 
@@ -187,7 +209,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
         recommendations,
       });
     } catch (error) {
-      console.error('Error loading guest dashboard data:', error);
+      logError('Error loading guest dashboard data:', error);
     }
   };
 
@@ -202,19 +224,11 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
       const cacheKey = dataCache.generateKey('dashboard', { userId: user.uid, persona: userPersona?.id });
       const cachedStats = dataCache.get(cacheKey);
       if (cachedStats) {
-        console.log('📦 Using cached dashboard stats');
+        log('📦 Using cached dashboard stats');
         setStats(cachedStats);
         // Still refresh in background
       }
 
-      // Use network IP for physical devices, localhost for web/simulator
-      const getApiBaseUrl = () => {
-        if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-          return process.env.EXPO_PUBLIC_API_BASE_URL;
-        }
-        // Fallback for development (use environment variable in production)
-        return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
-      };
       const API_BASE_URL = getApiBaseUrl();
 
       // Try to load from backend API first
@@ -237,58 +251,46 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
             setStats(data.stats);
             return;
           } else {
-            console.log('Backend dashboard stats placeholder or unavailable, falling back to Firestore', data.error || 'placeholder');
+            log('Backend dashboard stats placeholder or unavailable, falling back to Firestore', data.error || 'placeholder');
           }
         }
       } catch (apiError) {
-        console.log('Backend API not available, using Firestore aggregations:', apiError.message);
+        log('Backend API not available, using Firestore aggregations:', apiError.message);
       }
 
       // Fallback to Firestore aggregations
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-        const { collection, query, where, getDocs, getCountFromServer, Timestamp } = await import('firebase/firestore');
-        const now = Timestamp.now();
-        
-        // Get total events
-        const totalEventsQuery = query(collection(db, 'eventBookings'), where('userId', '==', user.uid));
-        const totalEventsSnapshot = await getCountFromServer(totalEventsQuery);
-        const totalEvents = totalEventsSnapshot.data().count;
+        const { collection, query, where, getDocs } = await import('firebase/firestore');
+        const now = new Date();
 
-        // Get upcoming events (eventDate >= today)
-        const upcomingEventsQuery = query(
-          collection(db, 'eventBookings'),
-          where('userId', '==', user.uid),
-          where('eventDate', '>=', now)
+        const bookingsSnapshot = await getDocs(
+          query(collection(db, 'eventBookings'), where('userId', '==', user.uid))
         );
-        const upcomingEventsSnapshot = await getCountFromServer(upcomingEventsQuery);
-        const upcomingEvents = upcomingEventsSnapshot.data().count;
+        const bookings = bookingsSnapshot.docs.map(docSnap => docSnap.data());
 
-        // Get completed tasks (from tasks collection if it exists)
-        // Load completed tasks from user's task history
+        const totalEvents = bookings.length;
+        const upcomingEvents = bookings.filter(booking => {
+          const eventDate = normalizeTimestamp(booking.eventDate);
+          return eventDate && eventDate >= now;
+        }).length;
+
         let completedTasks = 0;
         try {
-          const tasksQuery = query(
-            collection(db, 'userTasks'),
-            where('userId', '==', user?.uid),
-            where('completed', '==', true)
+          const tasksSnapshot = await getDocs(
+            query(collection(db, 'userTasks'), where('userId', '==', user.uid))
           );
-          const tasksSnapshot = await getDocs(tasksQuery);
-          completedTasks = tasksSnapshot.size;
+          completedTasks = tasksSnapshot.docs.filter(docSnap => docSnap.data()?.completed === true).length;
         } catch (taskError) {
-          console.warn('Could not load tasks:', taskError);
-          // Default to 0 if tasks collection doesn't exist yet
+          logWarn('Could not load tasks:', taskError);
           completedTasks = 0;
         }
 
-        // Calculate revenue from completed bookings
-        const bookingsSnapshot = await getDocs(query(collection(db, 'eventBookings'), where('userId', '==', user.uid)));
-        let revenue = 0;
-        bookingsSnapshot.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.status === 'completed' && data.totalCost) {
-            revenue += data.totalCost;
+        const revenue = bookings.reduce((sum, booking) => {
+          if (booking?.status === 'completed' && typeof booking?.totalCost === 'number') {
+            return sum + booking.totalCost;
           }
-        });
+          return sum;
+        }, 0);
 
         const newStats = {
           totalEvents,
@@ -297,16 +299,15 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
           revenue,
         };
         setStats(newStats);
-        
-        // Cache the results
+
         const cacheKey = dataCache.generateKey('dashboard', { userId: user.uid, persona: userPersona?.id });
-        dataCache.set(cacheKey, newStats, 3 * 60 * 1000); // 3 minutes TTL
+        dataCache.set(cacheKey, newStats, 3 * 60 * 1000);
       } else {
         // Fallback to zero stats if Firebase not ready
         setStats({ totalEvents: 0, upcomingEvents: 0, completedTasks: 0, revenue: 0 });
       }
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
+      logError('Error loading dashboard data:', error);
       setStats({ totalEvents: 0, upcomingEvents: 0, completedTasks: 0, revenue: 0 });
     }
   };
@@ -323,7 +324,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     });
     const cachedInsights = dataCache.get(cacheKey);
     if (cachedInsights) {
-      console.log('📦 Using cached dashboard insights');
+      log('📦 Using cached dashboard insights');
       setDetailedInsights(cachedInsights);
       setLoadingInsights(false);
       // Still refresh in background
@@ -332,131 +333,142 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     setLoadingInsights(true);
     try {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
-        const { collection, query, where, getDocs, Timestamp, orderBy, limit } = await import('firebase/firestore');
-        const now = Timestamp.now();
-        
-        // Calculate time range
+        const { collection, query, where, getDocs } = await import('firebase/firestore');
+        const now = new Date();
+
         const daysAgo = selectedTimeRange === '7d' ? 7 : selectedTimeRange === '30d' ? 30 : selectedTimeRange === '90d' ? 90 : 365;
-        const startDate = Timestamp.fromDate(new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000));
-        
+        const startDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+
+        const bookingsSnapshot = await getDocs(
+          query(collection(db, 'eventBookings'), where('userId', '==', user.uid))
+        );
+        const bookings = bookingsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+
+        const inRangeBookings = bookings.filter(booking => {
+          const bookingDate = getBookingDate(booking);
+          return bookingDate && bookingDate >= startDate;
+        });
+
         // Revenue trend (last 30 days)
         const revenueTrend = [];
         const eventTrend = [];
+        const revenueByDay = new Map();
+        const eventsByDay = new Map();
         for (let i = 29; i >= 0; i--) {
           const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-          const dayStart = Timestamp.fromDate(new Date(date.setHours(0, 0, 0, 0)));
-          const dayEnd = Timestamp.fromDate(new Date(date.setHours(23, 59, 59, 999)));
-          
-          // Get revenue for this day
-          const dayBookings = await getDocs(
-            query(
-              collection(db, 'eventBookings'),
-              where('userId', '==', user.uid),
-              where('createdAt', '>=', dayStart),
-              where('createdAt', '<=', dayEnd)
-            )
-          );
-          let dayRevenue = 0;
-          dayBookings.docs.forEach(doc => {
-            const data = doc.data();
-            if (data.totalCost) dayRevenue += data.totalCost;
-          });
-          
-          revenueTrend.push({
-            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            value: dayRevenue,
-          });
-          
-          // Get events for this day
-          const dayEvents = await getDocs(
-            query(
-              collection(db, 'eventBookings'),
-              where('userId', '==', user.uid),
-              where('eventDate', '>=', dayStart),
-              where('eventDate', '<=', dayEnd)
-            )
-          );
-          eventTrend.push({
-            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            value: dayEvents.size,
-          });
+          date.setHours(0, 0, 0, 0);
+          const key = date.toDateString();
+          revenueByDay.set(key, 0);
+          eventsByDay.set(key, 0);
         }
-        
+
+        bookings.forEach(booking => {
+          const createdAt = normalizeTimestamp(booking.createdAt);
+          if (createdAt) {
+            const day = new Date(createdAt);
+            day.setHours(0, 0, 0, 0);
+            const key = day.toDateString();
+            if (revenueByDay.has(key) && typeof booking?.totalCost === 'number') {
+              revenueByDay.set(key, revenueByDay.get(key) + booking.totalCost);
+            }
+          }
+
+          const eventDate = normalizeTimestamp(booking.eventDate) || createdAt;
+          if (eventDate) {
+            const day = new Date(eventDate);
+            day.setHours(0, 0, 0, 0);
+            const key = day.toDateString();
+            if (eventsByDay.has(key)) {
+              eventsByDay.set(key, eventsByDay.get(key) + 1);
+            }
+          }
+        });
+
+        revenueTrend.push(...Array.from(revenueByDay.entries()).map(([key, value]) => {
+          const date = new Date(key);
+          return {
+            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            value,
+          };
+        }));
+        eventTrend.push(...Array.from(eventsByDay.entries()).map(([key, value]) => {
+          const date = new Date(key);
+          return {
+            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            value,
+          };
+        }));
+
         // Activity breakdown
-        const allBookings = await getDocs(
-          query(
-            collection(db, 'eventBookings'),
-            where('userId', '==', user.uid),
-            where('createdAt', '>=', startDate)
-          )
-        );
-        
         const activityBreakdown = {
           completed: 0,
           pending: 0,
           cancelled: 0,
         };
-        
-        allBookings.docs.forEach(doc => {
-          const status = doc.data().status || 'pending';
+
+        inRangeBookings.forEach(booking => {
+          const status = booking?.status || 'pending';
           if (status === 'completed') activityBreakdown.completed++;
           else if (status === 'cancelled') activityBreakdown.cancelled++;
           else activityBreakdown.pending++;
         });
-        
+
         // Monthly comparison
         const currentMonth = new Date();
-        const lastMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
-        const currentMonthStart = Timestamp.fromDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1));
-        const lastMonthStart = Timestamp.fromDate(lastMonth);
-        const lastMonthEnd = Timestamp.fromDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 0));
-        
-        const currentMonthBookings = await getDocs(
-          query(
-            collection(db, 'eventBookings'),
-            where('userId', '==', user.uid),
-            where('createdAt', '>=', currentMonthStart)
-          )
-        );
-        
-        const lastMonthBookings = await getDocs(
-          query(
-            collection(db, 'eventBookings'),
-            where('userId', '==', user.uid),
-            where('createdAt', '>=', lastMonthStart),
-            where('createdAt', '<=', lastMonthEnd)
-          )
-        );
-        
-        let currentMonthRevenue = 0;
-        currentMonthBookings.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.totalCost) currentMonthRevenue += data.totalCost;
+        const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+        const lastMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+        const lastMonthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 0, 23, 59, 59, 999);
+
+        const currentMonthBookings = bookings.filter(booking => {
+          const bookingDate = getBookingDate(booking);
+          return bookingDate && bookingDate >= currentMonthStart;
         });
-        
-        let lastMonthRevenue = 0;
-        lastMonthBookings.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.totalCost) lastMonthRevenue += data.totalCost;
+        const lastMonthBookings = bookings.filter(booking => {
+          const bookingDate = getBookingDate(booking);
+          return bookingDate && bookingDate >= lastMonthStart && bookingDate <= lastMonthEnd;
         });
-        
-        const revenueChange = lastMonthRevenue > 0 
+
+        const currentMonthRevenue = currentMonthBookings.reduce((sum, booking) => {
+          if (typeof booking?.totalCost === 'number') {
+            return sum + booking.totalCost;
+          }
+          return sum;
+        }, 0);
+        const lastMonthRevenue = lastMonthBookings.reduce((sum, booking) => {
+          if (typeof booking?.totalCost === 'number') {
+            return sum + booking.totalCost;
+          }
+          return sum;
+        }, 0);
+
+        const revenueChange = lastMonthRevenue > 0
           ? ((currentMonthRevenue - lastMonthRevenue) / lastMonthRevenue * 100).toFixed(1)
           : currentMonthRevenue > 0 ? 100 : 0;
-        
-        const eventChange = lastMonthBookings.size > 0
-          ? ((currentMonthBookings.size - lastMonthBookings.size) / lastMonthBookings.size * 100).toFixed(1)
-          : currentMonthBookings.size > 0 ? 100 : 0;
-        
-        // Performance metrics
-        const avgRevenuePerEvent = stats.totalEvents > 0 ? stats.revenue / stats.totalEvents : 0;
-        const completionRate = stats.totalEvents > 0 
-          ? (stats.completedTasks / stats.totalEvents * 100).toFixed(1)
+
+        const eventChange = lastMonthBookings.length > 0
+          ? ((currentMonthBookings.length - lastMonthBookings.length) / lastMonthBookings.length * 100).toFixed(1)
+          : currentMonthBookings.length > 0 ? 100 : 0;
+
+        const completedCount = bookings.filter(booking => booking?.status === 'completed').length;
+        const totalRevenue = bookings.reduce((sum, booking) => {
+          if (typeof booking?.totalCost === 'number') {
+            return sum + booking.totalCost;
+          }
+          return sum;
+        }, 0);
+
+        const avgRevenuePerEvent = bookings.length > 0 ? totalRevenue / bookings.length : 0;
+        const completionRate = bookings.length > 0
+          ? (completedCount / bookings.length * 100).toFixed(1)
           : 0;
-        
-        // Generate recommendations
+
+        const upcomingCount = bookings.filter(booking => {
+          const eventDate = normalizeTimestamp(booking.eventDate);
+          return eventDate && eventDate >= now;
+        }).length;
+
         const recommendations = [];
-        if (stats.upcomingEvents === 0) {
+        if (upcomingCount === 0) {
           recommendations.push({
             type: 'action',
             title: 'Create Your First Event',
@@ -465,7 +477,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
             color: '#4ECDC4',
           });
         }
-        if (revenueChange < 0) {
+        if (parseFloat(revenueChange) < 0) {
           recommendations.push({
             type: 'insight',
             title: 'Revenue Down',
@@ -474,7 +486,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
             color: '#FF6B6B',
           });
         }
-        if (completionRate < 50) {
+        if (parseFloat(completionRate) < 50) {
           recommendations.push({
             type: 'insight',
             title: 'Low Completion Rate',
@@ -483,42 +495,41 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
             color: '#FF9500',
           });
         }
-        if (stats.upcomingEvents > 5) {
+        if (upcomingCount > 5) {
           recommendations.push({
             type: 'success',
             title: 'Great Activity!',
-            description: `You have ${stats.upcomingEvents} upcoming events. Keep up the momentum!`,
+            description: `You have ${upcomingCount} upcoming events. Keep up the momentum!`,
             icon: 'checkmark-circle',
             color: '#34C759',
           });
         }
-        
+
         const newInsights = {
           revenueTrend,
           eventTrend,
           activityBreakdown,
           monthlyComparison: {
             revenue: { current: currentMonthRevenue, last: lastMonthRevenue, change: parseFloat(revenueChange) },
-            events: { current: currentMonthBookings.size, last: lastMonthBookings.size, change: parseFloat(eventChange) },
+            events: { current: currentMonthBookings.length, last: lastMonthBookings.length, change: parseFloat(eventChange) },
           },
           recommendations,
           performanceMetrics: {
             avgRevenuePerEvent,
             completionRate: parseFloat(completionRate),
-            totalRevenue: stats.revenue,
+            totalRevenue,
           },
         };
         setDetailedInsights(newInsights);
-        
-        // Cache the results
-        const cacheKey = dataCache.generateKey('dashboardInsights', { 
-          userId: user.uid, 
-          timeRange: selectedTimeRange 
+
+        const cacheKey = dataCache.generateKey('dashboardInsights', {
+          userId: user.uid,
+          timeRange: selectedTimeRange,
         });
-        dataCache.set(cacheKey, newInsights, 5 * 60 * 1000); // 5 minutes TTL
+        dataCache.set(cacheKey, newInsights, 5 * 60 * 1000);
       }
     } catch (error) {
-      console.error('Error loading detailed insights:', error);
+      logError('Error loading detailed insights:', error);
     } finally {
       setLoadingInsights(false);
     }
@@ -890,7 +901,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
         await Linking.openURL(generalCalendarUrl);
       }
     } catch (error) {
-      console.error('Error opening Google Calendar:', error);
+      logError('Error opening Google Calendar:', error);
       Alert.alert(
         'Error',
         'Failed to open Google Calendar. Please make sure Google Calendar is installed or try opening it manually.',
@@ -911,7 +922,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
         } else if (item.action === 'open-google-calendar') {
           handleOpenGoogleCalendar();
         } else {
-          console.log('Quick action:', item.title);
+          log('Quick action:', item.title);
         }
       }}
     >
@@ -1041,6 +1052,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
                 {renderStatCard('Upcoming', stats.upcomingEvents, 'time', '#4ECDC4')}
                 {renderStatCard('Completed', stats.completedTasks, 'checkmark-circle', '#2ECC71')}
                 {renderStatCard('Revenue', `$${stats.revenue.toLocaleString()}`, 'cash', '#F39C12')}
+                {renderStatCard('Hours In Stock', `${Math.max(0, hoursBalance).toFixed(1)}h`, 'time-outline', '#9B59B6')}
               </View>
             </View>
 
@@ -1332,7 +1344,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
             underutilizedFeatures: ['insights', 'templates']
           }}
           onFeaturePress={(feature) => {
-            console.log('Feature pressed:', feature.title);
+            log('Feature pressed:', feature.title);
             // Navigate to feature or show more details
           }}
         />

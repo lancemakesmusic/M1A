@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { logError } from '../utils/logger';
 
 const NotificationPreferencesContext = createContext();
 
@@ -51,7 +52,7 @@ export function NotificationPreferencesProvider({ children }) {
         setPreferences({ ...DEFAULT_PREFERENCES, ...parsed });
       }
     } catch (error) {
-      console.error('Error loading notification preferences:', error);
+      logError('Error loading notification preferences:', error);
     } finally {
       setLoading(false);
     }
@@ -62,7 +63,7 @@ export function NotificationPreferencesProvider({ children }) {
       setPreferences(newPreferences);
       await AsyncStorage.setItem('notification_preferences', JSON.stringify(newPreferences));
     } catch (error) {
-      console.error('Error saving notification preferences:', error);
+      logError('Error saving notification preferences:', error);
     }
   };
 

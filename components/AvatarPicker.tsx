@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
 import { Alert, Image, Pressable, Text, View } from 'react-native';
 import { uploadImageAsync } from '../firebase';
+import { logError } from '../utils/logger';
 
 export default function AvatarPicker({ currentUrl }: { currentUrl?: string }) {
   const [uploading, setUploading] = useState(false);
@@ -36,7 +37,7 @@ export default function AvatarPicker({ currentUrl }: { currentUrl?: string }) {
       setCacheBust(Date.now());
       Alert.alert('Success', 'Avatar updated. (Mock)');
     } catch (e: any) {
-      console.error('Avatar upload failed:', e?.message || e);
+      logError('Avatar upload failed:', e?.message || e);
       Alert.alert('Upload failed', e?.message || 'Unknown error');
     } finally {
       setUploading(false);

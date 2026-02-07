@@ -6,6 +6,7 @@
 import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
 import { trackFeatureUsage } from './AnalyticsService';
+import { log, logWarn, logError } from '../utils/logger';
 
 class RealTimeService {
   /**
@@ -18,7 +19,7 @@ class RealTimeService {
 
     if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
       // Mock implementation
-      console.warn('Real-time event updates not available in mock mode');
+      logWarn('Real-time event updates not available in mock mode');
       return () => {}; // Return unsubscribe function
     }
 
@@ -40,14 +41,14 @@ class RealTimeService {
           }
         },
         (error) => {
-          console.error('Error in real-time event subscription:', error);
+          logError('Error in real-time event subscription:', error);
           callback(null, error);
         }
       );
 
       return unsubscribe;
     } catch (error) {
-      console.error('Error setting up event subscription:', error);
+      logError('Error setting up event subscription:', error);
       return () => {};
     }
   }
@@ -62,7 +63,7 @@ class RealTimeService {
 
     if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
       // Mock implementation
-      console.warn('Real-time order updates not available in mock mode');
+      logWarn('Real-time order updates not available in mock mode');
       return () => {};
     }
 
@@ -84,14 +85,14 @@ class RealTimeService {
           }
         },
         (error) => {
-          console.error('Error in real-time order subscription:', error);
+          logError('Error in real-time order subscription:', error);
           callback(null, error);
         }
       );
 
       return unsubscribe;
     } catch (error) {
-      console.error('Error setting up order subscription:', error);
+      logError('Error setting up order subscription:', error);
       return () => {};
     }
   }
@@ -105,7 +106,7 @@ class RealTimeService {
     }
 
     if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
-      console.warn('Real-time user orders not available in mock mode');
+      logWarn('Real-time user orders not available in mock mode');
       return () => {};
     }
 
@@ -128,14 +129,14 @@ class RealTimeService {
           callback(orders);
         },
         (error) => {
-          console.error('Error in user orders subscription:', error);
+          logError('Error in user orders subscription:', error);
           callback([], error);
         }
       );
 
       return unsubscribe;
     } catch (error) {
-      console.error('Error setting up user orders subscription:', error);
+      logError('Error setting up user orders subscription:', error);
       return () => {};
     }
   }
@@ -149,7 +150,7 @@ class RealTimeService {
     }
 
     if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
-      console.warn('Real-time activity feed not available in mock mode');
+      logWarn('Real-time activity feed not available in mock mode');
       return () => {};
     }
 
@@ -173,14 +174,14 @@ class RealTimeService {
           callback(activities);
         },
         (error) => {
-          console.error('Error in activity feed subscription:', error);
+          logError('Error in activity feed subscription:', error);
           callback([], error);
         }
       );
 
       return unsubscribe;
     } catch (error) {
-      console.error('Error setting up activity feed subscription:', error);
+      logError('Error setting up activity feed subscription:', error);
       return () => {};
     }
   }
@@ -194,7 +195,7 @@ class RealTimeService {
     }
 
     if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
-      console.warn('Real-time global activity feed not available in mock mode');
+      logWarn('Real-time global activity feed not available in mock mode');
       return () => {};
     }
 
@@ -217,14 +218,14 @@ class RealTimeService {
           callback(activities);
         },
         (error) => {
-          console.error('Error in global activity feed subscription:', error);
+          logError('Error in global activity feed subscription:', error);
           callback([], error);
         }
       );
 
       return unsubscribe;
     } catch (error) {
-      console.error('Error setting up global activity feed subscription:', error);
+      logError('Error setting up global activity feed subscription:', error);
       return () => {};
     }
   }
@@ -238,7 +239,7 @@ class RealTimeService {
     }
 
     if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
-      console.warn('Real-time notifications not available in mock mode');
+      logWarn('Real-time notifications not available in mock mode');
       return () => {};
     }
 
@@ -263,14 +264,14 @@ class RealTimeService {
           callback(notifications);
         },
         (error) => {
-          console.error('Error in notifications subscription:', error);
+          logError('Error in notifications subscription:', error);
           callback([], error);
         }
       );
 
       return unsubscribe;
     } catch (error) {
-      console.error('Error setting up notifications subscription:', error);
+      logError('Error setting up notifications subscription:', error);
       return () => {};
     }
   }
@@ -284,7 +285,7 @@ class RealTimeService {
     }
 
     if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
-      console.warn('Real-time collaboration not available in mock mode');
+      logWarn('Real-time collaboration not available in mock mode');
       return () => {};
     }
 
@@ -307,14 +308,14 @@ class RealTimeService {
           callback(updates);
         },
         (error) => {
-          console.error('Error in collaboration subscription:', error);
+          logError('Error in collaboration subscription:', error);
           callback([], error);
         }
       );
 
       return unsubscribe;
     } catch (error) {
-      console.error('Error setting up collaboration subscription:', error);
+      logError('Error setting up collaboration subscription:', error);
       return () => {};
     }
   }
@@ -328,7 +329,7 @@ class RealTimeService {
     }
 
     if (!isFirebaseReady() || !db || typeof db.collection === 'function') {
-      console.log('📊 Mock Activity Created:', { userId, activityType, activityData });
+      log('📊 Mock Activity Created:', { userId, activityType, activityData });
       return { success: true, id: `mock_${Date.now()}` };
     }
 
@@ -353,7 +354,7 @@ class RealTimeService {
 
       return { success: true, id: activityRef.id };
     } catch (error) {
-      console.error('Error creating activity:', error);
+      logError('Error creating activity:', error);
       return { success: false, error: error.message };
     }
   }

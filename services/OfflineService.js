@@ -5,6 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { log, logError } from '../utils/logger';
 
 const CACHE_PREFIX = 'm1a_cache_';
 const SYNC_QUEUE_KEY = 'm1a_sync_queue';
@@ -18,7 +19,7 @@ class OfflineService {
       const state = await NetInfo.fetch();
       return state.isConnected && state.isInternetReachable;
     } catch (error) {
-      console.error('Error checking network status:', error);
+      logError('Error checking network status:', error);
       return false;
     }
   }
@@ -36,7 +37,7 @@ class OfflineService {
       await AsyncStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(cacheItem));
       return true;
     } catch (error) {
-      console.error('Error caching data:', error);
+      logError('Error caching data:', error);
       return false;
     }
   }
@@ -60,7 +61,7 @@ class OfflineService {
 
       return cacheItem.data;
     } catch (error) {
-      console.error('Error getting cached data:', error);
+      logError('Error getting cached data:', error);
       return null;
     }
   }
@@ -79,7 +80,7 @@ class OfflineService {
       await AsyncStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue));
       return true;
     } catch (error) {
-      console.error('Error queueing action:', error);
+      logError('Error queueing action:', error);
       return false;
     }
   }
@@ -92,7 +93,7 @@ class OfflineService {
       const queue = await AsyncStorage.getItem(SYNC_QUEUE_KEY);
       return queue ? JSON.parse(queue) : [];
     } catch (error) {
-      console.error('Error getting sync queue:', error);
+      logError('Error getting sync queue:', error);
       return [];
     }
   }
@@ -105,7 +106,7 @@ class OfflineService {
       await AsyncStorage.removeItem(SYNC_QUEUE_KEY);
       return true;
     } catch (error) {
-      console.error('Error clearing sync queue:', error);
+      logError('Error clearing sync queue:', error);
       return false;
     }
   }
@@ -117,7 +118,7 @@ class OfflineService {
     try {
       const isConnected = await this.isOnline();
       if (!isConnected) {
-        console.log('Still offline, skipping sync');
+        log('Still offline, skipping sync');
         return { processed: 0, failed: 0 };
       }
 
@@ -137,7 +138,7 @@ class OfflineService {
           }
           processed++;
         } catch (error) {
-          console.error('Error processing queued action:', error);
+          logError('Error processing queued action:', error);
           failed++;
           // Keep failed actions for retry (limit to prevent infinite queue)
           if (remaining.length < 50) {
@@ -151,7 +152,7 @@ class OfflineService {
 
       return { processed, failed, remaining: remaining.length };
     } catch (error) {
-      console.error('Error processing sync queue:', error);
+      logError('Error processing sync queue:', error);
       return { processed: 0, failed: 0 };
     }
   }
@@ -185,7 +186,7 @@ class OfflineService {
 
       return cleared;
     } catch (error) {
-      console.error('Error clearing expired cache:', error);
+      logError('Error clearing expired cache:', error);
       return 0;
     }
   }
@@ -212,7 +213,7 @@ class OfflineService {
 
       return totalSize;
     } catch (error) {
-      console.error('Error getting cache size:', error);
+      logError('Error getting cache size:', error);
       return 0;
     }
   }
@@ -228,7 +229,7 @@ class OfflineService {
       await AsyncStorage.multiRemove(cacheKeys);
       return cacheKeys.length;
     } catch (error) {
-      console.error('Error clearing all cache:', error);
+      logError('Error clearing all cache:', error);
       return 0;
     }
   }

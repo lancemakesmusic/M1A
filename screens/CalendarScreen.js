@@ -25,6 +25,7 @@ import { trackFeatureUsage, trackButtonClick } from '../services/AnalyticsServic
 import useScreenTracking from '../hooks/useScreenTracking';
 import * as Notifications from 'expo-notifications';
 import { scheduleEventReminder } from '../services/NotificationService';
+import { logError } from '../utils/logger';
 
 // Generate calendar days for a month
 const generateCalendarDays = (year, month) => {
@@ -133,7 +134,7 @@ export default function CalendarScreen({ navigation }) {
         setEvents(result.events);
       }
     } catch (error) {
-      console.error('Error loading events:', error);
+      logError('Error loading events:', error);
     } finally {
       setLoading(false);
     }
@@ -213,7 +214,7 @@ export default function CalendarScreen({ navigation }) {
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to create event. Please try again.');
-      console.error('Error creating event:', error);
+      logError('Error creating event:', error);
     } finally {
       setLoading(false);
     }
@@ -234,7 +235,7 @@ export default function CalendarScreen({ navigation }) {
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to connect Google Calendar');
-      console.error('OAuth error:', error);
+      logError('OAuth error:', error);
     }
   };
 

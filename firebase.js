@@ -857,25 +857,25 @@ export const trackProfileView = async (viewedUserId) => {
   if (!currentUserId) return; // Don't track if not authenticated
   if (currentUserId === viewedUserId) return; // Don't track own profile views
   
-  const { collection, addDoc, serverTimestamp, query, where, getDocs, orderBy, limit } = await import('firebase/firestore');
+  const { collection, addDoc, serverTimestamp, query, where, getDocs } = await import('firebase/firestore');
   
   // Check if already viewed recently (within last hour) to prevent spam
   const viewsRef = collection(db, 'profileViews');
   const recentViewQuery = query(
     viewsRef,
     where('viewerId', '==', currentUserId),
-    where('viewedUserId', '==', viewedUserId),
-    orderBy('createdAt', 'desc'),
-    limit(1)
+    where('viewedUserId', '==', viewedUserId)
   );
-  
+
   const recentViews = await getDocs(recentViewQuery);
   if (!recentViews.empty) {
-    const lastView = recentViews.docs[0].data();
-    const lastViewTime = lastView.createdAt?.toDate?.() || new Date(lastView.createdAt);
+    const latestView = recentViews.docs
+      .map(docSnap => docSnap.data())
+      .map(view => view.createdAt?.toDate?.() || new Date(view.createdAt))
+      .reduce((latest, current) => (current > latest ? current : latest), new Date(0));
+
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    
-    if (lastViewTime > oneHourAgo) {
+    if (latestView > oneHourAgo) {
       return; // Already viewed within last hour
     }
   }
@@ -895,16 +895,31 @@ export const trackProfileView = async (viewedUserId) => {
  * @returns {Promise<Array>} Array of viewer profiles
  */
 export const getProfileViews = async (userId, limit = 50) => {
-  const { collection, query, where, getDocs, orderBy, limit: limitFn } = await import('firebase/firestore');
+  const { collection, query, where, getDocs } = await import('firebase/firestore');
   const viewsQuery = query(
     collection(db, 'profileViews'),
-    where('viewedUserId', '==', userId),
-    orderBy('createdAt', 'desc'),
-    limitFn(limit)
+    where('viewedUserId', '==', userId)
   );
   
   const snapshot = await getDocs(viewsQuery);
-  const viewerIds = [...new Set(snapshot.docs.map(doc => doc.data().viewerId))]; // Unique viewers
+  const views = snapshot.docs.map(docSnap => {
+    const data = docSnap.data();
+    return {
+      viewerId: data.viewerId,
+      viewedAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
+    };
+  });
+
+  // Sort newest-first, then keep latest view per viewer
+  views.sort((a, b) => b.viewedAt - a.viewedAt);
+  const latestByViewer = new Map();
+  for (const view of views) {
+    if (!latestByViewer.has(view.viewerId)) {
+      latestByViewer.set(view.viewerId, view.viewedAt);
+    }
+  }
+
+  const viewerIds = Array.from(latestByViewer.keys()).slice(0, limit);
   
   // Fetch viewer profiles
   const { doc, getDoc } = await import('firebase/firestore');
@@ -913,11 +928,10 @@ export const getProfileViews = async (userId, limit = 50) => {
       const userRef = doc(db, 'users', viewerId);
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
-        const viewData = snapshot.docs.find(d => d.data().viewerId === viewerId);
         return {
           id: userSnap.id,
           ...userSnap.data(),
-          viewedAt: viewData?.data().createdAt?.toDate?.() || new Date(),
+          viewedAt: latestByViewer.get(viewerId) || new Date(),
         };
       }
       return null;

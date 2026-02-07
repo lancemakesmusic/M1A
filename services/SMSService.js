@@ -3,6 +3,8 @@
  * Uses backend API to send SMS via Twilio or similar service
  */
 
+import { logError } from '../utils/logger';
+
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
 
 class SMSService {
@@ -46,7 +48,7 @@ class SMSService {
         message: data.message || 'SMS sent successfully',
       };
     } catch (error) {
-      console.error('Error sending SMS:', error);
+      logError('Error sending SMS:', error);
       return {
         success: false,
         error: error.message || 'Failed to send SMS',
@@ -67,7 +69,7 @@ class SMSService {
       }
       return await currentUser.getIdToken();
     } catch (error) {
-      console.error('Error getting ID token:', error);
+      logError('Error getting ID token:', error);
       return null;
     }
   }

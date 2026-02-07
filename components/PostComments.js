@@ -6,6 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { collection, addDoc, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
 import React, { useEffect, useState, useRef } from 'react';
+import { logWarn, logError } from '../utils/logger';
 import {
   View,
   Text,
@@ -68,7 +69,7 @@ export default function PostComments({ postId, onCommentCountChange }) {
                   userAvatar = userData.photoURL || null;
                 }
               } catch (error) {
-                console.warn('Error loading user info for comment:', error);
+                logWarn('Error loading user info for comment:', error);
               }
             }
             
@@ -98,7 +99,7 @@ export default function PostComments({ postId, onCommentCountChange }) {
         }
       },
       (error) => {
-        console.error('Error loading comments:', error);
+        logError('Error loading comments:', error);
         setLoading(false);
       }
     );
@@ -119,7 +120,7 @@ export default function PostComments({ postId, onCommentCountChange }) {
 
       setCommentText('');
     } catch (error) {
-      console.error('Error submitting comment:', error);
+      logError('Error submitting comment:', error);
       Alert.alert('Error', 'Failed to post comment. Please try again.');
     } finally {
       setSubmitting(false);
@@ -141,7 +142,7 @@ export default function PostComments({ postId, onCommentCountChange }) {
             try {
               await deleteDoc(doc(db, 'posts', postId, 'comments', commentId));
             } catch (error) {
-              console.error('Error deleting comment:', error);
+              logError('Error deleting comment:', error);
               Alert.alert('Error', 'Failed to delete comment. Please try again.');
             }
           },

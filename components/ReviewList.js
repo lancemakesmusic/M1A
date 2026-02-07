@@ -17,6 +17,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import ReviewService from '../services/ReviewService';
 import { trackButtonClick } from '../services/AnalyticsService';
+import { logError } from '../utils/logger';
 
 export default function ReviewList({ itemId, showModeration = false }) {
   const { theme } = useTheme();
@@ -36,7 +37,7 @@ export default function ReviewList({ itemId, showModeration = false }) {
       const reviewsData = await ReviewService.getItemReviews(itemId);
       setReviews(reviewsData);
     } catch (error) {
-      console.error('Error loading reviews:', error);
+      logError('Error loading reviews:', error);
     } finally {
       setLoading(false);
     }
@@ -47,7 +48,7 @@ export default function ReviewList({ itemId, showModeration = false }) {
       const ratingData = await ReviewService.getItemRating(itemId);
       setRating(ratingData);
     } catch (error) {
-      console.error('Error loading rating:', error);
+      logError('Error loading rating:', error);
     }
   };
 

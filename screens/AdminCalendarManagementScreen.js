@@ -22,6 +22,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
 import EmptyState from '../components/EmptyState';
+import { logWarn, logError } from '../utils/logger';
 
 export default function AdminCalendarManagementScreen({ navigation }) {
   const { user } = useAuth();
@@ -88,7 +89,7 @@ export default function AdminCalendarManagementScreen({ navigation }) {
 
       setEvents(eventsData);
     } catch (error) {
-      console.error('Error loading events:', error);
+      logError('Error loading events:', error);
       Alert.alert('Error', 'Failed to load events');
     } finally {
       setLoading(false);
@@ -132,7 +133,7 @@ export default function AdminCalendarManagementScreen({ navigation }) {
               Alert.alert('Success', 'Event deleted successfully');
               loadEvents();
             } catch (error) {
-              console.error('Error deleting event:', error);
+              logError('Error deleting event:', error);
               Alert.alert('Error', 'Failed to delete event');
             }
           },
@@ -152,7 +153,7 @@ export default function AdminCalendarManagementScreen({ navigation }) {
       });
       loadEvents();
     } catch (error) {
-      console.error('Error updating event:', error);
+      logError('Error updating event:', error);
       Alert.alert('Error', 'Failed to update event');
     }
   };
@@ -164,7 +165,7 @@ export default function AdminCalendarManagementScreen({ navigation }) {
       if (isNaN(d.getTime())) return 'Invalid date';
       return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     } catch (error) {
-      console.warn('Error formatting date:', error);
+      logWarn('Error formatting date:', error);
       return 'Invalid date';
     }
   };

@@ -5,6 +5,7 @@
  */
 
 import { Platform } from 'react-native';
+import { log, logWarn } from '../utils/logger';
 
 // Dynamic imports to handle platform differences
 let Analytics = null;
@@ -31,11 +32,11 @@ const initAnalyticsImports = async () => {
         Analytics = require('expo-firebase-analytics');
         return true;
       } catch (e) {
-        console.warn('expo-firebase-analytics not available, using fallback');
+        logWarn('expo-firebase-analytics not available, using fallback');
       }
     }
   } catch (error) {
-    console.warn('Analytics import failed:', error);
+    logWarn('Analytics import failed:', error);
   }
   return false;
 };
@@ -52,24 +53,24 @@ export const initAnalytics = async () => {
     if (Platform.OS === 'web' && firebaseAnalytics) {
       analytics = firebaseAnalytics;
       isAnalyticsReady = true;
-      console.log('✅ Web Analytics initialized');
+      log('✅ Web Analytics initialized');
       // Process queued events
       processAnalyticsQueue();
     } else if (Platform.OS !== 'web' && Analytics) {
       try {
         await Analytics.setAnalyticsCollectionEnabled(true);
         isAnalyticsReady = true;
-        console.log('✅ Native Analytics initialized');
+        log('✅ Native Analytics initialized');
         // Process queued events
         processAnalyticsQueue();
       } catch (error) {
-        console.warn('⚠️ Native Analytics initialization failed:', error);
+        logWarn('⚠️ Native Analytics initialization failed:', error);
       }
     } else {
-      console.warn('⚠️ Analytics not available on this platform');
+      logWarn('⚠️ Analytics not available on this platform');
     }
   } catch (error) {
-    console.warn('⚠️ Analytics initialization failed:', error);
+    logWarn('⚠️ Analytics initialization failed:', error);
   }
 };
 
@@ -93,7 +94,7 @@ const processAnalyticsQueue = async () => {
         }
       }
     } catch (error) {
-      console.warn('Error processing queued analytics event:', error);
+      logWarn('Error processing queued analytics event:', error);
       // Re-queue failed events (limit to prevent infinite queue)
       if (analyticsQueue.length < 100) {
         analyticsQueue.push(event);
@@ -124,7 +125,7 @@ export const trackScreenView = async (screenName, screenClass = null) => {
       await Analytics.logEvent('screen_view', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
     // Queue for retry
     analyticsQueue.push({ type: 'screen_view', data: eventData });
   }
@@ -149,7 +150,7 @@ export const trackSignup = async (method = 'email') => {
       });
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -168,7 +169,7 @@ export const trackLogin = async (method = 'email') => {
       });
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -188,7 +189,7 @@ export const trackEventBookingStarted = async (eventType) => {
       await Analytics.logEvent('begin_checkout', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -216,7 +217,7 @@ export const trackEventBookingCompleted = async (eventData) => {
       await Analytics.logEvent('purchase', purchaseData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -244,7 +245,7 @@ export const trackBarOrder = async (orderData) => {
       await Analytics.logEvent('purchase', purchaseData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -265,7 +266,7 @@ export const trackWalletTransaction = async (transactionData) => {
       await Analytics.logEvent('wallet_transaction', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -285,7 +286,7 @@ export const trackFeatureUsage = async (featureName, metadata = {}) => {
       await Analytics.logEvent('feature_usage', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -305,7 +306,7 @@ export const trackButtonClick = async (buttonName, screenName) => {
       await Analytics.logEvent('button_click', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -325,7 +326,7 @@ export const trackSearch = async (searchTerm, resultsCount = 0) => {
       await Analytics.logEvent('search', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -346,7 +347,7 @@ export const trackShare = async (contentType, contentId, method) => {
       await Analytics.logEvent('share', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -367,7 +368,7 @@ export const trackReviewSubmitted = async (itemId, rating, hasText) => {
       await Analytics.logEvent('review_submitted', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -388,7 +389,7 @@ export const trackError = async (errorMessage, errorType, screenName) => {
       await Analytics.logEvent('error', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -415,7 +416,7 @@ export const trackFeedback = async (feedbackType, hasRating, hasEmail, textLengt
       await Analytics.logEvent('feedback_submitted', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -441,7 +442,7 @@ export const trackBugReport = async (hasScreenshot, hasEmail, severity) => {
       await Analytics.logEvent('bug_report_submitted', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -467,7 +468,7 @@ export const trackFeatureRequest = async (featureCategory, hasEmail, priority) =
       await Analytics.logEvent('feature_request_submitted', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -494,7 +495,7 @@ export const trackSurvey = async (surveyId, questionCount, completionTime, respo
       await Analytics.logEvent('survey_completed', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -518,7 +519,7 @@ export const trackSurveyStarted = async (surveyId) => {
       await Analytics.logEvent('survey_started', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -535,7 +536,7 @@ export const setUserProperty = async (propertyName, value) => {
       await Analytics.setUserProperty(propertyName, value);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -550,7 +551,7 @@ export const setAnalyticsUserId = async (userId) => {
       await Analytics.setUserId(userId);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -571,7 +572,7 @@ export const trackFunnelStep = async (funnelName, stepName, stepNumber) => {
       await Analytics.logEvent('funnel_step', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -598,7 +599,7 @@ export const trackSessionStart = async () => {
       await AsyncStorage.setItem('last_session_start', Date.now().toString());
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -618,7 +619,7 @@ export const trackSessionEnd = async (sessionDuration) => {
       await Analytics.logEvent('session_end', sessionData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -639,7 +640,7 @@ export const trackDAU = async () => {
       });
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -665,7 +666,7 @@ export const trackUserReturn = async (daysSinceFirstUse) => {
       await Analytics.logEvent('user_return', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -690,7 +691,7 @@ export const trackRevenue = async (revenueData) => {
       await Analytics.logEvent('revenue', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -714,7 +715,7 @@ export const trackLTV = async (userId, totalRevenue) => {
       await Analytics.setUserProperty('ltv', totalRevenue.toString());
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -739,7 +740,7 @@ export const trackABTestAssignment = async (testName, variant) => {
       await Analytics.setUserProperty(`ab_test_${testName}`, variant);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 
@@ -761,7 +762,7 @@ export const trackABTestConversion = async (testName, variant, conversionType) =
       await Analytics.logEvent('ab_test_conversion', eventData);
     }
   } catch (error) {
-    console.warn('Analytics error:', error);
+    logWarn('Analytics error:', error);
   }
 };
 

@@ -3,31 +3,11 @@
  * Handles payment processing with Stripe
  */
 
-import { Platform } from 'react-native';
 import { auth } from '../firebase';
+import { getApiBaseUrl } from '../utils/apiConfig';
+import { logWarn, logError } from '../utils/logger';
 
 const STRIPE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
-// Backend Configuration - Use environment variable or fallback
-const getApiBaseUrl = () => {
-    // Always check environment variable first (required for production)
-    if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-        return process.env.EXPO_PUBLIC_API_BASE_URL;
-    }
-    
-    // Development fallbacks
-    if (Platform.OS === 'web') {
-        return 'http://localhost:8001';
-    }
-    
-    // Development only - should never reach here in production
-    if (__DEV__) {
-        console.warn('⚠️ EXPO_PUBLIC_API_BASE_URL not set. Using localhost fallback (development only).');
-        return 'http://localhost:8001';
-    }
-    
-    // Production: fail if no URL configured
-    throw new Error('EXPO_PUBLIC_API_BASE_URL must be set in production. Please configure your environment variables.');
-};
 const API_BASE_URL = getApiBaseUrl();
 
 // Timeout for API requests (30 seconds)
@@ -93,10 +73,10 @@ class StripeService {
       return data;
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.error('Payment intent request timed out');
+        logError('Payment intent request timed out');
         throw new Error('Request timed out. Please check your connection and try again.');
       }
-      console.error('Error creating payment intent:', error);
+      logError('Error creating payment intent:', error);
       throw error;
     }
   }
@@ -146,10 +126,10 @@ class StripeService {
       return data;
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.error('Refund request timed out');
+        logError('Refund request timed out');
         throw new Error('Request timed out. Please check your connection and try again.');
       }
-      console.error('Error processing refund:', error);
+      logError('Error processing refund:', error);
       throw error;
     }
   }
@@ -202,10 +182,10 @@ class StripeService {
       return data;
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.error('Payment confirmation request timed out');
+        logError('Payment confirmation request timed out');
         throw new Error('Request timed out. Please check your connection and try again.');
       }
-      console.error('Error confirming payment:', error);
+      logError('Error confirming payment:', error);
       throw error;
     }
   }
@@ -262,7 +242,7 @@ class StripeService {
         clientSecret: paymentIntent.client_secret,
       };
     } catch (error) {
-      console.error('Error processing bar order:', error);
+      logError('Error processing bar order:', error);
       return {
         success: false,
         error: error.message,
@@ -321,7 +301,7 @@ class StripeService {
         const errorText = await response.text();
         // Handle 404 specifically - backend endpoint not found
         if (response.status === 404) {
-          console.warn('Backend payment endpoint not found (404) - payment processing may not be configured');
+          logWarn('Backend payment endpoint not found (404) - payment processing may not be configured');
           throw new Error('Payment processing is currently unavailable. The payment server is not configured. Please contact support or try again later.');
         }
         // Handle other errors
@@ -332,14 +312,14 @@ class StripeService {
       return data;
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.error('Checkout session request timed out');
+        logError('Checkout session request timed out');
         throw new Error('Request timed out. Please check your connection and try again.');
       }
       // If error message already set, use it; otherwise provide generic message
       if (error.message && error.message.includes('Payment processing is currently unavailable')) {
         throw error; // Re-throw the user-friendly error
       }
-      console.error('Error creating checkout session:', error);
+      logError('Error creating checkout session:', error);
       // Provide a more user-friendly error message
       if (error.message && error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
         throw new Error('Unable to connect to payment server. Please check your internet connection and try again.');

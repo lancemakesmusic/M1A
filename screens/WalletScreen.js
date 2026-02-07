@@ -37,6 +37,7 @@ import GoogleDriveService from '../services/GoogleDriveService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import StripePaymentMethodsService from '../services/StripePaymentMethodsService';
 import WalletService from '../services/WalletService';
+import { logWarn, logError } from '../utils/logger';
 
 export default function WalletScreen() {
   const navigation = useNavigation();
@@ -129,7 +130,7 @@ export default function WalletScreen() {
 
       setGoogleDriveConnected(isConnected);
     } catch (error) {
-      console.error('Error checking Google Drive connection:', error);
+      logError('Error checking Google Drive connection:', error);
       setGoogleDriveConnected(false);
     }
   }, [user?.uid]);
@@ -147,7 +148,7 @@ export default function WalletScreen() {
       
       // Set a timeout to ensure loading never gets stuck
       loadingTimeout = setTimeout(() => {
-        console.warn('Wallet data loading timeout - forcing loading to false');
+        logWarn('Wallet data loading timeout - forcing loading to false');
         setLoading(false);
         setRefreshing(false);
       }, 10000); // 10 second timeout
@@ -156,11 +157,11 @@ export default function WalletScreen() {
       // Balance is managed by WalletContext
       const loadPromises = [
         WalletService.getTransactions(user.uid).catch(err => {
-          console.error('Error loading transactions:', err);
+          logError('Error loading transactions:', err);
           return [];
         }),
         WalletService.getPaymentMethods(user.uid).catch(err => {
-          console.error('Error loading payment methods:', err);
+          logError('Error loading payment methods:', err);
           return [];
         }),
       ];
@@ -177,7 +178,7 @@ export default function WalletScreen() {
             setLastUpdated(`at ${timeStr}`);
           }, 3000);
         }).catch(err => {
-          console.error('Error refreshing balance:', err);
+          logError('Error refreshing balance:', err);
         });
       }
       
@@ -194,7 +195,7 @@ export default function WalletScreen() {
         walletPaymentMethods?.find(pm => pm.isDefault) || null
       );
     } catch (error) {
-      console.error('Error loading wallet data:', error);
+      logError('Error loading wallet data:', error);
       // Show empty state instead of mock data
       // Balance is managed by WalletContext, no need to set it here
       setTransactions([]);
@@ -224,7 +225,7 @@ export default function WalletScreen() {
       const walletInsights = await WalletService.getInsights(user.uid, 'month');
       setInsights(walletInsights);
     } catch (error) {
-      console.error('Error loading insights:', error);
+      logError('Error loading insights:', error);
       // Set default insights if error
       setInsights({
         totalReceived: 0,
@@ -275,7 +276,7 @@ export default function WalletScreen() {
             }
           }
         } catch (driveError) {
-          console.error('Error loading from Google Drive:', driveError);
+          logError('Error loading from Google Drive:', driveError);
           // Fall back to Firestore
         }
       }
@@ -338,7 +339,7 @@ export default function WalletScreen() {
           }
         });
       } catch (firestoreError) {
-        console.error('Error loading from Firestore:', firestoreError);
+        logError('Error loading from Firestore:', firestoreError);
       }
 
       // Sort by creation date (newest first)
@@ -346,7 +347,7 @@ export default function WalletScreen() {
       
       setContentLibrary(contentItems);
     } catch (error) {
-      console.error('Error loading content library:', error);
+      logError('Error loading content library:', error);
       setContentLibrary([]);
     } finally {
       setLoadingContent(false);
@@ -373,7 +374,7 @@ export default function WalletScreen() {
       Alert.alert('Success', 'Default payment method updated');
       trackButtonClick('set_default_payment_method', 'WalletScreen');
     } catch (error) {
-      console.error('Error setting default payment method:', error);
+      logError('Error setting default payment method:', error);
       Alert.alert('Error', error.message || 'Failed to set default payment method');
     } finally {
       setProcessing(false);
@@ -405,7 +406,7 @@ export default function WalletScreen() {
               Alert.alert('Success', 'Payment method deleted');
               trackButtonClick('delete_payment_method', 'WalletScreen');
             } catch (error) {
-              console.error('Error deleting payment method:', error);
+              logError('Error deleting payment method:', error);
               Alert.alert('Error', error.message || 'Failed to delete payment method');
             } finally {
               setDeletingPaymentMethod(null);
@@ -425,7 +426,7 @@ export default function WalletScreen() {
       });
       trackButtonClick('share_qr_code', 'WalletScreen');
     } catch (error) {
-      console.error('Error sharing QR code:', error);
+      logError('Error sharing QR code:', error);
     }
   };
 
@@ -511,7 +512,7 @@ export default function WalletScreen() {
                 throw new Error('Payment failed');
               }
             } catch (error) {
-              console.error('Error adding funds:', error);
+              logError('Error adding funds:', error);
               Alert.alert('Error', error.message || 'Failed to add funds. Please try again.');
             } finally {
               setProcessing(false);
@@ -545,7 +546,7 @@ export default function WalletScreen() {
         }
       }
     } catch (error) {
-      console.error('Error searching recipient:', error);
+      logError('Error searching recipient:', error);
       setRecipientUser(null);
       setError('Error searching for user. Please try again.');
     } finally {
@@ -626,7 +627,7 @@ export default function WalletScreen() {
         throw new Error('Failed to send money');
       }
     } catch (error) {
-      console.error('Error sending money:', error);
+      logError('Error sending money:', error);
       setError(error.message || 'Failed to send money. Please try again.');
     } finally {
       setProcessing(false);
@@ -701,7 +702,7 @@ export default function WalletScreen() {
                 throw new Error('Failed to process withdrawal');
               }
             } catch (error) {
-              console.error('Error cashing out:', error);
+              logError('Error cashing out:', error);
               setError(error.message || 'Failed to process withdrawal. Please try again.');
             } finally {
               setProcessing(false);

@@ -5,6 +5,7 @@
 
 import { collection, addDoc, query, where, getDocs, orderBy, limit, doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
+import { log, logError } from '../utils/logger';
 import { trackReviewSubmitted } from './AnalyticsService';
 
 // Sanitize text to prevent XSS
@@ -84,7 +85,7 @@ export const submitReview = async (reviewData) => {
 
     return { success: true, reviewId };
   } catch (error) {
-    console.error('Error submitting review:', error);
+    logError('Error submitting review:', error);
     return { success: false, error: error.message };
   }
 };
@@ -116,7 +117,7 @@ export const getItemReviews = async (itemId, limitCount = 20) => {
 
     return reviews;
   } catch (error) {
-    console.error('Error getting reviews:', error);
+    logError('Error getting reviews:', error);
     return [];
   }
 };
@@ -148,7 +149,7 @@ export const getItemRating = async (itemId) => {
       distribution,
     };
   } catch (error) {
-    console.error('Error getting item rating:', error);
+    logError('Error getting item rating:', error);
     return { average: 0, count: 0, distribution: {} };
   }
 };
@@ -183,7 +184,7 @@ export const markReviewHelpful = async (reviewId, userId) => {
 
     return { success: true };
   } catch (error) {
-    console.error('Error marking review helpful:', error);
+    logError('Error marking review helpful:', error);
     return { success: false, error: error.message };
   }
 };
@@ -207,7 +208,7 @@ export const reportReview = async (reviewId, reason, userId) => {
 
     return { success: true };
   } catch (error) {
-    console.error('Error reporting review:', error);
+    logError('Error reporting review:', error);
     return { success: false, error: error.message };
   }
 };
@@ -235,7 +236,7 @@ export const getUserReviews = async (userId) => {
 
     return reviews;
   } catch (error) {
-    console.error('Error getting user reviews:', error);
+    logError('Error getting user reviews:', error);
     return [];
   }
 };
@@ -279,9 +280,9 @@ export const updateUserRating = async (userId) => {
       updatedAt: serverTimestamp(),
     });
 
-    console.log(`✅ Updated rating for user ${userId}: ${roundedRating} (${reviews.length} reviews)`);
+    log(`✅ Updated rating for user ${userId}: ${roundedRating} (${reviews.length} reviews)`);
   } catch (error) {
-    console.error('Error updating user rating:', error);
+    logError('Error updating user rating:', error);
   }
 };
 
@@ -310,7 +311,7 @@ export const getUserRatingReviews = async (userId, limitCount = 20) => {
 
     return reviews;
   } catch (error) {
-    console.error('Error getting user rating reviews:', error);
+    logError('Error getting user rating reviews:', error);
     return [];
   }
 };

@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
+import { log, logError } from '../utils/logger';
 
 export default function AdminSystemSettingsScreen({ navigation }) {
   const { user } = useAuth();
@@ -67,10 +68,10 @@ export default function AdminSystemSettingsScreen({ navigation }) {
           setSettings({ ...settings, ...settingsDoc.data() });
         }
       } catch (error) {
-        console.log('Settings document may not exist yet:', error);
+        log('Settings document may not exist yet:', error);
       }
     } catch (error) {
-      console.error('Error loading settings:', error);
+      logError('Error loading settings:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -92,7 +93,7 @@ export default function AdminSystemSettingsScreen({ navigation }) {
       });
       Alert.alert('Success', 'Settings saved successfully');
     } catch (error) {
-      console.error('Error saving settings:', error);
+      logError('Error saving settings:', error);
       Alert.alert('Error', 'Failed to save settings');
     } finally {
       setSaving(false);

@@ -7,6 +7,7 @@ import { collection, query, where, orderBy, limit, getDocs, doc, getDoc, updateD
 import { db, isFirebaseReady } from '../firebase';
 import { trackFeatureUsage } from './AnalyticsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logWarn, logError } from '../utils/logger';
 
 const USER_BEHAVIOR_KEY = 'm1a_user_behavior';
 const RECOMMENDATIONS_KEY = 'm1a_recommendations';
@@ -38,7 +39,7 @@ class PersonalizationService {
             timestamp: serverTimestamp(),
           });
         } catch (firebaseError) {
-          console.warn('Firebase behavior tracking failed, using local:', firebaseError);
+          logWarn('Firebase behavior tracking failed, using local:', firebaseError);
         }
       }
 
@@ -57,7 +58,7 @@ class PersonalizationService {
 
       return { success: true };
     } catch (error) {
-      console.error('Error tracking user behavior:', error);
+      logError('Error tracking user behavior:', error);
       return { success: false };
     }
   }
@@ -91,7 +92,7 @@ class PersonalizationService {
       const stored = await AsyncStorage.getItem(`${USER_BEHAVIOR_KEY}_${userId}`);
       return stored ? JSON.parse(stored) : [];
     } catch (error) {
-      console.error('Error getting user behaviors:', error);
+      logError('Error getting user behaviors:', error);
       return [];
     }
   }
@@ -167,7 +168,7 @@ class PersonalizationService {
 
       return analysis;
     } catch (error) {
-      console.error('Error analyzing user behavior:', error);
+      logError('Error analyzing user behavior:', error);
       return null;
     }
   }
@@ -250,7 +251,7 @@ class PersonalizationService {
 
           return items.slice(0, limitCount);
         } catch (firebaseError) {
-          console.warn('Firebase recommendations failed, using cache:', firebaseError);
+          logWarn('Firebase recommendations failed, using cache:', firebaseError);
         }
       }
 
@@ -266,7 +267,7 @@ class PersonalizationService {
 
       return [];
     } catch (error) {
-      console.error('Error getting personalized recommendations:', error);
+      logError('Error getting personalized recommendations:', error);
       return [];
     }
   }
@@ -333,7 +334,7 @@ class PersonalizationService {
         discountReason,
       };
     } catch (error) {
-      console.error('Error getting personalized pricing:', error);
+      logError('Error getting personalized pricing:', error);
       return { basePrice, personalizedPrice: basePrice, discount: 0, discountReason: null };
     }
   }
@@ -355,7 +356,7 @@ class PersonalizationService {
         typicalQuantity: 1,
       };
     } catch (error) {
-      console.error('Error getting pricing preferences:', error);
+      logError('Error getting pricing preferences:', error);
       return {
         firstTimeBuyer: true,
         volumeDiscount: false,
@@ -375,7 +376,7 @@ class PersonalizationService {
       );
       return { success: true };
     } catch (error) {
-      console.error('Error updating pricing preferences:', error);
+      logError('Error updating pricing preferences:', error);
       return { success: false };
     }
   }
@@ -401,13 +402,13 @@ class PersonalizationService {
             ...doc.data(),
           }));
         } catch (firebaseError) {
-          console.warn('Firebase trending items failed:', firebaseError);
+          logWarn('Firebase trending items failed:', firebaseError);
         }
       }
 
       return [];
     } catch (error) {
-      console.error('Error getting trending items:', error);
+      logError('Error getting trending items:', error);
       return [];
     }
   }
@@ -467,13 +468,13 @@ class PersonalizationService {
 
           return similarItems;
         } catch (firebaseError) {
-          console.warn('Firebase similar items failed:', firebaseError);
+          logWarn('Firebase similar items failed:', firebaseError);
         }
       }
 
       return [];
     } catch (error) {
-      console.error('Error getting similar items:', error);
+      logError('Error getting similar items:', error);
       return [];
     }
   }

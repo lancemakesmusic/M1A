@@ -510,30 +510,94 @@ async def create_folder(
             drive_service = build('drive', 'v3', credentials=credentials)
             print("[OK] Using user OAuth credentials for Google Drive")
         
-        # Create root folder: Username
-        root_folder_metadata = {
-            'name': folder_name,
-            'mimeType': 'application/vnd.google-apps.folder',
-        }
+        # Try to find existing root folder under parent to avoid duplicates
+        root_folder = None
+        root_folder_id = None
         if PARENT_FOLDER_ID:
-            root_folder_metadata['parents'] = [PARENT_FOLDER_ID]
+            existing_root = drive_service.files().list(
+                q=(
+                    f"'{PARENT_FOLDER_ID}' in parents and "
+                    "mimeType='application/vnd.google-apps.folder' and "
+                    "trashed=false and "
+                    f"name='{folder_name}'"
+                ),
+                fields='files(id, name, webViewLink)',
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+            existing_root_files = existing_root.get('files', [])
+            if existing_root_files:
+                root_folder = existing_root_files[0]
+                root_folder_id = root_folder.get('id')
 
-        root_folder = drive_service.files().create(
-            body=root_folder_metadata,
-            fields='id, name, webViewLink'
-        ).execute()
-        root_folder_id = root_folder.get('id')
-
-        # Create subfolder: ProjectFiles
-        project_files_folder = drive_service.files().create(
-            body={
-                'name': 'ProjectFiles',
+        if not root_folder_id:
+            # Create root folder: Username
+            root_folder_metadata = {
+                'name': folder_name,
                 'mimeType': 'application/vnd.google-apps.folder',
-                'parents': [root_folder_id],
-            },
-            fields='id, name, webViewLink'
-        ).execute()
-        project_files_folder_id = project_files_folder.get('id')
+            }
+            if PARENT_FOLDER_ID:
+                root_folder_metadata['parents'] = [PARENT_FOLDER_ID]
+
+            root_folder = drive_service.files().create(
+                body=root_folder_metadata,
+                fields='id, name, webViewLink'
+            ).execute()
+            root_folder_id = root_folder.get('id')
+
+        # Try to find existing ProjectFiles subfolder
+        project_files_folder = None
+        project_files_folder_id = None
+        if root_folder_id:
+            existing_project = drive_service.files().list(
+                q=(
+                    f"'{root_folder_id}' in parents and "
+                    "mimeType='application/vnd.google-apps.folder' and "
+                    "trashed=false and name='ProjectFiles'"
+                ),
+                fields='files(id, name, webViewLink)',
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+            existing_project_files = existing_project.get('files', [])
+            if existing_project_files:
+                project_files_folder = existing_project_files[0]
+                project_files_folder_id = project_files_folder.get('id')
+
+        if not project_files_folder_id:
+            # Create subfolder: ProjectFiles
+            project_files_folder = drive_service.files().create(
+                body={
+                    'name': 'ProjectFiles',
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [root_folder_id],
+                },
+                fields='id, name, webViewLink'
+            ).execute()
+            project_files_folder_id = project_files_folder.get('id')
+
+        # Share folders with the user so they can see files in Drive
+        if user.get("email"):
+            try:
+                permission_body = {
+                    'type': 'user',
+                    'role': 'reader',
+                    'emailAddress': user["email"],
+                }
+                drive_service.permissions().create(
+                    fileId=root_folder_id,
+                    body=permission_body,
+                    sendNotificationEmail=False,
+                    supportsAllDrives=True
+                ).execute()
+                drive_service.permissions().create(
+                    fileId=project_files_folder_id,
+                    body=permission_body,
+                    sendNotificationEmail=False,
+                    supportsAllDrives=True
+                ).execute()
+            except Exception as permission_error:
+                print(f"Warning: could not share Drive folder: {permission_error}")
 
         # Store folder IDs in Firestore
         if not firestore:
