@@ -2,7 +2,7 @@
     "expo":  {
                  "name":  "M1A",
                  "slug":  "m1a",
-                 "version":  "1.2",
+                 "version":  "1.2.0",
                  "orientation":  "portrait",
                  "icon":  "./assets/images/icon.png",
                  "scheme":  "m1a",
