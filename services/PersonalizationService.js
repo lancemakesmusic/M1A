@@ -3,7 +3,7 @@
  * Handles learning from user behavior, personalized recommendations, and personalized pricing
  */
 
-import { collection, query, where, orderBy, limit, getDocs, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, getDocs, doc, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
 import { trackFeatureUsage } from './AnalyticsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -83,7 +83,7 @@ class PersonalizationService {
             ...doc.data(),
             timestamp: doc.data().timestamp?.toDate() || new Date(),
           }));
-        } catch (firebaseError) {
+        } catch (_firebaseError) {
           // Fall through to local storage
         }
       }

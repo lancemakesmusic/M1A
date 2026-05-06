@@ -3,7 +3,7 @@
  * Google Calendar-style booking interface with venue availability sync
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,17 +14,15 @@ import {
   TextInput,
   Platform,
   Alert,
-  FlatList,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Linking from 'expo-linking';
 import { useTheme } from '../contexts/ThemeContext';
+import * as WebBrowser from 'expo-web-browser';
 import GoogleCalendarService from '../services/GoogleCalendarService';
 import { trackFeatureUsage, trackButtonClick } from '../services/AnalyticsService';
-import useScreenTracking from '../hooks/useScreenTracking';
-import * as Notifications from 'expo-notifications';
-import { scheduleEventReminder } from '../services/NotificationService';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { logError } from '../utils/logger';
 
 // Generate calendar days for a month
@@ -80,16 +78,12 @@ export default function CalendarScreen({ navigation }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [events, setEvents] = useState([]);
   const [showEventModal, setShowEventModal] = useState(false);
+  const [, setShowReminderModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timePickerMode, setTimePickerMode] = useState('start'); // 'start' or 'end'
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [calendarView, setCalendarView] = useState('month'); // 'month', 'week', 'day', 'agenda'
-  const [showSetupGuide, setShowSetupGuide] = useState(false);
-  const [reminders, setReminders] = useState([]);
-  const [showReminderModal, setShowReminderModal] = useState(false);
-  const [selectedReminderTime, setSelectedReminderTime] = useState('10'); // minutes before
   
   // Event form data
   const [eventForm, setEventForm] = useState({
@@ -114,17 +108,7 @@ export default function CalendarScreen({ navigation }) {
   const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
-  useEffect(() => {
-    checkConnection();
-    loadEvents();
-  }, [currentDate]);
-
-  const checkConnection = async () => {
-    const connected = await GoogleCalendarService.isConnected();
-    setIsConnected(connected);
-  };
-
-  const loadEvents = async () => {
+  const loadEvents = useCallback(async () => {
     setLoading(true);
     try {
       const startDate = new Date(currentYear, currentMonth, 1);
@@ -138,7 +122,17 @@ export default function CalendarScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
+  }, [currentMonth, currentYear]);
+
+  const checkConnection = async () => {
+    const connected = await GoogleCalendarService.isConnected();
+    setIsConnected(connected);
   };
+  
+  useEffect(() => {
+    checkConnection();
+    loadEvents();
+  }, [currentDate, loadEvents]);
 
   const handleDateSelect = async (day) => {
     if (!day.isCurrentMonth) {
@@ -249,11 +243,11 @@ export default function CalendarScreen({ navigation }) {
     });
   };
 
-  const navigateMonth = (direction) => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(currentMonth + direction);
-    setCurrentDate(newDate);
-    trackButtonClick(`navigate_month_${direction > 0 ? 'next' : 'prev'}`, 'CalendarScreen');
+  const removeReminder = (minutes) => {
+    setEventForm(prev => ({
+      ...prev,
+      reminders: (prev.reminders || []).filter(r => r !== minutes),
+    }));
   };
 
   return (

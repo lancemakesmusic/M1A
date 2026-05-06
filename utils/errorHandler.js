@@ -197,7 +197,7 @@ export const handleApiError = async (response) => {
       if (errorData.error || errorData.message) {
         errorMessage = errorData.error || errorData.message;
       }
-    } catch (e) {
+    } catch (_e) {
       // If response is not JSON, use status-based message
       if (response.status === 404) {
         errorMessage = ERROR_MESSAGES.NOT_FOUND;

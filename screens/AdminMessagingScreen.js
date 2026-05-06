@@ -4,7 +4,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, addDoc, query, where, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -41,15 +41,6 @@ export default function AdminMessagingScreen({ navigation }) {
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
 
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
-      navigation.goBack();
-      return;
-    }
-    loadUsers();
-  }, [user, canAccess]);
-
   const loadUsers = useCallback(async () => {
     try {
       setLoading(true);
@@ -67,6 +58,15 @@ export default function AdminMessagingScreen({ navigation }) {
       setRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
+      navigation.goBack();
+      return;
+    }
+    loadUsers();
+  }, [canAccess, navigation, loadUsers]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

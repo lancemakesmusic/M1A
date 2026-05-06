@@ -21,10 +21,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { db, isFirebaseReady } from '../firebase';
 import StripeService from '../services/StripeService';
-import { trackBarOrder, trackButtonClick, trackFeatureUsage } from '../services/AnalyticsService';
-import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
-import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { trackBarOrder } from '../services/AnalyticsService';
 import { log, logWarn, logError } from '../utils/logger';
 
 // Local asset images for bar menu items
@@ -910,7 +907,7 @@ export default function BarMenuScreen({ navigation, route }) {
                 Your order has been placed and will be ready soon.
               </Text>
               <Text style={[styles.confirmationSubtext, { color: theme.subtext }]}>
-                You'll receive a confirmation email shortly.
+                You&apos;ll receive a confirmation email shortly.
               </Text>
               <TouchableOpacity
                 style={[styles.doneButton, { backgroundColor: theme.primary }]}

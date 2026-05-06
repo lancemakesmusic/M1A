@@ -24,14 +24,13 @@ import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
-import { eventsCache, servicesCache } from '../utils/dataCache';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { eventsCache } from '../utils/dataCache';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { trackButtonClick, trackFeatureUsage, trackSearch } from '../services/AnalyticsService';
 import { sendDiscountNotification } from '../services/NotificationService';
-import ReviewService from '../services/ReviewService';
-import SharingService from '../services/SharingService';
+import { shareContent } from '../services/SharingService';
 import SMSService from '../services/SMSService';
-import { filterItemsByPersona, getPersonaServiceCategories } from '../utils/personaFilters';
+import { filterItemsByPersona } from '../utils/personaFilters';
 import { searchFeatures } from '../utils/searchUtils';
 import { sanitizeEmail, sanitizeText } from '../utils/sanitize';
 import { log, logWarn, logError } from '../utils/logger';
@@ -88,7 +87,7 @@ export default function ExploreScreen() {
 
   useEffect(() => {
     loadItems();
-  }, []); // Empty dependency array - loadItems is stable
+  }, [loadItems]);
 
   // Send discount notifications when deals are available
   useEffect(() => {
@@ -116,21 +115,6 @@ export default function ExploreScreen() {
       checkForDeals();
     }
   }, [items, notificationPrefs]);
-
-  // Only load ratings when user explicitly views reviews (not automatically)
-  const loadItemRatings = async (itemId) => {
-    try {
-      const rating = await ReviewService.getItemRating(itemId);
-      setItemRatings(prev => ({
-        ...prev,
-        [itemId]: rating,
-      }));
-      return rating;
-    } catch (error) {
-      logWarn('Error loading rating for item:', itemId, error);
-      return null;
-    }
-  };
 
   const loadItems = useCallback(async () => {
     // Check cache first
@@ -369,7 +353,7 @@ export default function ExploreScreen() {
           const usersSnapshot = await getDocs(usersQuery);
           setUserCount(usersSnapshot.size);
           log(`✅ Loaded ${usersSnapshot.size} public users`);
-        } catch (userCountError) {
+        } catch (_userCountError) {
           setUserCount(0);
         }
 
@@ -379,7 +363,7 @@ export default function ExploreScreen() {
           const barMenuSnapshot = await getDocs(barMenuRef);
           setBarItemCount(barMenuSnapshot.size);
           log(`✅ Loaded ${barMenuSnapshot.size} bar menu items`);
-        } catch (barCountError) {
+        } catch (_barCountError) {
           setBarItemCount(0);
         }
 
@@ -409,7 +393,7 @@ export default function ExploreScreen() {
     } finally {
       setLoading(false);
     }
-  }, []); // Empty dependency array - loadItems is stable
+  }, [user?.uid, barItemCount, userCount]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -713,7 +697,7 @@ export default function ExploreScreen() {
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
         // Real Firestore
         const { collection, addDoc, serverTimestamp } = require('firebase/firestore');
-        const rsvpDoc = await addDoc(collection(db, 'rsvps'), {
+        await addDoc(collection(db, 'rsvps'), {
           eventId: selectedRSVPItem.id,
           eventName: selectedRSVPItem.name,
           userId: userPersona?.id || 'anonymous',
@@ -888,7 +872,7 @@ export default function ExploreScreen() {
           <TouchableOpacity
             style={styles.shareButton}
             onPress={async () => {
-              await SharingService.shareContent(item.category, item.id, item);
+              await shareContent(item.category, item.id, item);
               trackButtonClick('share_item', 'ExploreScreen');
             }}
           >
@@ -1208,7 +1192,7 @@ export default function ExploreScreen() {
                 />
                 {(selectedRSVPItem?.phoneOnlyRSVP || selectedRSVPItem?.name?.includes('New Year')) && (
                   <Text style={[styles.helperText, { color: theme.subtext }]}>
-                    You'll receive a confirmation text with your ticket QR code
+                    You will receive a confirmation text with your ticket QR code
                   </Text>
                 )}
               </View>
@@ -1320,7 +1304,7 @@ export default function ExploreScreen() {
                       onPress={() => setFilters({ ...filters, minRating: filters.minRating === rating ? null : rating })}
                     >
                       <Ionicons name="star" size={20} color={filters.minRating === rating ? '#fff' : theme.primary} />
-                      <Text style={[styles.ratingText, { color: filters.minRating === rating ? '#fff' : theme.text }]}>
+                      <Text style={[styles.filterRatingText, { color: filters.minRating === rating ? '#fff' : theme.text }]}>
                         {rating}+
                       </Text>
                     </TouchableOpacity>
@@ -1984,7 +1968,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 4,
   },
-  ratingText: {
+  filterRatingText: {
     fontSize: 14,
     fontWeight: '500',
   },

@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useRole } from './RoleContext';
 import { logWarn, logError } from '../utils/logger';
@@ -24,12 +24,7 @@ export function M1APersonalizationProvider({ children }) {
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Load saved data on app start
-  useEffect(() => {
-    loadPersonalizationData();
-  }, [isAdmin, user]);
-
-  const loadPersonalizationData = async () => {
+  const loadPersonalizationData = useCallback(async () => {
     try {
       const savedPersona = await AsyncStorage.getItem('m1a_user_persona');
       const savedPreferences = await AsyncStorage.getItem('m1a_preferences');
@@ -82,7 +77,12 @@ export function M1APersonalizationProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAdmin, user]);
+
+  // Load saved data on app start
+  useEffect(() => {
+    loadPersonalizationData();
+  }, [isAdmin, user, loadPersonalizationData]);
 
   const savePersona = async (persona) => {
     // SECURITY: admin@merkabaent.com must remain as venue_owner

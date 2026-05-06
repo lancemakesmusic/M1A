@@ -3,15 +3,13 @@
 
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
-import { auth } from '../firebase';
+import { auth, createUserProfileIfMissing } from '../firebase';
 import { 
-  GoogleAuthProvider, 
   OAuthProvider,
   signInWithCredential,
   linkWithCredential
 } from 'firebase/auth';
-import { createUserProfileIfMissing } from '../firebase';
-import { trackLogin, trackSignup } from './AnalyticsService';
+import { trackLogin } from './AnalyticsService';
 import { logError } from '../utils/logger';
 
 // Complete the OAuth flow
@@ -24,8 +22,6 @@ export const signInWithGoogle = async () => {
   try {
     // For Expo, we'll use a web-based OAuth flow
     // This requires Firebase Auth to be configured with Google provider
-    const provider = new GoogleAuthProvider();
-    
     // Note: In a production app, you would use:
     // - expo-auth-session for a more native experience
     // - Or Firebase's web OAuth flow with expo-web-browser
@@ -57,7 +53,7 @@ export const signInWithApple = async () => {
     let AppleAuthentication;
     try {
       AppleAuthentication = require('expo-apple-authentication');
-    } catch (e) {
+    } catch (_e) {
       throw new Error('Apple Authentication module not installed. Run: npx expo install expo-apple-authentication');
     }
 
@@ -112,7 +108,6 @@ export const signInWithApple = async () => {
  */
 export const linkGoogleAccount = async (user) => {
   try {
-    const provider = new GoogleAuthProvider();
     // Implementation would use expo-auth-session
     throw new Error('Account linking requires additional configuration');
   } catch (error) {

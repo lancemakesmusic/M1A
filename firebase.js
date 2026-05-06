@@ -29,6 +29,7 @@ import 'react-native-get-random-values';
 
 import * as ImageManipulator from 'expo-image-manipulator';
 import { v4 as uuidv4 } from 'uuid';
+import { statsCache } from './utils/statsCache';
 
 // Firebase configuration - REQUIRED from environment variables
 // Set these in your .env file:
@@ -68,7 +69,7 @@ try {
     auth = initializeAuth(app, {
       persistence: getReactNativePersistence(AsyncStorage)
     });
-  } catch (error) {
+  } catch (_error) {
     // Fallback to getAuth if initializeAuth fails (already initialized)
     auth = getAuth(app);
   }
@@ -184,7 +185,7 @@ export const getUserProfile = async (uid) => {
     return null;
   }
   
-  const { doc, getDoc, Timestamp } = await import('firebase/firestore');
+  const { doc, getDoc } = await import('firebase/firestore');
   const userRef = doc(db, 'users', uid);
   const snap = await getDoc(userRef);
   if (!snap.exists()) return null;
@@ -399,9 +400,6 @@ export const validateUsername = (username) => {
 /* Social Features (Follow/Unfollow, Block, Report)                    */
 /* ------------------------------------------------------------------ */
 
-// Import statsCache for cache invalidation
-import { statsCache } from './utils/statsCache';
-
 /**
  * Follow a user
  * @param {string} userId - User ID to follow
@@ -488,7 +486,7 @@ export const blockUser = async (userId) => {
   // Unfollow if following
   try {
     await unfollowUser(userId);
-  } catch (e) {
+  } catch (_e) {
     // Ignore if not following
   }
 };
@@ -823,10 +821,6 @@ export const getPinnedPosts = async (userId) => {
     return [];
   }
   
-  // Fetch pinned posts
-  const { collection, query, where, getDocs, orderBy } = await import('firebase/firestore');
-  const postsRef = collection(db, 'posts');
-  
   // Firestore 'in' query supports up to 10 items, so we'll handle it
   const posts = [];
   for (const postId of pinnedPostIds) {
@@ -1144,7 +1138,7 @@ export const deleteUserAccount = async () => {
   const currentUserId = auth.currentUser?.uid;
   if (!currentUserId) throw new Error('Not authenticated');
   
-  const { doc, deleteDoc, collection, query, where, getDocs, writeBatch } = await import('firebase/firestore');
+  const { doc, collection, query, where, getDocs, writeBatch } = await import('firebase/firestore');
   const batch = writeBatch(db);
   
   // Delete user profile

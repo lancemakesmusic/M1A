@@ -27,14 +27,11 @@ import { log, logError } from '../utils/logger';
 export default function AdminSetupScreen({ navigation }) {
   const { user } = useAuth();
   const { theme } = useTheme();
-  const { isAdmin, isMasterAdmin, isAdminEmail } = useRole();
+  useRole();
   const [email, setEmail] = useState('admin@merkabaent.com');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   
-  // SECURITY: Only allow setting admin@merkabaent.com as admin
-  const canSetupAdmin = user?.email === 'admin@merkabaent.com' || !isAdmin();
-
   const handleSetup = async () => {
     // SECURITY: Only allow setting admin@merkabaent.com as admin
     if (email.trim().toLowerCase() !== 'admin@merkabaent.com') {

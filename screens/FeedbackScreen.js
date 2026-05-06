@@ -21,10 +21,9 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { trackFeatureUsage, trackButtonClick, trackReviewSubmitted, trackError, trackSurveyStarted } from '../services/AnalyticsService';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import FeedbackService from '../services/FeedbackService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
-import * as StoreReview from 'expo-store-review';
 import { logError } from '../utils/logger';
 
 const FEEDBACK_TYPES = [
@@ -355,7 +354,7 @@ export default function FeedbackScreen() {
         <View style={[styles.ratingSection, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Rate M1A</Text>
           <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
-            Enjoying M1A? We'd love your feedback!
+            Enjoying M1A? We&apos;d love your feedback!
           </Text>
           <View style={styles.starRow}>
             {[1, 2, 3, 4, 5].map((star) => (
@@ -445,7 +444,7 @@ export default function FeedbackScreen() {
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.text }]}>Email (Optional)</Text>
           <Text style={[styles.labelSubtext, { color: theme.subtext }]}>
-            We'll only use this to follow up if needed
+            We&apos;ll only use this to follow up if needed
           </Text>
           <TextInput
             style={[styles.emailInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}

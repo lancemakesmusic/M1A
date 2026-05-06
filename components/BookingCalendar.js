@@ -3,13 +3,12 @@
  * Embedded calendar for event booking with Google Calendar availability sync
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import GoogleCalendarService from '../services/GoogleCalendarService';
@@ -72,7 +71,7 @@ export default function BookingCalendar({ onDateSelect, selectedDate, onAvailabi
   };
   const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [availabilityMap, setAvailabilityMap] = useState({});
 
   const currentYear = currentDate.getFullYear();
@@ -82,11 +81,7 @@ export default function BookingCalendar({ onDateSelect, selectedDate, onAvailabi
   const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
-  useEffect(() => {
-    loadAvailability();
-  }, [currentDate]);
-
-  const loadAvailability = async () => {
+  const loadAvailability = useCallback(async () => {
     setLoading(true);
     try {
       // Check if Google Calendar is connected
@@ -127,7 +122,11 @@ export default function BookingCalendar({ onDateSelect, selectedDate, onAvailabi
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentMonth, currentYear]);
+
+  useEffect(() => {
+    loadAvailability();
+  }, [currentDate, loadAvailability]);
 
   const handleDateSelect = async (day) => {
     if (!day.isCurrentMonth) {

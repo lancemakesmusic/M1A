@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
 import {
@@ -26,7 +26,7 @@ import { logError, logInfo } from '../utils/logger';
 export default function M1ASettingsScreen({ navigation }) {
   const { theme, toggleTheme } = useTheme();
   const { user: currentUser } = useAuth();
-  const { isAdmin, isMasterAdmin, hasPermission, isAdminEmail } = useRole();
+  const { hasPermission, isAdminEmail } = useRole();
   
   // SECURITY: Only admin@merkabaent.com can access admin tools
   const canAccessAdminTools = isAdminEmail && currentUser?.email === 'admin@merkabaent.com';

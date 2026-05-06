@@ -35,17 +35,14 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
 import { useAuth } from '../contexts/AuthContext';
-import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { auth, db, isFirebaseReady, uploadImageAsync } from '../firebase';
-import { sendMessageNotification } from '../services/NotificationService';
-import { getAvatarUrl, hasAvatar, getAvatarSource } from '../utils/photoUtils';
+import { getAvatarUrl } from '../utils/photoUtils';
 import { sanitizeText } from '../utils/sanitize';
 import { log, logWarn, logError } from '../utils/logger';
-import M1ALogo from '../components/M1ALogo';
 
 // Default avatar fallback
 const defaultAvatar = null; // Will use default icon if null
@@ -55,8 +52,6 @@ export default function MessagesScreen() {
   const route = useRoute();
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { preferences: notificationPrefs } = useNotificationPreferences();
-  const insets = useSafeAreaInsets();
   const adminEmail = process.env.EXPO_PUBLIC_ADMIN_EMAIL || 'admin@merkabaent.com';
   
   // Check if we can go back (i.e., accessed from drawer)
@@ -151,7 +146,7 @@ export default function MessagesScreen() {
 
       return conversationId;
     },
-    [db, user]
+    [user]
   );
 
   const loadMessages = useCallback(
@@ -194,7 +189,7 @@ export default function MessagesScreen() {
         setMessagesLoading(false);
       }
     },
-    [db, user?.uid]
+    [user?.uid]
   );
 
   const markConversationRead = useCallback(
@@ -273,7 +268,7 @@ export default function MessagesScreen() {
         loadMessages(params.conversationId);
       }
     },
-    [db, user?.uid, loadMessages, markConversationRead]
+    [user?.uid, loadMessages, markConversationRead]
   );
 
   const handleConversationSelect = useCallback(
@@ -311,7 +306,7 @@ export default function MessagesScreen() {
       [
         {
           text: 'Search Messages',
-          onPress: () => setShowMessageSearch(!showMessageSearch),
+          onPress: () => setShowMessageSearch((prev) => !prev),
         },
         {
           text: 'Delete Conversation',
@@ -358,7 +353,7 @@ export default function MessagesScreen() {
       ],
       { cancelable: true }
     );
-  }, [selectedConversation, closeConversation]);
+  }, [selectedConversation, closeConversation, loadConversations]);
 
   // Handle route params to start a chat with a specific user
   useEffect(() => {
@@ -482,7 +477,7 @@ export default function MessagesScreen() {
                 isOnline: userData.isOnline || false,
               };
             });
-        } catch (adminError) {
+        } catch (_adminError) {
           // Silently ignore if permissions block this optional query
         }
         
@@ -516,7 +511,7 @@ export default function MessagesScreen() {
       logError('Error loading available users:', error);
       setAvailableUsers([]);
     }
-  }, [user?.uid]);
+  }, [user?.uid, adminEmail]);
 
   // Set up real-time listener for conversations
   useEffect(() => {
@@ -601,7 +596,7 @@ export default function MessagesScreen() {
       log('💬 Cleaning up conversations listener');
       unsubscribe();
     };
-  }, [user?.uid, db, loadConversations, loadAvailableUsers]);
+  }, [user?.uid, loadConversations, loadAvailableUsers]);
 
   // Set up real-time listener for messages when conversation is selected
   useEffect(() => {
@@ -677,7 +672,7 @@ export default function MessagesScreen() {
       log('📨 Cleaning up message listener');
       unsubscribe();
     };
-  }, [selectedConversation?.id, db, user?.uid, loadMessages]);
+  }, [selectedConversation?.id, user?.uid, loadMessages, markConversationRead]);
 
   // Keyboard listeners to track keyboard height
   // Always set up listeners (don't conditionally call hooks)
@@ -948,7 +943,6 @@ export default function MessagesScreen() {
   // If a conversation is selected, show the chat view
   if (selectedConversation) {
     // Calculate keyboard offset - account for header and safe area
-    const headerHeight = Platform.OS === 'ios' ? 56 : 64;
     const keyboardOffset = 0;
 
     return (
@@ -963,7 +957,7 @@ export default function MessagesScreen() {
         >
           {/* Chat Header */}
           <View style={[styles.chatHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
-            <TouchableOpacity onPress={closeConversation} style={styles.backButton}>
+            <TouchableOpacity onPress={closeConversation} style={styles.chatBackButton}>
               <Ionicons name="arrow-back" size={24} color={theme.text} />
             </TouchableOpacity>
             
@@ -1477,7 +1471,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     minHeight: Platform.OS === 'ios' ? 56 : 64,
   },
-  backButton: {
+  chatBackButton: {
     marginRight: 16,
   },
   chatHeaderInfo: {
@@ -1582,10 +1576,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
     fontSize: 16,
     borderWidth: 1,
-    paddingVertical: 12, 
     marginRight: 12,
-    fontSize: 16,
-    borderWidth: 1,
     maxHeight: 100,
   },
   send: { 
@@ -1595,8 +1586,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   
   // Empty states

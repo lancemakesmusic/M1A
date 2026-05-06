@@ -50,15 +50,6 @@ export default function AdminServiceManagementScreen({ navigation }) {
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
 
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
-      navigation.goBack();
-      return;
-    }
-    loadServices();
-  }, [user, canAccess]);
-
   const loadServices = useCallback(async () => {
     try {
       setLoading(true);
@@ -76,6 +67,15 @@ export default function AdminServiceManagementScreen({ navigation }) {
       setRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
+      navigation.goBack();
+      return;
+    }
+    loadServices();
+  }, [canAccess, navigation, loadServices]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

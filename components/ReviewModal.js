@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import ReviewService from '../services/ReviewService';
+import { submitReview } from '../services/ReviewService';
 
 export default function ReviewModal({ visible, onClose, item, onReviewSubmitted }) {
   const { theme } = useTheme();
@@ -41,7 +41,7 @@ export default function ReviewModal({ visible, onClose, item, onReviewSubmitted 
     setSubmitting(true);
 
     try {
-      const result = await ReviewService.submitReview({
+      const result = await submitReview({
         itemId: item.id,
         itemName: item.name,
         userId: user.uid,

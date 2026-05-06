@@ -1,8 +1,7 @@
 // utils/imageCache.js
 // Image caching and optimization utilities
 
-import * as FileSystem from 'expo-file-system';
-import { Image } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import { logWarn } from './logger';
 
 class ImageCache {

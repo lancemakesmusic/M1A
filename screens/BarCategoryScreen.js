@@ -7,7 +7,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
-  Dimensions,
   Image,
   StyleSheet,
   Text,
@@ -16,10 +15,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { trackButtonClick } from '../services/AnalyticsService';
-
-const { width } = Dimensions.get('window');
 
 const categories = [
   {

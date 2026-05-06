@@ -33,7 +33,7 @@ import { log, logWarn, logError } from '../utils/logger';
 export default function AdminUserManagementScreen({ navigation }) {
   const { user } = useAuth();
   const { theme } = useTheme();
-  const { isAdmin, isMasterAdmin, hasPermission, isAdminEmail } = useRole();
+  const { isMasterAdmin, hasPermission, isAdminEmail } = useRole();
   const { refreshBalance } = useWallet();
   
   // SECURITY: Only admin@merkabaent.com can access this screen
@@ -54,19 +54,6 @@ export default function AdminUserManagementScreen({ navigation }) {
   const [upgradeRole, setUpgradeRole] = useState('employee');
   const [department, setDepartment] = useState('');
   const [processing, setProcessing] = useState(false);
-
-  useEffect(() => {
-    // SECURITY: Only admin@merkabaent.com can access this screen
-    if (!canAccess) {
-      Alert.alert(
-        'Access Denied',
-        'Only admin@merkabaent.com can access admin tools for security purposes.'
-      );
-      navigation.goBack();
-      return;
-    }
-    loadUsers();
-  }, [user, canAccess]);
 
   const loadUsers = useCallback(async () => {
     if (!user?.uid) return;
@@ -97,7 +84,20 @@ export default function AdminUserManagementScreen({ navigation }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    // SECURITY: Only admin@merkabaent.com can access this screen
+    if (!canAccess) {
+      Alert.alert(
+        'Access Denied',
+        'Only admin@merkabaent.com can access admin tools for security purposes.'
+      );
+      navigation.goBack();
+      return;
+    }
+    loadUsers();
+  }, [canAccess, navigation, loadUsers]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -392,8 +392,6 @@ export default function AdminUserManagementScreen({ navigation }) {
     const canRevoke = (item.role === 'employee' && hasPermission('canRevokeEmployeeRole')) ||
                       (item.role === 'admin' && isMasterAdmin());
     const isDeactivated = item.accountStatus === 'inactive';
-    const isBanned = item.accountStatus === 'banned';
-    const isSuspended = item.accountStatus === 'suspended';
 
     return (
       <View style={[styles.userItem, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>

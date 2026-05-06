@@ -19,21 +19,19 @@ import ServiceCardWithAnimation from '../components/ServiceCardWithAnimation';
 import TutorialOverlay from '../components/TutorialOverlay';
 import { useAuth } from '../contexts/AuthContext';
 import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
-import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { UserContext } from '../contexts/UserContext';
 import { useWallet } from '../contexts/WalletContext';
-import { getPersonaWelcomeMessage, getPersonaQuickActions, getPersonaRecommendedFeatures } from '../utils/personaFilters';
+import { getPersonaWelcomeMessage, getPersonaRecommendedFeatures } from '../utils/personaFilters';
 import { searchFeatures, getSearchSuggestions } from '../utils/searchUtils';
 import { db, isFirebaseReady } from '../firebase';
 import { dataCache } from '../utils/dataCache';
 import { log, logWarn, logError } from '../utils/logger';
 
 export default function HomeScreen({ navigation }) {
-  const { user: authUser, loading: authLoading } = useAuth();
+  const { user: authUser } = useAuth();
   const { user: userProfile } = useContext(UserContext);
   const { theme } = useTheme();
-  const { isAdminEmail } = useRole();
   const { balance: walletBalance, refreshBalance } = useWallet();
   const { 
     userPersona, 
@@ -118,14 +116,7 @@ export default function HomeScreen({ navigation }) {
     }
   }, [searchQuery, allFeatures]);
 
-  // Load personalized stats
-  useEffect(() => {
-    if (authUser?.uid) {
-      loadUserStats();
-    }
-  }, [authUser?.uid]);
-
-  const loadUserStats = async () => {
+  const loadUserStats = useCallback(async () => {
     if (!isFirebaseReady() || !db || typeof db.collection !== 'function') {
       return;
     }
@@ -182,7 +173,14 @@ export default function HomeScreen({ navigation }) {
     } finally {
       setLoadingStats(false);
     }
-  };
+  }, [authUser?.uid]);
+
+  // Load personalized stats
+  useEffect(() => {
+    if (authUser?.uid) {
+      loadUserStats();
+    }
+  }, [authUser?.uid, loadUserStats]);
 
   const handleSearchSelect = (feature) => {
     setSearchQuery('');
@@ -207,7 +205,7 @@ export default function HomeScreen({ navigation }) {
     } finally {
       setRefreshing(false);
     }
-  }, [authUser?.uid, refreshBalance]);
+  }, [authUser?.uid, refreshBalance, loadUserStats]);
 
   const handleTutorialNext = () => {
     const tutorialSteps = getTutorialSteps();
@@ -242,7 +240,7 @@ export default function HomeScreen({ navigation }) {
     const personaRecommended = getPersonaRecommendedFeatures(personaId);
     
     // Convert to service format
-    const recommendedServices = personaRecommended.map((feature, index) => ({
+    personaRecommended.map((feature, index) => ({
       id: feature.id || `rec-${index}`,
       title: feature.title,
       description: feature.description,
@@ -628,7 +626,7 @@ export default function HomeScreen({ navigation }) {
               <View style={styles.noResultsContainer}>
                 <Ionicons name="search-outline" size={32} color={theme.subtext} />
                 <Text style={[styles.noResultsText, { color: theme.subtext }]}>
-                  No features found matching "{searchQuery}"
+                  No features found matching &quot;{searchQuery}&quot;
                 </Text>
               </View>
             )}

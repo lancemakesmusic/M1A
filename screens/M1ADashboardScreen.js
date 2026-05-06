@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as Linking from 'expo-linking';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
     Dimensions,
@@ -57,7 +57,6 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
   const { 
     userPersona, 
     getPersonalizedFeatures, 
-    getPrimaryActions, 
     getPersonaColor,
     shouldShowTutorial,
     markTutorialComplete,
@@ -96,28 +95,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
   const [modalItems, setModalItems] = useState([]);
   const [modalTitle, setModalTitle] = useState('');
 
-  useEffect(() => {
-    if (userPersona?.id === 'guest') {
-      loadGuestDashboardData();
-    } else {
-      loadDashboardData();
-      loadDetailedInsights();
-    }
-    
-    // Show tutorial if needed
-    if (shouldShowTutorial()) {
-      setShowTutorial(true);
-    }
-  }, [userPersona, selectedTimeRange]);
-
-  useEffect(() => {
-    // Show tutorial when component mounts if needed
-    if (shouldShowTutorial()) {
-      setShowTutorial(true);
-    }
-  }, []);
-
-  const loadGuestDashboardData = async () => {
+  const loadGuestDashboardData = useCallback(async () => {
     try {
       // Load guest-specific data: specials, deals, recommendations
       const featuredDrinks = [
@@ -211,9 +189,9 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     } catch (error) {
       logError('Error loading guest dashboard data:', error);
     }
-  };
+  }, []);
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       if (!user?.uid) {
         setStats({ totalEvents: 0, upcomingEvents: 0, completedTasks: 0, revenue: 0 });
@@ -310,9 +288,9 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
       logError('Error loading dashboard data:', error);
       setStats({ totalEvents: 0, upcomingEvents: 0, completedTasks: 0, revenue: 0 });
     }
-  };
+  }, [user?.uid, userPersona?.id]);
 
-  const loadDetailedInsights = async () => {
+  const loadDetailedInsights = useCallback(async () => {
     if (userPersona?.id === 'guest' || !user?.uid) {
       return;
     }
@@ -533,7 +511,26 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
     } finally {
       setLoadingInsights(false);
     }
-  };
+  }, [selectedTimeRange, user?.uid, userPersona?.id]);
+
+  useEffect(() => {
+    if (userPersona?.id === 'guest') {
+      loadGuestDashboardData();
+    } else {
+      loadDashboardData();
+      loadDetailedInsights();
+    }
+    
+    if (shouldShowTutorial()) {
+      setShowTutorial(true);
+    }
+  }, [userPersona, selectedTimeRange, loadGuestDashboardData, loadDashboardData, loadDetailedInsights, shouldShowTutorial]);
+
+  useEffect(() => {
+    if (shouldShowTutorial()) {
+      setShowTutorial(true);
+    }
+  }, [shouldShowTutorial]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -875,7 +872,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
                 try {
                   const oauthUrl = GoogleCalendarService.getOAuthUrl();
                   await Linking.openURL(oauthUrl);
-                } catch (error) {
+                } catch (_error) {
                   Alert.alert('Error', 'Failed to open Google Calendar connection. Please check your configuration.');
                 }
               },
@@ -1178,14 +1175,14 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
                     {detailedInsights.recommendations.map((rec, index) => (
                       <TouchableOpacity
                         key={index}
-                        style={[styles.recommendationCard, { backgroundColor: theme.cardBackground, borderLeftColor: rec.color }]}
+                        style={[styles.insightsRecommendationCard, { backgroundColor: theme.cardBackground, borderLeftColor: rec.color }]}
                       >
-                        <View style={[styles.recIconContainer, { backgroundColor: rec.color + '20' }]}>
+                        <View style={[styles.insightsRecIconContainer, { backgroundColor: rec.color + '20' }]}>
                           <Ionicons name={rec.icon} size={20} color={rec.color} />
                         </View>
-                        <View style={styles.recContent}>
-                          <Text style={[styles.recTitle, { color: theme.text }]}>{rec.title}</Text>
-                          <Text style={[styles.recDescription, { color: theme.subtext }]}>{rec.description}</Text>
+                        <View style={styles.insightsRecContent}>
+                          <Text style={[styles.insightsRecTitle, { color: theme.text }]}>{rec.title}</Text>
+                          <Text style={[styles.insightsRecDescription, { color: theme.subtext }]}>{rec.description}</Text>
                         </View>
                       </TouchableOpacity>
                     ))}
@@ -1230,7 +1227,7 @@ export default function M1ADashboardScreen({ navigation: navProp }) {
             {/* Today's Specials */}
             {guestData.todaysSpecials.length > 0 && (
               <View style={styles.guestSection}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Today's Specials</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Today&apos;s Specials</Text>
                 {guestData.todaysSpecials.map((special) => (
                   <TouchableOpacity
                     key={special.id}
@@ -1823,7 +1820,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  recommendationCard: {
+  insightsRecommendationCard: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
@@ -2165,7 +2162,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderLeftWidth: 4,
   },
-  recIconContainer: {
+  insightsRecIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -2173,15 +2170,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
-  recContent: {
+  insightsRecContent: {
     flex: 1,
   },
-  recTitle: {
+  insightsRecTitle: {
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 4,
   },
-  recDescription: {
+  insightsRecDescription: {
     fontSize: 14,
     lineHeight: 20,
   },

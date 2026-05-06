@@ -73,7 +73,7 @@ function ErrorFallback({ error, errorInfo, onReset }) {
         </Text>
 
         <Text style={[styles.message, { color: theme.subtext }]}>
-          We're sorry for the inconvenience. The app encountered an unexpected error.
+          We&apos;re sorry for the inconvenience. The app encountered an unexpected error.
         </Text>
 
         {isDev && error && (

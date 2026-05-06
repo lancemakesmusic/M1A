@@ -17,6 +17,7 @@ import {
   FlatList,
   Image,
   Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -36,7 +37,6 @@ import { log, logWarn, logError } from '../utils/logger';
 
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Platform } from 'react-native';
 import { v4 as uuidv4 } from 'uuid';
 
 // Backend Configuration - Use environment variable or fallback
@@ -82,7 +82,7 @@ export default function AutoPosterScreen({ navigation }) {
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [mediaLibrary, setMediaLibrary] = useState([]);
   const [isAutoPosterActive, setIsAutoPosterActive] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [generatingContent, setGeneratingContent] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [backendStatus, setBackendStatus] = useState({
@@ -96,8 +96,8 @@ export default function AutoPosterScreen({ navigation }) {
   const [contentPrompt, setContentPrompt] = useState('');
   const [contentType, setContentType] = useState('post');
   const [platform, setPlatform] = useState('instagram');
-  const [brandVoice, setBrandVoice] = useState('professional');
-  const [targetAudience, setTargetAudience] = useState('general');
+  const [brandVoice] = useState('professional');
+  const [targetAudience] = useState('general');
   const [generatedContent, setGeneratedContent] = useState('');
   
   // Scheduling states
@@ -178,7 +178,7 @@ export default function AutoPosterScreen({ navigation }) {
     }
     loadData();
     checkBackendStatus();
-  }, [user?.uid]);
+  }, [user?.uid, loadData]);
 
   // Check backend status periodically
   useEffect(() => {
@@ -278,7 +278,7 @@ export default function AutoPosterScreen({ navigation }) {
       let result = null;
       try {
         result = JSON.parse(rawText);
-      } catch (parseError) {
+      } catch (_parseError) {
         result = null;
       }
       if (!response.ok) {
@@ -312,7 +312,7 @@ export default function AutoPosterScreen({ navigation }) {
       let result = null;
       try {
         result = JSON.parse(rawText);
-      } catch (parseError) {
+      } catch (_parseError) {
         result = null;
       }
       if (!response.ok) {
@@ -832,7 +832,7 @@ export default function AutoPosterScreen({ navigation }) {
       // Test 6: Test Firebase Functions (if available)
       log('6️⃣ Testing Firebase Functions...');
       try {
-        const generateContentWithGPT = httpsCallable(functions, 'generateContentWithGPT');
+        httpsCallable(functions, 'generateContentWithGPT');
         log('✅ Firebase Functions connection established');
       } catch (funcError) {
         logWarn('⚠️ Firebase Functions not available:', funcError.message);
@@ -1663,7 +1663,7 @@ export default function AutoPosterScreen({ navigation }) {
                   <View style={styles.helpStepContent}>
                     <Text style={[styles.helpStepTitle, { color: theme.text }]}>Test Connection</Text>
                     <Text style={[styles.helpStepText, { color: theme.subtext }]}>
-                      Use the "Test Backend Connection" button to verify everything is working
+                      Use the &quot;Test Backend Connection&quot; button to verify everything is working
                     </Text>
                   </View>
                 </View>

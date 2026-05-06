@@ -52,7 +52,7 @@ export default function RootNavigation({ onIntroStateChange }) {
     const playLoadingVideo = async () => {
       try {
         await videoRef.current.replayAsync();
-      } catch (error) {
+      } catch (_error) {
         // No-op: video may not be ready yet
       }
     };

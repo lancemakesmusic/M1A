@@ -4,7 +4,6 @@
  * Provides context-aware tips, sales guidance, and intelligent routing
  */
 
-import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import ChatGPTService from './ChatGPTService';
 import { logError } from '../utils/logger';
 
@@ -25,7 +24,6 @@ class M1AAssistantService {
       'booking': 'EventBooking',
       'book event': 'EventBooking',
       'create event': 'EventBooking',
-      'schedule': 'EventBooking',
       'schedule event': 'EventBooking',
       'new event': 'EventBooking',
       'plan event': 'EventBooking',
@@ -329,7 +327,7 @@ class M1AAssistantService {
             step: 2,
             title: 'Step 2: Add to Cart',
             message: 'Tap the + button on any item to add it to your cart. You can adjust quantities in the cart.',
-            action: { type: 'show', type: 'cart' },
+            action: { type: 'show', target: 'cart' },
           },
           {
             step: 3,

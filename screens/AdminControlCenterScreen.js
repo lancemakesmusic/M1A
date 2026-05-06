@@ -7,7 +7,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   RefreshControl,
@@ -28,7 +27,6 @@ export default function AdminControlCenterScreen({ navigation }) {
   const { user } = useAuth();
   const { theme } = useTheme();
   const { isAdminEmail } = useRole();
-  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -41,18 +39,6 @@ export default function AdminControlCenterScreen({ navigation }) {
 
   // SECURITY: Only admin@merkabaent.com can access
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
-
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert(
-        'Access Denied',
-        'Only admin@merkabaent.com can access the Admin Control Center.'
-      );
-      navigation.goBack();
-      return;
-    }
-    loadStats();
-  }, [user, canAccess]);
 
   const loadStats = useCallback(async () => {
     if (!canAccess) return;
@@ -109,6 +95,18 @@ export default function AdminControlCenterScreen({ navigation }) {
       });
     }
   }, [canAccess]);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert(
+        'Access Denied',
+        'Only admin@merkabaent.com can access the Admin Control Center.'
+      );
+      navigation.goBack();
+      return;
+    }
+    loadStats();
+  }, [canAccess, navigation, loadStats]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

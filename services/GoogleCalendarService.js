@@ -4,7 +4,6 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
 import { logError } from '../utils/logger';
 
 const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';

@@ -8,7 +8,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -28,13 +28,13 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useWallet } from '../contexts/WalletContext';
 import { db, isFirebaseReady } from '../firebase';
 import WalletService from '../services/WalletService';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { trackButtonClick, trackError, trackEventBookingCompleted, trackEventBookingStarted, trackFunnelStep } from '../services/AnalyticsService';
 import GoogleCalendarService from '../services/GoogleCalendarService';
 import { sendOrderStatusUpdate, sendPaymentConfirmation, sendHoursLowNotification } from '../services/NotificationService';
 import { sendBookingConfirmationEmail, sendPaymentConfirmationEmail, sendRSVPConfirmationEmail } from '../services/EmailService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
-import SharingService from '../services/SharingService';
+import { shareContent } from '../services/SharingService';
 import StripeService from '../services/StripeService';
 import { handleError, getUserFriendlyError } from '../utils/errorHandler';
 import { log, logWarn, logError } from '../utils/logger';
@@ -185,7 +185,7 @@ const syncBookingToCalendar = async (orderId, item, formData, total, user) => {
 export default function ServiceBookingScreen({ route, navigation }) {
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { balance: walletBalance, refreshBalance } = useWallet();
+  const { refreshBalance } = useWallet();
   useScreenTracking('ServiceBookingScreen');
   
   const routeItem = route.params?.item;
@@ -543,16 +543,17 @@ export default function ServiceBookingScreen({ route, navigation }) {
   }
 
   // Check if early bird pricing is available
-  const isEarlyBirdAvailable = useMemo(() => {
-    if (item.category !== 'Events' || !item.earlyBirdPrice || !item.earlyBirdEndDate) {
+  const isEarlyBirdAvailable = (() => {
+    if (!item || item.category !== 'Events' || !item.earlyBirdPrice || !item.earlyBirdEndDate) {
       return false;
     }
     const now = new Date();
     const earlyBirdEnd = item.earlyBirdEndDate?.toDate ? item.earlyBirdEndDate.toDate() : new Date(item.earlyBirdEndDate);
     return now < earlyBirdEnd;
-  }, [item.category, item.earlyBirdPrice, item.earlyBirdEndDate]);
+  })();
 
-  const subtotal = useMemo(() => {
+  const subtotal = (() => {
+    if (!item) return 0;
     // Handle events differently
     if (item.category === 'Events') {
       // Determine ticket price based on selected type
@@ -580,19 +581,13 @@ export default function ServiceBookingScreen({ route, navigation }) {
       return item.dealPrice * formData.quantity;
     }
     return (item.price || 0) * formData.quantity;
-  }, [item, formData.quantity, formData.ticketType, formData.discountApplied, isEarlyBirdAvailable]);
+  })();
 
-  const tax = useMemo(() => {
-    return subtotal * TAX_RATE;
-  }, [subtotal]);
+  const tax = subtotal * TAX_RATE;
 
-  const serviceFee = useMemo(() => {
-    return subtotal * SERVICE_FEE;
-  }, [subtotal]);
+  const serviceFee = subtotal * SERVICE_FEE;
 
-  const total = useMemo(() => {
-    return subtotal + tax + serviceFee;
-  }, [subtotal, tax, serviceFee]);
+  const total = subtotal + tax + serviceFee;
 
   const onDateChange = (event, date) => {
     if (Platform.OS === 'android') {
@@ -1065,7 +1060,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
         log('Free ticket detected - skipping Stripe checkout');
         
         // Save order to Firestore with COMPLETED payment status
-        const orderId = await saveOrderToFirestore({
+        await saveOrderToFirestore({
           ...orderData,
           paymentStatus: 'completed',
           paymentMethod: 'free',
@@ -1108,7 +1103,6 @@ export default function ServiceBookingScreen({ route, navigation }) {
 
       // For paid tickets, try Stripe checkout first, then fall back to wallet payment
       let orderId;
-      let paymentMethod = 'stripe';
       let useWalletPayment = false;
 
       log(`💳 Processing payment: Total = $${total.toFixed(2)}, Stripe configured = ${StripeService.isConfigured()}`);
@@ -1585,9 +1579,9 @@ export default function ServiceBookingScreen({ route, navigation }) {
                 </TouchableOpacity>
               </View>
               <ScrollView style={styles.paymentContent} showsVerticalScrollIndicator={false}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Order Summary</Text>
+                <Text style={[styles.paymentSectionTitle, { color: theme.text }]}>Order Summary</Text>
                 {item.isDeal && (
-                  <View style={[styles.dealBadge, { backgroundColor: theme.primary + '20', borderColor: theme.primary, marginBottom: 12 }]}>
+                  <View style={[styles.bookingDealBadge, { backgroundColor: theme.primary + '20', borderColor: theme.primary, marginBottom: 12 }]}>
                     <Ionicons name="pricetag" size={16} color={theme.primary} />
                     <Text style={[styles.dealText, { color: theme.primary }]}>
                       Special Deal Applied: {item.dealHours} hours for ${item.dealPrice}
@@ -1665,7 +1659,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
                   </Text>
                 </View>
 
-                <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 24 }]}>
+                <Text style={[styles.paymentSectionTitle, { color: theme.text, marginTop: 24 }]}>
                   Payment Method
                 </Text>
                 <View
@@ -1736,7 +1730,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
                 Your service booking has been confirmed.
               </Text>
               <Text style={[styles.confirmationSubtext, { color: theme.subtext }]}>
-                You'll receive a confirmation email shortly.
+                You will receive a confirmation email shortly.
               </Text>
               <TouchableOpacity
                 style={[styles.doneButton, { backgroundColor: theme.primary }]}
@@ -1816,12 +1810,12 @@ export default function ServiceBookingScreen({ route, navigation }) {
         </View>
 
         {/* Service Info Card */}
-        <View style={[styles.serviceCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-          <Image source={{ uri: item.image }} style={styles.serviceImage} />
+        <View style={[styles.detailServiceCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
+          <Image source={{ uri: item.image }} style={styles.detailServiceImage} />
           <View style={styles.serviceInfo}>
-            <Text style={[styles.serviceName, { color: theme.text }]}>{item.name}</Text>
+            <Text style={[styles.detailServiceName, { color: theme.text }]}>{item.name}</Text>
             <Text style={[styles.serviceArtist, { color: theme.subtext }]}>{item.artist}</Text>
-            <Text style={[styles.serviceDescription, { color: theme.subtext }]}>
+            <Text style={[styles.detailServiceDescription, { color: theme.subtext }]}>
               {item.description}
             </Text>
             <View style={styles.serviceDetails}>
@@ -1840,7 +1834,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
               <TouchableOpacity
                 style={styles.shareButton}
                 onPress={async () => {
-                  await SharingService.shareContent('service', item.id, item);
+                  await shareContent('service', item.id, item);
                   trackButtonClick('share_service', 'ServiceBookingScreen');
                 }}
               >
@@ -1853,7 +1847,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
 
         {/* Booking Form */}
         <View style={styles.formContainer}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Booking Details</Text>
+          <Text style={[styles.bookingSectionTitle, { color: theme.text }]}>Booking Details</Text>
 
           {/* Date/Time Selection - Only for Services, not Events */}
           {item.category !== 'Events' && (
@@ -1914,7 +1908,7 @@ export default function ServiceBookingScreen({ route, navigation }) {
               {item.isDeal ? 'Number of Packages' : 'Quantity'}
             </Text>
             {item.isDeal && (
-              <View style={[styles.dealBadge, { backgroundColor: theme.primary + '20', borderColor: theme.primary }]}>
+              <View style={[styles.bookingDealBadge, { backgroundColor: theme.primary + '20', borderColor: theme.primary }]}>
                 <Ionicons name="pricetag" size={16} color={theme.primary} />
                 <Text style={[styles.dealText, { color: theme.primary }]}>
                   Special Deal: {item.dealHours} hours for ${item.dealPrice}
@@ -2305,7 +2299,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 20,
   },
-  serviceCard: {
+  detailServiceCard: {
     flexDirection: 'row',
     borderRadius: 12,
     borderWidth: 1,
@@ -2313,7 +2307,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
   },
-  serviceImage: {
+  detailServiceImage: {
     width: 80,
     height: 80,
   },
@@ -2327,7 +2321,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 4,
   },
-  serviceName: {
+  detailServiceName: {
     fontSize: 16,
     fontWeight: '600',
     flex: 1,
@@ -2345,7 +2339,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
-  serviceDescription: {
+  detailServiceDescription: {
     fontSize: 14,
     marginBottom: 8,
   },
@@ -2429,7 +2423,7 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 0,
   },
-  sectionTitle: {
+  bookingSectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 16,
@@ -2570,7 +2564,7 @@ const styles = StyleSheet.create({
   paymentContent: {
     padding: 16,
   },
-  sectionTitle: {
+  paymentSectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 12,
@@ -2754,7 +2748,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontStyle: 'italic',
   },
-  dealBadge: {
+  bookingDealBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,

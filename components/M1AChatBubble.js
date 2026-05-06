@@ -19,7 +19,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useM1AAssistant } from '../contexts/M1AAssistantContext';
 import M1AChatScreen from '../screens/M1AChatScreen';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 export default function M1AChatBubble() {
   const { theme } = useTheme();
@@ -29,7 +29,6 @@ export default function M1AChatBubble() {
     currentTip,
     toggleExpanded,
     hideBubble,
-    showBubble,
     handleTipAction,
     markTipAsShown,
     disableAllTips,
@@ -185,7 +184,7 @@ export default function M1AChatBubble() {
                 )}
               </View>
               <Text style={[styles.dontShowText, { color: theme.subtext }]}>
-                Don't show tips again
+                Don&apos;t show tips again
               </Text>
             </TouchableOpacity>
             

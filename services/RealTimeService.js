@@ -3,7 +3,7 @@
  * Handles real-time updates for events, orders, notifications, and activity feeds
  */
 
-import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, doc } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
 import { trackFeatureUsage } from './AnalyticsService';
 import { log, logWarn, logError } from '../utils/logger';

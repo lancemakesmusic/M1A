@@ -11,10 +11,7 @@ import * as Sharing from 'expo-sharing';
 import { getApiBaseUrl } from '../utils/apiConfig';
 import { logError } from '../utils/logger';
 
-const GOOGLE_DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
-const GOOGLE_DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 const ACCESS_TOKEN_KEY = 'm1a_google_drive_access_token';
-const REFRESH_TOKEN_KEY = 'm1a_google_drive_refresh_token';
 
 const API_BASE_URL = getApiBaseUrl();
 

@@ -70,7 +70,7 @@ export const shareContent = async (contentType, contentId, contentData) => {
             url: shareUrl,
           });
           await trackShare(contentType, contentId, 'web');
-        } catch (shareError) {
+        } catch (_shareError) {
           // User cancelled or share failed, fallback to clipboard
           await copyToClipboard(`${shareText}\n${shareUrl}`);
           if (typeof alert !== 'undefined') {

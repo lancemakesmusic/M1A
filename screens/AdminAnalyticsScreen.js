@@ -4,17 +4,15 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -26,7 +24,6 @@ import { useTheme } from '../contexts/ThemeContext';
 import { db } from '../firebase';
 import { logError } from '../utils/logger';
 
-const { width } = Dimensions.get('window');
 const CHART_HEIGHT = 150;
 
 export default function AdminAnalyticsScreen({ navigation }) {
@@ -59,14 +56,6 @@ export default function AdminAnalyticsScreen({ navigation }) {
   });
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
-
-  useEffect(() => {
-    if (!canAccess) {
-      navigation.goBack();
-      return;
-    }
-    loadAnalytics();
-  }, [user, canAccess]);
 
   const loadAnalytics = useCallback(async () => {
     try {
@@ -220,6 +209,14 @@ export default function AdminAnalyticsScreen({ navigation }) {
     }
   }, [dateRange.startDate, dateRange.endDate]);
 
+  useEffect(() => {
+    if (!canAccess) {
+      navigation.goBack();
+      return;
+    }
+    loadAnalytics();
+  }, [canAccess, navigation, loadAnalytics]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadAnalytics();
@@ -233,6 +230,25 @@ export default function AdminAnalyticsScreen({ navigation }) {
       <Text style={[styles.statValue, { color: theme.text }]}>{value}</Text>
       <Text style={[styles.statTitle, { color: theme.text }]}>{title}</Text>
       {subtitle && <Text style={[styles.statSubtitle, { color: theme.subtext }]}>{subtitle}</Text>}
+    </View>
+  );
+
+  const renderBarChart = (data, labelKey, valueKey, barColor, maxValue) => (
+    <View style={styles.chartContainer}>
+      {data.map((entry, index) => {
+        const value = entry[valueKey] || 0;
+        const heightPct = maxValue > 0 ? Math.max(4, (value / maxValue) * 100) : 0;
+        return (
+          <View key={`${entry[labelKey]}_${index}`} style={styles.barItem}>
+            <View style={styles.barTrack}>
+              <View style={[styles.barFill, { height: `${heightPct}%`, backgroundColor: barColor }]} />
+            </View>
+            <Text style={[styles.barLabel, { color: theme.subtext }]} numberOfLines={1}>
+              {String(entry[labelKey]).slice(5)}
+            </Text>
+          </View>
+        );
+      })}
     </View>
   );
 
@@ -564,6 +580,39 @@ const styles = StyleSheet.create({
   activityValue: {
     fontSize: 16,
     fontWeight: '700',
+  },
+  chartCard: {
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+  },
+  chartContainer: {
+    height: CHART_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  barItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  barTrack: {
+    width: '100%',
+    height: CHART_HEIGHT - 24,
+    borderRadius: 6,
+    backgroundColor: 'rgba(127,127,127,0.2)',
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  barFill: {
+    width: '100%',
+    borderRadius: 6,
+    minHeight: 2,
+  },
+  barLabel: {
+    marginTop: 6,
+    fontSize: 10,
   },
 });
 

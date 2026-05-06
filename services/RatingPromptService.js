@@ -232,7 +232,7 @@ class RatingPromptService {
       const actionsData = await AsyncStorage.getItem(POSITIVE_ACTIONS_KEY);
       const actions = actionsData ? JSON.parse(actionsData) : [];
       return actions.length;
-    } catch (error) {
+    } catch (_error) {
       return 0;
     }
   }

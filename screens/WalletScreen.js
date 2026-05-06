@@ -31,7 +31,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useWallet } from '../contexts/WalletContext';
 import { db } from '../firebase';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { trackButtonClick, trackWalletTransaction } from '../services/AnalyticsService';
 import GoogleDriveService from '../services/GoogleDriveService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
@@ -49,7 +49,6 @@ export default function WalletScreen() {
   // Check if we can go back (i.e., accessed from drawer)
   const canGoBack = navigation.canGoBack();
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [balanceChange, setBalanceChange] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState(false);
@@ -68,7 +67,6 @@ export default function WalletScreen() {
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [insights, setInsights] = useState(null);
   const [processing, setProcessing] = useState(false);
-  const [showAddPaymentMethod, setShowAddPaymentMethod] = useState(false);
   const [deletingPaymentMethod, setDeletingPaymentMethod] = useState(null);
   const [qrCodeData, setQrCodeData] = useState('');
   const [error, setError] = useState(null);
@@ -77,7 +75,6 @@ export default function WalletScreen() {
   const [contentLibrary, setContentLibrary] = useState([]);
   const [loadingContent, setLoadingContent] = useState(false);
   const [googleDriveConnected, setGoogleDriveConnected] = useState(false);
-  const [contentSource, setContentSource] = useState('firestore'); // 'firestore' or 'googledrive'
   const [showFolderIdModal, setShowFolderIdModal] = useState(false);
   const [folderIdInput, setFolderIdInput] = useState('');
   const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -94,14 +91,14 @@ export default function WalletScreen() {
       });
       setQrCodeData(qrData);
     }
-  }, [user?.uid]);
+  }, [user?.uid, user?.email, loadWalletData]);
 
   useEffect(() => {
     if (user?.uid && activeTab === 'content') {
       checkGoogleDriveConnection();
       loadContentLibrary();
     }
-  }, [user?.uid, activeTab]);
+  }, [user?.uid, activeTab, checkGoogleDriveConnection, loadContentLibrary]);
 
   // Refresh balance when screen is focused (e.g., after admin adjustment)
   useFocusEffect(
@@ -221,7 +218,7 @@ export default function WalletScreen() {
     
     try {
       // First load transactions to ensure we have data
-      const transactions = await WalletService.getTransactions(user.uid);
+      await WalletService.getTransactions(user.uid);
       const walletInsights = await WalletService.getInsights(user.uid, 'month');
       setInsights(walletInsights);
     } catch (error) {
@@ -272,7 +269,6 @@ export default function WalletScreen() {
             });
             
             if (driveFiles.length > 0) {
-              setContentSource('googledrive');
             }
           }
         } catch (driveError) {
@@ -352,7 +348,7 @@ export default function WalletScreen() {
     } finally {
       setLoadingContent(false);
     }
-  }, [user?.uid, user?.displayName, user?.email, googleDriveConnected]);
+  }, [user?.uid, user?.displayName, user?.email, googleDriveConnected, currentFolderId]);
 
   const handleSetDefaultPaymentMethod = async (paymentMethod) => {
     if (!user?.uid) {
@@ -486,8 +482,6 @@ export default function WalletScreen() {
                 // Update balance optimistically
                 updateWalletBalance(newAmount);
                 setLastUpdated('just now');
-                setBalanceChange({ type: 'increase', amount: newAmount });
-                setTimeout(() => setBalanceChange(null), 3000);
                 
                 // Track analytics
                 await trackWalletTransaction({
@@ -597,8 +591,6 @@ export default function WalletScreen() {
         // Update balance optimistically
         updateWalletBalance(-sendAmount);
         setLastUpdated('just now');
-        setBalanceChange({ type: 'decrease', amount: sendAmount });
-        setTimeout(() => setBalanceChange(null), 3000);
         
         // Track analytics
         await trackWalletTransaction({
@@ -1947,7 +1939,7 @@ export default function WalletScreen() {
                 <View style={[styles.insightCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
                   <Text style={[styles.insightTitle, { color: theme.text }]}>Activity Summary</Text>
                   <Text style={[styles.insightText, { color: theme.subtext }]}>
-                    You've completed {insights.transactionCount} transaction{insights.transactionCount !== 1 ? 's' : ''} this month.
+                    You&apos;ve completed {insights.transactionCount} transaction{insights.transactionCount !== 1 ? 's' : ''} this month.
                     {insights.netChange > 0 && ` Your balance has increased by $${insights.netChange.toFixed(2)}.`}
                   </Text>
                 </View>
@@ -2442,7 +2434,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
     gap: 12,
   },
-  qrCode: {
+  qrCodeLayout: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',

@@ -12,7 +12,6 @@ import { logWarn, logError } from '../utils/logger';
 import { getApiBaseUrl } from '../utils/apiConfig';
 
 const API_BASE_URL = getApiBaseUrl();
-const API_TIMEOUT = 30000;
 
 class WalletService {
   /**
@@ -50,7 +49,7 @@ class WalletService {
               return 0;
             }
           });
-        } catch (transactionError) {
+        } catch (_transactionError) {
           // Fallback to regular read if transaction fails
           const walletSnap = await getDoc(walletRef);
           if (walletSnap.exists()) {
@@ -113,7 +112,7 @@ class WalletService {
             });
             return 0;
           });
-        } catch (transactionError) {
+        } catch (_transactionError) {
           const walletSnap = await getDoc(walletRef);
           if (walletSnap.exists()) {
             return walletSnap.data().hoursBalance || 0;

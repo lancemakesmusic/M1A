@@ -24,7 +24,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { trackFeatureUsage, trackButtonClick } from '../services/AnalyticsService';
 import SupportService from '../services/SupportService';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { logError } from '../utils/logger';
 
 const FAQ_CATEGORIES = [
@@ -468,7 +468,7 @@ export default function HelpScreen() {
             <View style={styles.emptyState}>
               <Ionicons name="search-outline" size={48} color={theme.subtext} />
               <Text style={[styles.emptyStateText, { color: theme.subtext }]}>
-                No results found for "{searchQuery}"
+                No results found for &quot;{searchQuery}&quot;
               </Text>
             </View>
           ) : null}

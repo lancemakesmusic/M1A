@@ -35,9 +35,6 @@ export default function ProfileEditScreen({ navigation }) {
   const { user, updateUserProfile, refreshUserProfile } = useContext(UserContext);
   const { theme, toggleTheme } = useTheme();
   
-  // Track if we just uploaded a photo to force navigation refresh
-  const [justUploadedPhoto, setJustUploadedPhoto] = useState(false);
-
   const [firstName, setFirstName] = useState(user?.firstName ?? user?.displayName?.split(' ')[0] ?? '');
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [username, setUsername] = useState(user?.username ?? '');
@@ -97,7 +94,7 @@ export default function ProfileEditScreen({ navigation }) {
         }
       }
     }
-  }, [user?.avatarUrl, user?.photoURL, user?.coverUrl, uploadingAvatar, uploadingCover]);
+  }, [user?.avatarUrl, user?.photoURL, user?.coverUrl, uploadingAvatar, uploadingCover, avatarUrl, coverUrl]);
 
   const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -202,20 +199,17 @@ export default function ProfileEditScreen({ navigation }) {
         await updateUserProfile({});
       }
       
-      setJustUploadedPhoto(true);
       Alert.alert('Success', 'Profile photo updated!', [
         {
           text: 'View Profile',
           onPress: async () => {
             // Navigate to profile screen
             navigation.navigate('ProfileMain');
-            setJustUploadedPhoto(false);
           }
         },
         {
           text: 'Continue Editing',
           style: 'cancel',
-          onPress: () => setJustUploadedPhoto(false)
         }
       ]);
     } catch (e) {
@@ -320,20 +314,17 @@ export default function ProfileEditScreen({ navigation }) {
         await updateUserProfile({});
       }
       
-      setJustUploadedPhoto(true);
       Alert.alert('Success', 'Cover photo updated!', [
         {
           text: 'View Profile',
           onPress: async () => {
             // Navigate to profile screen
             navigation.navigate('ProfileMain');
-            setJustUploadedPhoto(false);
           }
         },
         {
           text: 'Continue Editing',
           style: 'cancel',
-          onPress: () => setJustUploadedPhoto(false)
         }
       ]);
     } catch (e) {
@@ -641,7 +632,7 @@ export default function ProfileEditScreen({ navigation }) {
           onChangeText={setFirstName}
         />
         <Text style={[styles.helperText, { color: theme.subtext }]}>
-          This will be used in greetings (e.g., "Hello, John")
+          This will be used in greetings (e.g., &quot;Hello, John&quot;)
         </Text>
       </View>
 

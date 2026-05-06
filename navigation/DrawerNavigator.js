@@ -1,6 +1,6 @@
 // navigation/DrawerNavigator.js
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View } from 'react-native';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
@@ -10,7 +10,6 @@ import CustomDrawerContent from '../components/CustomDrawerContent';
 import AppNavigator from './AppNavigator';
 
 // Import all screens for drawer navigation
-import HomeScreen from '../screens/HomeScreen';
 import ExploreScreen from '../screens/ExploreScreen';
 import MessagesScreen from '../screens/MessagesScreen';
 import WalletScreen from '../screens/WalletScreen';
@@ -291,77 +290,4 @@ export default function DrawerNavigator() {
   );
 }
 
-const styles = StyleSheet.create({
-  drawerContainer: {
-    flex: 1,
-  },
-  drawerContent: {
-    flexGrow: 1,
-    paddingBottom: 8,
-  },
-  brandHeader: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    alignItems: 'center',
-  },
-  brandLogo: {
-    marginBottom: 8,
-  },
-  userSection: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    marginBottom: 4,
-  },
-  avatarContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  avatarImage: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-  },
-  userName: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 4,
-    maxWidth: '100%',
-  },
-  userEmail: {
-    fontSize: 13,
-    maxWidth: '100%',
-  },
-  drawerItemsContainer: {
-    flex: 1,
-    paddingTop: 4,
-  },
-  logoutSection: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 20,
-    borderTopWidth: 1,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    gap: 12,
-  },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-});
 

@@ -46,18 +46,6 @@ export default function AdminSystemSettingsScreen({ navigation }) {
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
 
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert(
-        'Access Denied',
-        'Only admin@merkabaent.com can access admin tools for security purposes.'
-      );
-      navigation.goBack();
-      return;
-    }
-    loadSettings();
-  }, [user, canAccess, navigation]);
-
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
@@ -65,7 +53,7 @@ export default function AdminSystemSettingsScreen({ navigation }) {
       try {
         const settingsDoc = await getDoc(doc(db, 'settings', 'app'));
         if (settingsDoc.exists()) {
-          setSettings({ ...settings, ...settingsDoc.data() });
+          setSettings(prev => ({ ...prev, ...settingsDoc.data() }));
         }
       } catch (error) {
         log('Settings document may not exist yet:', error);
@@ -77,6 +65,18 @@ export default function AdminSystemSettingsScreen({ navigation }) {
       setRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert(
+        'Access Denied',
+        'Only admin@merkabaent.com can access admin tools for security purposes.'
+      );
+      navigation.goBack();
+      return;
+    }
+    loadSettings();
+  }, [canAccess, navigation, loadSettings]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

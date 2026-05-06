@@ -30,10 +30,8 @@ import EmptyState from '../components/EmptyState';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { trackBarOrder, trackButtonClick, trackFeatureUsage } from '../services/AnalyticsService';
-import { sendOrderStatusUpdate, sendPaymentConfirmation } from '../services/NotificationService';
-import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import StripeService from '../services/StripeService';
 import { log, logWarn, logError } from '../utils/logger';
 
@@ -49,7 +47,7 @@ import SeltzerImg from '../assets/images/Seltzer_Water.JPG';
 import SpriteImg from '../assets/images/Sprite.JPG';
 import TitosImg from '../assets/images/Titos.JPG';
 
-const { width, height } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 
 // Fallback menu items - same as BarMenuScreen
 const fallbackMenuItems = [
@@ -161,7 +159,7 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
       tension: 65,
       friction: 11,
     }).start();
-  }, [showCart]);
+  }, [showCart, slideAnim]);
 
   const addToCart = (item) => {
     trackButtonClick('add_to_cart', 'BarMenuCategoryScreen', { itemId: item.id });
@@ -572,7 +570,7 @@ export default function BarMenuCategoryScreen({ route, navigation }) {
                       Order #{orderNumber}
                     </Text>
                     <Text style={[styles.confirmationSubtext, { color: theme.subtext }]}>
-                      Your order is being prepared. You'll receive a notification when it's ready.
+                      Your order is being prepared. You&apos;ll receive a notification when it&apos;s ready.
                     </Text>
                   </View>
                 )}

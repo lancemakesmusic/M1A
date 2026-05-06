@@ -4,7 +4,6 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, where } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,7 +19,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { db } from '../firebase';
 import RoleManagementService from '../services/RoleManagementService';
 import EmptyState from '../components/EmptyState';
 import { logError } from '../utils/logger';
@@ -35,15 +33,6 @@ export default function AdminEmployeeManagementScreen({ navigation }) {
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
 
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
-      navigation.goBack();
-      return;
-    }
-    loadEmployees();
-  }, [user, canAccess]);
-
   const loadEmployees = useCallback(async () => {
     try {
       setLoading(true);
@@ -56,7 +45,16 @@ export default function AdminEmployeeManagementScreen({ navigation }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
+      navigation.goBack();
+      return;
+    }
+    loadEmployees();
+  }, [canAccess, navigation, loadEmployees]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

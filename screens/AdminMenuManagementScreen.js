@@ -51,15 +51,6 @@ export default function AdminMenuManagementScreen({ navigation }) {
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
 
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
-      navigation.goBack();
-      return;
-    }
-    loadMenuItems();
-  }, [user, canAccess]);
-
   const loadMenuItems = useCallback(async () => {
     try {
       setLoading(true);
@@ -89,6 +80,15 @@ export default function AdminMenuManagementScreen({ navigation }) {
       setRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
+      navigation.goBack();
+      return;
+    }
+    loadMenuItems();
+  }, [canAccess, navigation, loadMenuItems]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

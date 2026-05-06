@@ -31,7 +31,7 @@ export default function AvatarPicker({ currentUrl }: { currentUrl?: string }) {
       setUploading(true);
 
       // 2) Upload using mock Firebase
-      const downloadURL = await uploadImageAsync(uri);
+      await uploadImageAsync(uri);
 
       // 3) Bust any stale caches in <Image> by changing its key/uri param
       setCacheBust(Date.now());

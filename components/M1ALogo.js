@@ -39,7 +39,6 @@ const M1ALogo = ({
   
   // Scale factors for different elements
   const hexagramRadius = size * 0.35; // Radius of outer circles
-  const triangleSize = size * 0.4; // Size of triangles
   const mSize = size * 0.3; // Size of central M
   
   // Color calculations

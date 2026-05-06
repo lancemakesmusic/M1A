@@ -177,7 +177,7 @@ class OfflineService {
               cleared++;
             }
           }
-        } catch (error) {
+        } catch (_error) {
           // Remove corrupted cache entries
           await AsyncStorage.removeItem(key);
           cleared++;
@@ -206,7 +206,7 @@ class OfflineService {
           if (value) {
             totalSize += value.length;
           }
-        } catch (error) {
+        } catch (_error) {
           // Skip errors
         }
       }

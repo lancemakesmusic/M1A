@@ -6,7 +6,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     KeyboardAvoidingView,
     Modal,
     Platform,
@@ -23,15 +22,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotificationPreferences } from '../contexts/NotificationPreferencesContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { trackButtonClick, trackError, trackEventBookingCompleted, trackFunnelStep } from '../services/AnalyticsService';
 import { scheduleEventReminder, sendBookingReminder, sendEventNotification } from '../services/NotificationService';
 import RatingPromptService, { POSITIVE_ACTIONS } from '../services/RatingPromptService';
 import StripeService from '../services/StripeService';
 import { getApiBaseUrl } from '../utils/apiConfig';
 import { log, logWarn, logError } from '../utils/logger';
-
-const { width } = Dimensions.get('window');
 
 // Event types with visual appeal
 const eventTypes = [
@@ -150,7 +147,6 @@ export default function EventBookingScreen({ navigation }) {
     const [paymentError, setPaymentError] = useState(null);
     const [requiresDeposit, setRequiresDeposit] = useState(true);
     const [depositAmount, setDepositAmount] = useState(0);
-    const [paymentIntentId, setPaymentIntentId] = useState(null);
     
     // Form data with better structure
     const [formData, setFormData] = useState({
@@ -204,12 +200,6 @@ export default function EventBookingScreen({ navigation }) {
       }));
     }
   }, [user]);
-
-  // Calculate total cost
-  useEffect(() => {
-    calculateTotal();
-    }, [formData.barPackage, formData.guestCount, formData.duration, formData.addOnServices, formData.bundlePackage, formData.isWeekday]);
-
 
   // Calendar date selection handler
   const handleCalendarDateSelect = (date) => {
@@ -407,6 +397,11 @@ export default function EventBookingScreen({ navigation }) {
     setRequiresDeposit(total > 0);
     }, [formData.barPackage, formData.guestCount, formData.duration, formData.addOnServices, formData.bundlePackage, formData.isWeekday]);
 
+  // Calculate total cost
+  useEffect(() => {
+    calculateTotal();
+  }, [calculateTotal]);
+
     // Validation functions
     const validateStep = (step) => {
         const newErrors = {};
@@ -430,7 +425,7 @@ export default function EventBookingScreen({ navigation }) {
                         if (selectedDateObj < today) {
                             newErrors.eventDate = 'Event date cannot be in the past';
                         }
-                    } catch (e) {
+                    } catch (_e) {
                         newErrors.eventDate = 'Invalid date format';
                     }
                 }
@@ -482,7 +477,6 @@ export default function EventBookingScreen({ navigation }) {
                 }
                 if (formData.phone && formData.phone.trim()) {
                     // Validate phone format (US format: (123) 456-7890 or 123-456-7890 or 1234567890)
-                    const phonePattern = /^[\d\s\-\(\)\+]{10,15}$/;
                     const digitsOnly = formData.phone.replace(/\D/g, '');
                     if (digitsOnly.length < 10 || digitsOnly.length > 15) {
                         newErrors.phone = 'Please enter a valid phone number (10-15 digits)';
@@ -788,7 +782,7 @@ export default function EventBookingScreen({ navigation }) {
                     // Update order with checkout session ID (if order exists in Firestore)
                     try {
                         if (isFirebaseReady() && db && backendResult.bookingId) {
-                            const { doc, updateDoc } = await import('firebase/firestore');
+                            const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
                             const orderRef = doc(db, 'eventOrders', backendResult.bookingId);
                             await updateDoc(orderRef, {
                                 checkoutSessionId: checkoutResult.sessionId,
@@ -825,7 +819,6 @@ export default function EventBookingScreen({ navigation }) {
                         paymentIntentId: checkoutResult.sessionId,
                         clientSecret: null,
                     };
-                    setPaymentIntentId(checkoutResult.sessionId);
                     setPaymentStep('success');
                 } catch (paymentError) {
                     logError('Error processing payment:', paymentError);
@@ -882,6 +875,9 @@ export default function EventBookingScreen({ navigation }) {
                 // No deposit required
                 paymentResult = { success: true, paymentIntentId: null };
             }
+
+            const eventTitle = `${formData.eventType || 'Event'} Booking`;
+            const eventDescription = `Event Type: ${formData.eventType}\nGuests: ${formData.guestCount}\nDuration: ${formData.duration}h`;
 
             // Create calendar events after payment confirmation
             let calendarResult = { success: false };
@@ -1204,7 +1200,7 @@ export default function EventBookingScreen({ navigation }) {
             <View style={styles.stepHeader}>
                 <Text style={[styles.stepTitle, { color: theme.text }]}>Contact Information</Text>
                 <Text style={[styles.stepSubtitle, { color: theme.subtext }]}>
-                    We'll use this to send you updates and confirmations
+                    We&apos;ll use this to send you updates and confirmations
                 </Text>
             </View>
 

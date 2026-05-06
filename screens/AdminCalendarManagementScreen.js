@@ -4,7 +4,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, where, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -33,15 +33,6 @@ export default function AdminCalendarManagementScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
-
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
-      navigation.goBack();
-      return;
-    }
-    loadEvents();
-  }, [user, canAccess]);
 
   const loadEvents = useCallback(async () => {
     try {
@@ -96,6 +87,15 @@ export default function AdminCalendarManagementScreen({ navigation }) {
       setRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
+      navigation.goBack();
+      return;
+    }
+    loadEvents();
+  }, [canAccess, navigation, loadEvents]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

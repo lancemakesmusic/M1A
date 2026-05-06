@@ -4,8 +4,8 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getCountFromServer, getDocs, query, where, orderBy, limit, Timestamp } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,7 +29,6 @@ export default function EventAnalyticsScreen({ navigation, route }) {
   const selectedEvent = route?.params?.event;
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [timeRange, setTimeRange] = useState('all'); // 'all', 'week', 'month', 'year'
   const [analytics, setAnalytics] = useState({
     totalEvents: 0,
@@ -47,19 +46,7 @@ export default function EventAnalyticsScreen({ navigation, route }) {
   // SECURITY: Only admin@merkabaent.com can access this screen
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
 
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert(
-        'Access Denied',
-        'Only admin@merkabaent.com can access admin tools for security purposes.'
-      );
-      navigation.goBack();
-      return;
-    }
-    loadAnalytics();
-  }, [user, canAccess, navigation, timeRange, selectedEvent]);
-
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     if (!isFirebaseReady() || !db) return;
 
     setLoading(true);
@@ -206,21 +193,26 @@ export default function EventAnalyticsScreen({ navigation, route }) {
       Alert.alert('Error', 'Failed to load analytics. Please try again.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
-  };
+  }, [selectedEvent, timeRange]);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert(
+        'Access Denied',
+        'Only admin@merkabaent.com can access admin tools for security purposes.'
+      );
+      navigation.goBack();
+      return;
+    }
+    loadAnalytics();
+  }, [canAccess, navigation, loadAnalytics]);
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
     }).format(amount);
-  };
-
-  const formatDate = (date) => {
-    if (!date) return 'N/A';
-    const d = date.toDate ? date.toDate() : new Date(date);
-    return d.toLocaleDateString();
   };
 
   if (loading) {

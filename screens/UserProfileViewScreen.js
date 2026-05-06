@@ -18,7 +18,7 @@ import {
   serverTimestamp,
   where,
 } from 'firebase/firestore';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -37,7 +37,7 @@ import { ResizeMode, Video } from 'expo-av';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { blockUser, db, followUser, getFollowers, getFollowing, isBlocked, isFirebaseReady, isFollowing, isMuted, muteUser, reportUser, trackProfileView, unfollowUser, unmuteUser } from '../firebase';
-import useScreenTracking from '../hooks/useScreenTracking';
+import { useScreenTracking } from '../hooks/useScreenTracking';
 import { trackButtonClick } from '../services/AnalyticsService';
 import { logError } from '../utils/logger';
 import { getAvatarSource, getCoverSource, getImageKey, hasAvatar, hasCover } from '../utils/photoUtils';
@@ -61,11 +61,11 @@ export default function UserProfileViewScreen({ route, navigation }) {
   });
   const [messageText, setMessageText] = useState('');
   const [isFollowingUser, setIsFollowingUser] = useState(false);
-  const [isBlockedUser, setIsBlockedUser] = useState(false);
+  const [, setIsBlockedUser] = useState(false);
   const [isMutedUser, setIsMutedUser] = useState(false);
   const [updatingFollow, setUpdatingFollow] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [stats, setStats] = useState({ followers: 0, following: 0, posts: 0 });
+  const [, setStats] = useState({ followers: 0, following: 0, posts: 0 });
   const [posts, setPosts] = useState([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
 
@@ -73,7 +73,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
     if (userId && !userData) {
       loadUserProfile();
     }
-  }, [userId]);
+  }, [userId, userData, loadUserProfile]);
 
   // Track profile view when profile loads
   useEffect(() => {
@@ -90,9 +90,9 @@ export default function UserProfileViewScreen({ route, navigation }) {
       loadStats();
       loadPosts();
     }
-  }, [user?.id, currentUser?.uid]);
+  }, [user?.id, currentUser?.uid, checkUserStatus, loadPosts, loadStats]);
 
-  const checkUserStatus = async () => {
+  const checkUserStatus = useCallback(async () => {
     if (!user?.id || !currentUser?.uid || user.id === currentUser.uid) return;
     
     try {
@@ -107,9 +107,9 @@ export default function UserProfileViewScreen({ route, navigation }) {
     } catch (error) {
       logError('Error checking user status:', error);
     }
-  };
+  }, [currentUser?.uid, user?.id]);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     if (!user?.id) return;
     try {
       const [followers, following, postsCount] = await Promise.all([
@@ -128,7 +128,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
     } catch (error) {
       logError('Error loading stats:', error);
     }
-  };
+  }, [user?.id]);
 
   const formatTimestamp = (date) => {
     if (!date) return 'Unknown';
@@ -145,7 +145,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
     return date.toLocaleDateString();
   };
 
-  const loadPosts = async () => {
+  const loadPosts = useCallback(async () => {
     if (!user?.id) return;
     setLoadingPosts(true);
     try {
@@ -174,9 +174,9 @@ export default function UserProfileViewScreen({ route, navigation }) {
     } finally {
       setLoadingPosts(false);
     }
-  };
+  }, [user?.id]);
 
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     try {
       setLoading(true);
       if (isFirebaseReady() && db && typeof db.collection !== 'function') {
@@ -195,7 +195,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
   const handleSendMessage = async () => {
     if (!messageText.trim()) {
@@ -303,7 +303,7 @@ export default function UserProfileViewScreen({ route, navigation }) {
           <Ionicons name="alert-circle" size={48} color={theme.error || '#FF3B30'} />
           <Text style={[styles.errorText, { color: theme.text }]}>User not found</Text>
           <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: theme.primary }]}
+            style={[styles.errorBackButton, { backgroundColor: theme.primary }]}
             onPress={() => navigation.goBack()}
           >
             <Text style={styles.backButtonText}>Go Back</Text>
@@ -313,12 +313,12 @@ export default function UserProfileViewScreen({ route, navigation }) {
     );
   }
 
-  const normalizedSocials = useMemo(() => {
+  const normalizedSocials = (() => {
     if (!user.socials || typeof user.socials !== 'object') return [];
     return Object.entries(user.socials).filter(
       ([, v]) => typeof v === 'string' && v.trim().length > 0
     );
-  }, [user]);
+  })();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -1222,7 +1222,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  backButton: {
+  errorBackButton: {
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,

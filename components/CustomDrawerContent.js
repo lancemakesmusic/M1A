@@ -2,7 +2,7 @@
 // Enhanced drawer content with categorized sections
 
 import React, { useContext, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { DrawerContentScrollView } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
@@ -19,7 +19,7 @@ export default function CustomDrawerContent(props) {
   const { theme } = useTheme();
   const { user } = useContext(UserContext);
   const { userPersona, getPersonaColor } = useM1APersonalization();
-  const { isAdminEmail } = useRole();
+  useRole();
   const navigation = props.navigation;
   const isAdmin = auth.currentUser?.email === 'admin@merkabaent.com';
 

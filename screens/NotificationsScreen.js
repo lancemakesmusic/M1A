@@ -24,13 +24,7 @@ export default function NotificationsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadNotifications();
-    }, [user?.id])
-  );
-
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     if (!user?.id) return;
     
     setLoading(true);
@@ -43,7 +37,13 @@ export default function NotificationsScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadNotifications();
+    }, [loadNotifications])
+  );
 
   const handleNotificationPress = async (notification) => {
     if (!notification.read) {
@@ -138,7 +138,7 @@ export default function NotificationsScreen({ navigation }) {
             {item.type === 'comment' && `${item.actorName || 'Someone'} commented on your post`}
           </Text>
           {item.content && (
-            <Text style={[styles.notificationContent, { color: theme.subtext }]} numberOfLines={2}>
+            <Text style={[styles.notificationBodyText, { color: theme.subtext }]} numberOfLines={2}>
               {item.content}
             </Text>
           )}
@@ -200,7 +200,7 @@ export default function NotificationsScreen({ navigation }) {
             No notifications yet
           </Text>
           <Text style={[styles.emptySubtext, { color: theme.subtext }]}>
-            When you get mentions, follows, or likes, they'll appear here
+            When you get mentions, follows, or likes, they&apos;ll appear here
           </Text>
         </View>
       )}
@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
-  notificationContent: {
+  notificationBodyText: {
     fontSize: 14,
     marginBottom: 4,
   },

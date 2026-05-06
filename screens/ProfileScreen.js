@@ -69,7 +69,7 @@ export default function ProfileScreen() {
   const [imageRefreshKey, setImageRefreshKey] = useState(0);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [pinnedPosts, setPinnedPosts] = useState([]);
-  const [loadingPinnedPosts, setLoadingPinnedPosts] = useState(false);
+  const [, setLoadingPinnedPosts] = useState(false);
 
   // Load pinned posts
   const loadPinnedPosts = useCallback(async () => {
@@ -266,7 +266,7 @@ export default function ProfileScreen() {
     } finally {
       setLoadingMorePosts(false);
     }
-  }, [user?.id, lastPostDoc, hasMorePosts, loadingMorePosts, loadingPosts, formatTimestamp]);
+    }, [user?.id, lastPostDoc, hasMorePosts, loadingMorePosts, loadingPosts, formatTimestamp, loadPosts]);
 
 
   // Refresh when screen comes into focus (e.g., after editing)
@@ -303,16 +303,16 @@ export default function ProfileScreen() {
       return () => {
         isMounted = false;
       };
-    }, [user?.id, refreshUserProfile, loadStats]) // Include dependencies
+    }, [user?.id, refreshUserProfile, loadPosts, loadStats]) // Include dependencies
   );
   
   // Refresh image when photo URLs or timestamps change
   useEffect(() => {
-    if (user) {
+    if (user?.id) {
       // Force image refresh when photo URLs or timestamps change
       setImageRefreshKey(Date.now());
     }
-  }, [user?.avatarUrl, user?.photoURL, user?.coverUrl, user?.photoUpdatedAt, user?.coverUpdatedAt]);
+  }, [user?.id, user?.avatarUrl, user?.photoURL, user?.coverUrl, user?.photoUpdatedAt, user?.coverUpdatedAt]);
 
   // Load stats and posts when user ID changes
   useEffect(() => {
@@ -321,7 +321,7 @@ export default function ProfileScreen() {
       loadPosts(true); // Reset posts on user change
       loadPinnedPosts();
     }
-  }, [user?.id]); // Only depend on user?.id, not the callbacks
+  }, [user?.id, loadPinnedPosts, loadPosts, loadStats]);
 
   const onPullRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -564,15 +564,9 @@ export default function ProfileScreen() {
       <View style={styles.postActions}>
         <PostReactions
           postId={item.id}
-          onReactionCountChange={(count) => {
-            setPostReactionCounts(prev => ({ ...prev, [item.id]: count }));
-          }}
         />
         <PostComments
           postId={item.id}
-          onCommentCountChange={(count) => {
-            setPostCommentCounts(prev => ({ ...prev, [item.id]: count }));
-          }}
         />
         <TouchableOpacity
           style={styles.postAction}
@@ -802,7 +796,7 @@ export default function ProfileScreen() {
                 // Navigate to followers list if screen exists, otherwise show alert
                 try {
                   navigation.navigate('FollowersList', { userId: user.id, type: 'followers' });
-                } catch (e) {
+                } catch (_e) {
                   Alert.alert('Followers', `This user has ${stats.followers} follower${stats.followers !== 1 ? 's' : ''}.`);
                 }
               }}
@@ -823,7 +817,7 @@ export default function ProfileScreen() {
                 // Navigate to following list if screen exists, otherwise show alert
                 try {
                   navigation.navigate('FollowersList', { userId: user.id, type: 'following' });
-                } catch (e) {
+                } catch (_e) {
                   Alert.alert('Following', `Following ${stats.following} user${stats.following !== 1 ? 's' : ''}.`);
                 }
               }}

@@ -23,7 +23,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useRole } from '../contexts/RoleContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -34,7 +34,6 @@ export default function AdminEventCreationScreen({ navigation, route }) {
   const { user } = useAuth();
   const { theme } = useTheme();
   const { isAdminEmail } = useRole();
-  const insets = useSafeAreaInsets();
   const editingEvent = route?.params?.event;
 
   const [loading, setLoading] = useState(false);

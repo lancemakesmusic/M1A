@@ -1,6 +1,5 @@
 // App.js
-import { NavigationContainer } from '@react-navigation/native';
-import { createNavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { Platform, StatusBar, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
@@ -25,7 +24,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 // Analytics
 import { initAnalytics } from './services/AnalyticsService';
-import RetentionService from './services/RetentionService';
+import { endSession, trackSession } from './services/RetentionService';
 import { initNotifications } from './services/NotificationService';
 import RatingPromptService, { POSITIVE_ACTIONS } from './services/RatingPromptService';
 
@@ -63,7 +62,7 @@ export default function App() {
     });
     
     // Track first use and session
-    RetentionService.trackSession().then(sessionData => {
+    trackSession().then(sessionData => {
       // Record positive action if user has multiple sessions
       if (sessionData && !sessionData.isFirstUse && sessionData.totalSessions > 1) {
         RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.MULTIPLE_SESSIONS, {
@@ -81,7 +80,7 @@ export default function App() {
         nextAppState === 'active'
       ) {
         // App has come to the foreground
-        RetentionService.trackSession().then(sessionData => {
+        trackSession().then(sessionData => {
           // Record positive action if user has multiple sessions
           if (sessionData && !sessionData.isFirstUse && sessionData.totalSessions > 1) {
             RatingPromptService.recordPositiveAction(POSITIVE_ACTIONS.MULTIPLE_SESSIONS, {
@@ -96,7 +95,7 @@ export default function App() {
         nextAppState.match(/inactive|background/)
       ) {
         // App has gone to the background
-        RetentionService.endSession();
+        endSession();
       }
       
       appState.current = nextAppState;
@@ -104,7 +103,7 @@ export default function App() {
     
     return () => {
       subscription?.remove();
-      RetentionService.endSession();
+      endSession();
     };
   }, []);
 

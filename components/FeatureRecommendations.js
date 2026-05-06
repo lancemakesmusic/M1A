@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     Dimensions,
     FlatList,
@@ -21,11 +21,7 @@ export default function FeatureRecommendations({
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    generateRecommendations();
-  }, [userPersona, userBehavior]);
-
-  const generateRecommendations = async () => {
+  const generateRecommendations = useCallback(async () => {
     setLoading(true);
     
     // Simulate AI-powered recommendations based on persona and behavior
@@ -36,7 +32,11 @@ export default function FeatureRecommendations({
     
     setRecommendations(mockRecommendations);
     setLoading(false);
-  };
+  }, [userPersona, userBehavior]);
+
+  useEffect(() => {
+    generateRecommendations();
+  }, [userPersona, userBehavior, generateRecommendations]);
 
   const getPersonaRecommendations = (persona, behavior) => {
     if (!persona) return [];

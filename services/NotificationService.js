@@ -6,7 +6,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { log, logWarn, logError } from '../utils/logger';
+import { log, logWarn } from '../utils/logger';
 
 // Configure notification behavior - Corporate grade like WhatsApp/Facebook
 Notifications.setNotificationHandler({
@@ -465,10 +465,12 @@ export const sendDiscountNotification = async (discountData, preferences, notifi
 // Cleanup listeners
 export const cleanupNotifications = () => {
   if (notificationListener) {
-    Notifications.removeNotificationSubscription(notificationListener);
+    notificationListener.remove();
+    notificationListener = null;
   }
   if (responseListener) {
-    Notifications.removeNotificationSubscription(responseListener);
+    responseListener.remove();
+    responseListener = null;
   }
 };
 

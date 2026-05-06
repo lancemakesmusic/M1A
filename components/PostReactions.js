@@ -4,7 +4,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, addDoc, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, where } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, getDoc, onSnapshot, query, serverTimestamp } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { logWarn, logError } from '../utils/logger';
 import {
@@ -16,12 +16,12 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
 import * as Haptics from 'expo-haptics';
-import { Platform } from 'react-native';
 
 const REACTION_TYPES = [
   { type: 'like', icon: 'heart', label: 'Like' },
@@ -164,10 +164,6 @@ export default function PostReactions({ postId, onReactionCountChange }) {
   };
 
   const totalReactions = reactions.length;
-  const primaryReactionType = Object.keys(reactionsByType).sort(
-    (a, b) => reactionsByType[b].length - reactionsByType[a].length
-  )[0];
-
   if (loading) {
     return (
       <View style={styles.container}>

@@ -10,6 +10,30 @@ import { log, logWarn } from '../utils/logger';
 // Dynamic imports to handle platform differences
 let Analytics = null;
 let firebaseAnalytics = null;
+const logEvent = async (...args) => {
+  try {
+    const { logEvent: firebaseLogEvent } = await import('firebase/analytics');
+    firebaseLogEvent(...args);
+  } catch (error) {
+    logWarn('Analytics logEvent failed:', error);
+  }
+};
+const setUserProperties = async (...args) => {
+  try {
+    const { setUserProperties: firebaseSetUserProperties } = await import('firebase/analytics');
+    await firebaseSetUserProperties(...args);
+  } catch (error) {
+    logWarn('Analytics setUserProperties failed:', error);
+  }
+};
+const setUserId = async (...args) => {
+  try {
+    const { setUserId: firebaseSetUserId } = await import('firebase/analytics');
+    firebaseSetUserId(...args);
+  } catch (error) {
+    logWarn('Analytics setUserId failed:', error);
+  }
+};
 
 // Initialize analytics imports
 const initAnalyticsImports = async () => {
@@ -31,7 +55,7 @@ const initAnalyticsImports = async () => {
       try {
         Analytics = require('expo-firebase-analytics');
         return true;
-      } catch (e) {
+      } catch (_e) {
         logWarn('expo-firebase-analytics not available, using fallback');
       }
     }
@@ -48,7 +72,7 @@ let analyticsQueue = [];
 // Initialize analytics (call this in App.js)
 export const initAnalytics = async () => {
   try {
-    const imported = await initAnalyticsImports();
+    await initAnalyticsImports();
     
     if (Platform.OS === 'web' && firebaseAnalytics) {
       analytics = firebaseAnalytics;

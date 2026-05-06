@@ -5,7 +5,7 @@
 
 import { collection, addDoc, query, where, orderBy, limit, getDocs, doc, getDoc, updateDoc, serverTimestamp, increment } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
-import { trackFeatureUsage, trackButtonClick } from './AnalyticsService';
+import { trackFeatureUsage } from './AnalyticsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logWarn, logError } from '../utils/logger';
 
@@ -182,7 +182,7 @@ class GamificationService {
             const userData = userSnap.data();
             return userData.points || userData.totalPoints || 0;
           }
-        } catch (firebaseError) {
+        } catch (_firebaseError) {
           // Fall through to local storage
         }
       }
@@ -211,7 +211,7 @@ class GamificationService {
           );
           const snapshot = await getDocs(q);
           return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (firebaseError) {
+        } catch (_firebaseError) {
           // Fall through to local storage
         }
       }
@@ -293,7 +293,7 @@ class GamificationService {
       const unlockedBadgeIds = userBadges.map(b => b.badgeId || b.id);
 
       // Check each badge condition
-      for (const [key, badge] of Object.entries(BADGES)) {
+      for (const badge of Object.values(BADGES)) {
         if (unlockedBadgeIds.includes(badge.id)) continue;
 
         const condition = badge.condition;
@@ -344,7 +344,7 @@ class GamificationService {
           );
           const snapshot = await getDocs(q);
           return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (firebaseError) {
+        } catch (_firebaseError) {
           // Fall through to local storage
         }
       }

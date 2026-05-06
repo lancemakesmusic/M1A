@@ -7,7 +7,7 @@ import {
     query,
     serverTimestamp
 } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button, ScrollView, Text, View } from 'react-native';
 import { auth, db } from '../firebase';
 import { logInfo } from '../utils/logger';
@@ -21,7 +21,7 @@ export default function DebugPermissionsScreen() {
     setLog((x) => [...x, String(msg)]);
   }
 
-  async function run() {
+  const run = useCallback(async () => {
     try {
       setLog([]);
       const uid = auth.currentUser?.uid;
@@ -54,9 +54,9 @@ export default function DebugPermissionsScreen() {
     } catch (e) {
       push(`ERROR: ${e?.message || e}`);
     }
-  }
+  }, [cid]);
 
-  useEffect(() => { run(); }, []);
+  useEffect(() => { run(); }, [run]);
 
   return (
     <ScrollView style={{ flex:1, padding:16 }}>

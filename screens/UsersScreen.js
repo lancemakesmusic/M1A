@@ -10,7 +10,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   FlatList,
   Image,
   Modal,
@@ -27,21 +26,18 @@ import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { db, isFirebaseReady } from '../firebase';
 import { usersCache } from '../utils/dataCache';
-import useScreenTracking from '../hooks/useScreenTracking';
-import { trackButtonClick, trackFeatureUsage, trackSearch } from '../services/AnalyticsService';
+import { useScreenTracking } from '../hooks/useScreenTracking';
+import { trackButtonClick, trackFeatureUsage } from '../services/AnalyticsService';
 import { getAvatarUrl, hasAvatar, getAvatarSource } from '../utils/photoUtils';
 import M1ALogo from '../components/M1ALogo';
 import { log, logWarn, logError } from '../utils/logger';
-
-const { width } = Dimensions.get('window');
-
 
 export default function UsersScreen({ navigation: navProp, selectedPersonaFilter = 'All' }) {
   const navHook = useNavigation();
   const navigation = navProp || navHook;
   const { theme } = useTheme();
   const { user: currentUser } = useAuth();
-  const { userPersona: currentPersona } = useM1APersonalization();
+  useM1APersonalization();
   useScreenTracking('UsersScreen');
 
   const [users, setUsers] = useState([]);
@@ -62,7 +58,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
 
   useEffect(() => {
     loadUsers();
-  }, []);
+  }, [loadUsers]);
 
   const loadUsers = useCallback(async () => {
     // Check cache first
@@ -352,7 +348,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
       try {
         navigation.navigate('Messages', params);
         navigated = true;
-      } catch (e) {
+      } catch (_e) {
         // Try nested navigation
         try {
           navigation.navigate('MainApp', {
@@ -360,12 +356,12 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
             params: params
           });
           navigated = true;
-        } catch (e2) {
+        } catch (_e2) {
           // Try drawer navigation
           try {
             navigation.navigate('MessagesDrawer', params);
             navigated = true;
-          } catch (e3) {
+          } catch (_e3) {
             // Last resort: try common navigation patterns
             const navChain = getNavigatorChain();
             for (const navInstance of navChain) {
@@ -375,7 +371,7 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
                   navigated = true;
                   break;
                 }
-              } catch (err) {
+              } catch (_err) {
                 // Continue trying
               }
             }
@@ -390,27 +386,6 @@ export default function UsersScreen({ navigation: navProp, selectedPersonaFilter
     } catch (error) {
       logError('handleMessagePress error:', error);
       Alert.alert('Unable to open chat', 'Please try again in a moment.');
-    }
-  };
-
-  const handleInquiryPress = (user, e) => {
-    e?.stopPropagation();
-    trackButtonClick('inquiry_user', 'UsersScreen');
-    const screenConfig = {
-      screen: 'UserProfileView',
-      params: {
-        userId: user.id,
-        user,
-        showInquiry: true,
-      },
-    };
-
-    const navigated =
-      tryNavigate('Home', screenConfig) ||
-      tryNavigate('MainApp', { screen: 'Home', params: screenConfig });
-
-    if (!navigated) {
-      logWarn('Unable to navigate to inquiry view');
     }
   };
 

@@ -4,7 +4,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, orderBy, updateDoc, doc, serverTimestamp, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,7 +20,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuth } from '../contexts/AuthContext';
@@ -39,7 +39,6 @@ export default function AdminOrderManagementScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
-  const [filter, setFilter] = useState('all'); // all, pending, completed, cancelled
   // Advanced filters
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
@@ -66,15 +65,6 @@ export default function AdminOrderManagementScreen({ navigation }) {
   });
 
   const canAccess = isAdminEmail && user?.email === 'admin@merkabaent.com';
-
-  useEffect(() => {
-    if (!canAccess) {
-      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
-      navigation.goBack();
-      return;
-    }
-    loadOrders();
-  }, [user, canAccess]);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -155,6 +145,15 @@ export default function AdminOrderManagementScreen({ navigation }) {
         .slice(0, 30), // Last 30 days
     });
   }, []);
+
+  useEffect(() => {
+    if (!canAccess) {
+      Alert.alert('Access Denied', 'Only admin@merkabaent.com can access this screen');
+      navigation.goBack();
+      return;
+    }
+    loadOrders();
+  }, [canAccess, navigation, loadOrders]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

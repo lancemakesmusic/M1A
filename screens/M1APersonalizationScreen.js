@@ -152,10 +152,9 @@ const userPersonas = [
 
 export default function M1APersonalizationScreen({ navigation }) {
   const { user } = useAuth();
-  const { isAdminEmail } = useRole();
+  useRole();
   
   // Admins can select personas - they get both admin features and persona-based features
-  const isAdmin = isAdminEmail;
   const { theme } = useTheme();
   const { savePersona, savePreferences, completeOnboarding } = useM1APersonalization();
   const [selectedPersona, setSelectedPersona] = useState(null);

@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
     Animated,
-    Dimensions,
     Modal,
     StyleSheet,
     Text,
@@ -10,8 +9,6 @@ import {
     View,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
-
-const { width, height } = Dimensions.get('window');
 
 export default function TutorialOverlay({ 
   visible, 
@@ -24,8 +21,8 @@ export default function TutorialOverlay({
   personaType = 'promoter'
 }) {
   const { theme } = useTheme();
-  const [fadeAnim] = useState(new Animated.Value(0));
-  const [slideAnim] = useState(new Animated.Value(50));
+  const fadeAnim = useMemo(() => new Animated.Value(0), []);
+  const slideAnim = useMemo(() => new Animated.Value(50), []);
 
   useEffect(() => {
     if (visible) {
@@ -55,7 +52,7 @@ export default function TutorialOverlay({
         }),
       ]).start();
     }
-  }, [visible]);
+  }, [visible, fadeAnim, slideAnim]);
 
   const getPersonaSpecificSteps = () => {
     const personaSteps = {

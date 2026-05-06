@@ -14,9 +14,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import { createUserWithEmailAndPassword, createUserProfileIfMissing } from '../firebase';
+import { createUserWithEmailAndPassword } from '../firebase';
 import { trackSignup, trackButtonClick, trackError } from '../services/AnalyticsService';
-import GoogleDriveService from '../services/GoogleDriveService';
 import { authRateLimiter } from '../utils/rateLimiter';
 import { AUTH_ERRORS, getFirebaseErrorMessage } from '../constants/errorMessages';
 import { AUTH_STRINGS, GENERAL_STRINGS } from '../constants/strings';

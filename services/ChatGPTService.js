@@ -106,7 +106,7 @@ class ChatGPTService {
    */
   getIntelligentFallback(message, context = {}) {
     const lowerMessage = message.toLowerCase();
-    const { userPersona, conversationContext, chatHistory = [] } = context;
+    const { userPersona, conversationContext } = context;
     
     // Enhanced: Use conversation context if available
     if (conversationContext) {

@@ -56,7 +56,7 @@ export default function ServiceCardWithAnimation({
     }, 50); // Very short delay
     
     return () => clearTimeout(timer);
-  }, []); // Empty deps - only run once on mount
+  }, [delay, index, opacityAnim, slideAnim]);
 
   return (
     <View

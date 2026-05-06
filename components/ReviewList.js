@@ -4,10 +4,11 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,7 +16,12 @@ import {
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import ReviewService from '../services/ReviewService';
+import {
+  getItemRating,
+  getItemReviews,
+  markReviewHelpful,
+  reportReview,
+} from '../services/ReviewService';
 import { trackButtonClick } from '../services/AnalyticsService';
 import { logError } from '../utils/logger';
 
@@ -26,43 +32,43 @@ export default function ReviewList({ itemId, showModeration = false }) {
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState({ average: 0, count: 0, distribution: {} });
 
-  useEffect(() => {
-    loadReviews();
-    loadRating();
-  }, [itemId]);
-
-  const loadReviews = async () => {
+  const loadReviews = useCallback(async () => {
     try {
       setLoading(true);
-      const reviewsData = await ReviewService.getItemReviews(itemId);
+      const reviewsData = await getItemReviews(itemId);
       setReviews(reviewsData);
     } catch (error) {
       logError('Error loading reviews:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [itemId]);
 
-  const loadRating = async () => {
+  const loadRating = useCallback(async () => {
     try {
-      const ratingData = await ReviewService.getItemRating(itemId);
+      const ratingData = await getItemRating(itemId);
       setRating(ratingData);
     } catch (error) {
       logError('Error loading rating:', error);
     }
-  };
+  }, [itemId]);
+
+  useEffect(() => {
+    loadReviews();
+    loadRating();
+  }, [itemId, loadRating, loadReviews]);
 
   const handleHelpful = async (reviewId) => {
     if (!user?.uid) return;
     trackButtonClick('review_helpful', 'ReviewList');
-    await ReviewService.markReviewHelpful(reviewId, user.uid);
+    await markReviewHelpful(reviewId, user.uid);
     loadReviews();
   };
 
   const handleReport = async (reviewId) => {
     if (!user?.uid) return;
     trackButtonClick('report_review', 'ReviewList');
-    const result = await ReviewService.reportReview(reviewId, 'inappropriate', user.uid);
+    const result = await reportReview(reviewId, 'inappropriate', user.uid);
     if (result.success) {
       alert('Review reported. Thank you for your feedback.');
     }

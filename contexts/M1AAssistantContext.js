@@ -33,13 +33,6 @@ export function M1AAssistantProvider({ children }) {
     loadChatHistory();
   }, []);
 
-  // Save chat history to AsyncStorage whenever it changes
-  useEffect(() => {
-    if (!isLoadingHistory && chatHistory.length > 0) {
-      saveChatHistory();
-    }
-  }, [chatHistory, isLoadingHistory]);
-
   const loadChatHistory = async () => {
     try {
       setIsLoadingHistory(true);
@@ -60,13 +53,20 @@ export function M1AAssistantProvider({ children }) {
     }
   };
 
-  const saveChatHistory = async () => {
+  const saveChatHistory = useCallback(async () => {
     try {
       await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(chatHistory));
     } catch (error) {
       logError('Error saving chat history:', error);
     }
-  };
+  }, [chatHistory]);
+  
+  // Save chat history to AsyncStorage whenever it changes
+  useEffect(() => {
+    if (!isLoadingHistory && chatHistory.length > 0) {
+      saveChatHistory();
+    }
+  }, [chatHistory, isLoadingHistory, saveChatHistory]);
   
   // Navigation will be set up by NavigationAwareM1A component
   // We'll use a ref to store navigation and update screen via a callback
@@ -137,15 +137,15 @@ export function M1AAssistantProvider({ children }) {
     }
   }, [currentScreen, tips]);
 
-  const toggleExpanded = useCallback(() => {
-    setIsExpanded(prev => !prev);
-    if (!isExpanded) {
-      // Add welcome message when opening chat
-      if (chatHistory.length === 0) {
+  const toggleExpanded = () => {
+    setIsExpanded(prev => {
+      const nextExpanded = !prev;
+      if (nextExpanded && chatHistory.length === 0) {
         addMessage('assistant', 'Hi! I\'m M1A, your AI booking agent and sales guide. How can I help you today?', true);
       }
-    }
-  }, [isExpanded, chatHistory.length]);
+      return nextExpanded;
+    });
+  };
 
   const hideBubble = useCallback(() => {
     // Only hide tips, but keep the bubble button visible
@@ -296,7 +296,7 @@ export function M1AAssistantProvider({ children }) {
     setIsTyping(false);
 
     return aiResponse;
-  }, [currentScreen, userPersona, userBehavior, chatHistory, addMessage, hideBubble]);
+  }, [currentScreen, userPersona, userBehavior, chatHistory, addMessage, isExpanded]);
 
   const handleTipAction = useCallback((tip) => {
     if (!tip.action) return;
@@ -334,7 +334,7 @@ export function M1AAssistantProvider({ children }) {
         }
         break;
     }
-  }, [hideBubble]);
+  }, []);
 
   const markTipAsShown = useCallback(async (tipId) => {
     await TipTrackingService.markTipAsShown(tipId);

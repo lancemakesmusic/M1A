@@ -3,7 +3,7 @@
  * Handles user reviews, ratings, and moderation
  */
 
-import { collection, addDoc, query, where, getDocs, orderBy, limit, doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, limit, doc, updateDoc, serverTimestamp, increment, arrayUnion } from 'firebase/firestore';
 import { db, isFirebaseReady } from '../firebase';
 import { log, logError } from '../utils/logger';
 import { trackReviewSubmitted } from './AnalyticsService';

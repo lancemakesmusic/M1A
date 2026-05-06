@@ -36,13 +36,7 @@ export default function FollowersListScreen({ route }) {
   const targetUserId = userId || currentProfile?.id;
   const isOwnProfile = targetUserId === currentUser?.uid;
 
-  useFocusEffect(
-    useCallback(() => {
-      loadUsers();
-    }, [targetUserId, type])
-  );
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     if (!targetUserId) return;
     
     setLoading(true);
@@ -70,7 +64,13 @@ export default function FollowersListScreen({ route }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [targetUserId, type, isOwnProfile, currentUser?.uid]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadUsers();
+    }, [loadUsers])
+  );
 
   const handleFollowToggle = async (userId) => {
     if (!isOwnProfile || type !== 'following') return; // Only allow unfollowing from own following list

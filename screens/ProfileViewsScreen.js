@@ -25,13 +25,7 @@ export default function ProfileViewsScreen({ navigation }) {
   const [viewCount, setViewCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadViews();
-    }, [user?.id])
-  );
-
-  const loadViews = async () => {
+  const loadViews = useCallback(async () => {
     if (!user?.id) return;
     
     setLoading(true);
@@ -47,7 +41,13 @@ export default function ProfileViewsScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadViews();
+    }, [loadViews])
+  );
 
   const formatTime = (date) => {
     if (!date) return 'Unknown';
@@ -139,7 +139,7 @@ export default function ProfileViewsScreen({ navigation }) {
             No profile views yet
           </Text>
           <Text style={[styles.emptySubtext, { color: theme.subtext }]}>
-            When someone views your profile, they'll appear here
+            When someone views your profile, they&apos;ll appear here
           </Text>
         </View>
       )}

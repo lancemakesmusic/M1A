@@ -1,5 +1,5 @@
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { db } from '../firebase';
 import { useAuth } from './AuthContext';
 import { log, logWarn, logError } from '../utils/logger';
@@ -24,18 +24,7 @@ export function RoleProvider({ children }) {
   const adminEmails = ['admin@merkabaent.com', 'brogdon.lance@gmail.com'];
   const isAdminEmail = authUser?.email && adminEmails.includes(authUser.email);
 
-  useEffect(() => {
-    if (!authUser) {
-      setUserRole(null);
-      setPermissions({});
-      setLoading(false);
-      return;
-    }
-
-    loadUserRole();
-  }, [authUser]);
-
-  const loadUserRole = async () => {
+  const loadUserRole = useCallback(async () => {
     try {
       if (!authUser?.uid) return;
 
@@ -164,7 +153,18 @@ export function RoleProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authUser, isAdminEmail]);
+
+  useEffect(() => {
+    if (!authUser) {
+      setUserRole(null);
+      setPermissions({});
+      setLoading(false);
+      return;
+    }
+
+    loadUserRole();
+  }, [authUser, loadUserRole]);
 
   const getPermissionsForRole = (role, customPermissions = {}) => {
     const basePermissions = {

@@ -5,8 +5,6 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import * as ImagePicker from 'expo-image-picker';
-import * as Haptics from 'expo-haptics';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
@@ -22,8 +20,6 @@ import {
   Alert,
   ScrollView,
   RefreshControl,
-  Image,
-  Animated,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
@@ -34,7 +30,7 @@ import { useM1APersonalization } from '../contexts/M1APersonalizationContext';
 import M1AAssistantService from '../services/M1AAssistantService';
 import M1ALogo from '../components/M1ALogo';
 import { collection, getDocs } from 'firebase/firestore';
-import { db, uploadImageAsync } from '../firebase';
+import { db } from '../firebase';
 import { log, logWarn, logError } from '../utils/logger';
 
 export default function M1AChatScreen({ onClose }) {
@@ -233,7 +229,7 @@ export default function M1AChatScreen({ onClose }) {
         'Our team has been notified and will assist you shortly.',
         [{ text: 'OK' }]
       );
-    } catch (error) {
+    } catch (_error) {
       Alert.alert('Error', 'Failed to submit service request. Please try again.');
     }
   };
@@ -655,7 +651,7 @@ export default function M1AChatScreen({ onClose }) {
                 <M1ALogo size={80} variant="icon" />
               </View>
               <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                Hi! I'm M1A 👋
+                Hi! I&apos;m M1A 👋
               </Text>
               <Text style={[styles.emptySubtitle, { color: theme.subtext }]}>
                 Your AI-powered booking agent and sales guide. I can help you with:
